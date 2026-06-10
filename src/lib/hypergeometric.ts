@@ -100,6 +100,55 @@ export function probByTurn(
   return hypergeometricCDF(deckSize, copies, cardsSeen, minCopies);
 }
 
+/**
+ * Joint probability, over a single sample of `draws` cards taken from a deck of
+ * `deckSize`, of drawing AT LEAST `minSpell` copies of the spell AND AT LEAST
+ * `minLand` lands — where the spell (`spellCopies`) and lands (`landCount`) are
+ * disjoint subsets of the deck.
+ *
+ * This is the correct model for castability: the spell and the lands are drawn
+ * from the *same* sample of cards seen, so the two events are NOT independent.
+ * The old `P(spell) * P(lands)` form treats them as independent and overstates
+ * castability (drawing the spell uses up a draw that then can't also be a land).
+ *
+ * Uses the multivariate hypergeometric distribution: partition the deck into
+ * {spell, land, other} and sum P(s spell, l land, rest other) over the valid
+ * region s >= minSpell, l >= minLand, s + l <= draws.
+ */
+export function probSpellAndLands(
+  deckSize: number,
+  spellCopies: number,
+  landCount: number,
+  draws: number,
+  minSpell: number,
+  minLand: number,
+): number {
+  const n = Math.min(draws, deckSize);
+  const other = deckSize - spellCopies - landCount;
+  if (other < 0) return 0;
+  if (minSpell > spellCopies || minLand > landCount) return 0;
+
+  const lnDenom = lnCombination(deckSize, n);
+  let p = 0;
+  const maxSpell = Math.min(spellCopies, n);
+  for (let s = minSpell; s <= maxSpell; s++) {
+    const remainingAfterSpell = n - s;
+    if (remainingAfterSpell < minLand) break;
+    const maxLand = Math.min(landCount, remainingAfterSpell);
+    for (let l = minLand; l <= maxLand; l++) {
+      const o = n - s - l;
+      if (o < 0 || o > other) continue;
+      const lnP =
+        lnCombination(spellCopies, s) +
+        lnCombination(landCount, l) +
+        lnCombination(other, o) -
+        lnDenom;
+      p += Math.exp(lnP);
+    }
+  }
+  return Math.min(1, p);
+}
+
 export interface CastabilityEntry {
   /** Turn number (1-indexed) */
   turn: number;
@@ -107,7 +156,7 @@ export interface CastabilityEntry {
   probDrawn: number;
   /** Probability of having enough mana sources to cast the card by this turn */
   probMana: number;
-  /** Combined probability: drawn AND mana available */
+  /** Combined probability: drawn AND mana available (joint, not independent) */
   probCastable: number;
 }
 
@@ -143,11 +192,19 @@ export function castabilityByTurn(
         ? 1
         : hypergeometricCDF(deckSize, landCount, cardsSeen, cmc);
 
+    // Joint P(drawn >= 1 copy AND drawn >= cmc lands) over the SAME cards seen.
+    // Drawing the spell and drawing lands are not independent — they compete for
+    // the same draws — so this is strictly <= probDrawn * probMana.
+    const probCastable =
+      cmc === 0
+        ? probDrawn
+        : probSpellAndLands(deckSize, copies, landCount, cardsSeen, 1, cmc);
+
     result.push({
       turn,
       probDrawn: parseFloat(probDrawn.toFixed(4)),
       probMana: parseFloat(probMana.toFixed(4)),
-      probCastable: parseFloat((probDrawn * probMana).toFixed(4)),
+      probCastable: parseFloat(probCastable.toFixed(4)),
     });
   }
 

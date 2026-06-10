@@ -1,4 +1,5 @@
 import type { CardRecord } from "./types";
+import { parsePips } from "./manaBase";
 
 export interface ColorPip {
   color: "W" | "U" | "B" | "R" | "G";
@@ -20,12 +21,15 @@ const COLOR_NAMES: Record<string, string> = {
   G: "Green",
 };
 
+// Delegates to the canonical pip parser in manaBase so hybrid/Phyrexian costs
+// are handled identically across the codebase (this module previously ignored
+// hybrid pips via a {W} -only regex).
 function countManaCostPips(manaCost: string | null): Record<string, number> {
   if (!manaCost) return {};
+  const pips = parsePips(manaCost);
   const counts: Record<string, number> = {};
-  const matches = manaCost.matchAll(/\{([WUBRG])\}/g);
-  for (const m of matches) {
-    counts[m[1]] = (counts[m[1]] ?? 0) + 1;
+  for (const color of ["W", "U", "B", "R", "G"] as const) {
+    if (pips[color] > 0) counts[color] = pips[color];
   }
   return counts;
 }

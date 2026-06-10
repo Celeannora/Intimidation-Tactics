@@ -3,6 +3,9 @@ import type { DeckEntry } from "./legality";
 import { BASIC_LAND_NAMES } from "./legality";
 import type { ConstructedFormat } from "./formats";
 import { isCardLegalInFormat } from "./formats";
+import { karstenSourcesNeeded, naturalTurn, type Color } from "./karsten";
+import { countLandSources } from "./landSources";
+import { hypergeometricCDF } from "./hypergeometric";
 
 // ─── Pip parsing ────────────────────────────────────────────────────────────
 
@@ -144,49 +147,97 @@ export function recommendLandCount(entries: DeckEntry[]): LandRecommendation {
 // ─── Color distribution algorithm ────────────────────────────────────────────
 
 export interface ColorSourceRecommendation {
-  color: "W" | "U" | "B" | "R" | "G";
+  color: Color;
+  /** Total weighted pips of this color across all nonland cards (pip *share* input). */
   pips: number;
+  /** This color's share of all colored pips (used for UI bar widths). */
   ratio: number;
+  /**
+   * Karsten-correct minimum sources of this color the deck needs, based on the
+   * most demanding card of that color (its pip count at its natural turn).
+   */
   recommendedSources: number;
+  /** Pip count of the single most demanding card of this color (1, 2, 3, …). */
+  requiredPips: number;
+  /** Natural turn of the card that drives {@link recommendedSources}. */
+  requiredByTurn: number;
+  /** Actual weighted sources of this color the deck currently runs. */
+  actualSources: number;
+  /** True when the deck's actual sources fall short of the Karsten requirement. */
   criticallyUndersourced: boolean;
 }
 
+/**
+ * Per-color source recommendations driven by Frank Karsten's 2022 tables.
+ *
+ * Unlike the old proportional heuristic (which set a flat 14/8/6 floor by color
+ * count and never looked at the deck's actual lands), this:
+ *   - sizes each color's requirement by the *hardest* card of that color — its
+ *     colored-pip count at its natural turn (a {W}{W} two-drop needs ~20 W
+ *     sources regardless of how many colors the deck plays);
+ *   - counts the deck's *actual* typed-land and MDFC sources (see
+ *     {@link countLandSources}) and flags undersourcing only when the real
+ *     count falls short of the Karsten requirement.
+ */
 export function recommendColorSources(
   entries: DeckEntry[],
-  totalLands: number
+  _totalLands: number
 ): ColorSourceRecommendation[] {
   const nonlands = entries.filter(e => !e.card.typeLine.includes("Land"));
 
   const totalPips: PipCount = { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0, total: 0 };
+  // Track, per color, the most demanding requirement: the highest single-card
+  // pip count and the natural turn of the card imposing it.
+  const demand: Record<Color, { pips: number; turn: number }> = {
+    W: { pips: 0, turn: 0 },
+    U: { pips: 0, turn: 0 },
+    B: { pips: 0, turn: 0 },
+    R: { pips: 0, turn: 0 },
+    G: { pips: 0, turn: 0 },
+  };
+
+  const COLORS: Color[] = ["W", "U", "B", "R", "G"];
 
   for (const entry of nonlands) {
     const pips = parsePips(entry.card.manaCost);
     const qty = entry.quantity;
-    totalPips.W += pips.W * qty;
-    totalPips.U += pips.U * qty;
-    totalPips.B += pips.B * qty;
-    totalPips.R += pips.R * qty;
-    totalPips.G += pips.G * qty;
+    for (const c of COLORS) {
+      const colorPips = pips[c];
+      totalPips[c] += colorPips * qty;
+      if (colorPips <= 0) continue;
+      // Demand is per single card, not multiplied by copies.
+      const cardPips = Math.ceil(colorPips);
+      const turn = naturalTurn(entry.card.cmc, cardPips);
+      const current = demand[c];
+      // Prefer the higher pip requirement; for equal pips, the earlier turn is
+      // the more demanding (needs more sources sooner).
+      if (
+        cardPips > current.pips ||
+        (cardPips === current.pips && (current.turn === 0 || turn < current.turn))
+      ) {
+        demand[c] = { pips: cardPips, turn };
+      }
+    }
     totalPips.total += pips.total * qty;
   }
 
-  const COLORS: Array<"W" | "U" | "B" | "R" | "G"> = ["W", "U", "B", "R", "G"];
   const activeColors = COLORS.filter(c => totalPips[c] > 0);
-  const colorCount = activeColors.length;
-
-  // Threshold for critically undersourced: 8 sources in a 2-color deck
-  // Scale up slightly for more colors
-  const minSources = colorCount <= 1 ? 14 : colorCount === 2 ? 8 : 6;
+  const actual = countLandSources(entries);
 
   return activeColors.map(color => {
     const ratio = totalPips.total > 0 ? totalPips[color] / totalPips.total : 0;
-    const recommended = Math.round(ratio * totalLands);
+    const { pips: requiredPips, turn: requiredByTurn } = demand[color];
+    const recommendedSources = karstenSourcesNeeded(requiredPips, requiredByTurn);
+    const actualSources = Math.round(actual[color] * 10) / 10;
     return {
       color,
       pips: Math.round(totalPips[color] * 10) / 10,
       ratio: Math.round(ratio * 1000) / 1000,
-      recommendedSources: Math.max(recommended, colorCount > 1 ? minSources : 14),
-      criticallyUndersourced: recommended < minSources
+      recommendedSources,
+      requiredPips,
+      requiredByTurn,
+      actualSources,
+      criticallyUndersourced: actualSources < recommendedSources,
     };
   });
 }
@@ -345,34 +396,21 @@ export const IDEAL_CURVES: Record<ArchetypeCurveProfile, number[]> = {
 // ─── Turn-by-turn castability (hypergeometric approximation) ─────────────────
 
 /**
- * Hypergeometric probability of drawing at least `k` copies of a card
- * by turn T on the draw (7 + T cards seen).
+ * Hypergeometric probability of drawing at least one copy of a card by turn T
+ * on the draw (7 + T cards seen).
  *
- * Uses exact hypergeometric PMF: P(X >= k) = 1 - sum P(X = i, i < k)
- * P(X = i) = C(K, i) * C(N-K, n-i) / C(N, n)
+ * Delegates to the canonical, overflow-safe log-factorial engine in
+ * {@link ./hypergeometric} rather than re-deriving combinations here (the old
+ * local `combinations`/`hypergeometric` pair overflowed for large N).
  */
-function combinations(n: number, k: number): number {
-  if (k < 0 || k > n) return 0;
-  if (k === 0 || k === n) return 1;
-  let result = 1;
-  for (let i = 0; i < Math.min(k, n - k); i++) {
-    result = result * (n - i) / (i + 1);
-  }
-  return result;
-}
-
-export function hypergeometric(N: number, K: number, n: number, k: number): number {
-  return (combinations(K, k) * combinations(N - K, n - k)) / combinations(N, n);
-}
-
 export function probAtLeastOneByTurn(
   deckSize: number,
   copiesInDeck: number,
   turn: number // 1 = see 8 cards on draw, etc.
 ): number {
-  const cardsSeen = 7 + turn; // 7 opening + 1 per turn on draw
-  const pNone = hypergeometric(deckSize, copiesInDeck, Math.min(cardsSeen, deckSize), 0);
-  return Math.round((1 - pNone) * 1000) / 1000;
+  const cardsSeen = Math.min(7 + turn, deckSize); // 7 opening + 1 per turn on draw
+  const p = hypergeometricCDF(deckSize, copiesInDeck, cardsSeen, 1);
+  return Math.round(p * 1000) / 1000;
 }
 
 export interface CastabilityWarning {

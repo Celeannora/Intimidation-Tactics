@@ -107,4 +107,34 @@ describe("buildConsistencyReport", () => {
       expect(row.byTurn[0].turn).toBe(1);
     }
   });
+
+  // Regression: the gap analysis observed a WU deck with 18 actual U sources
+  // being flagged "U critically undersourced (8 recommended)". With the
+  // Karsten-table rule, a single U pip on turn 2 needs 13 sources, so 18 must
+  // NOT flag.
+  it("does NOT flag U when the deck runs 18 U sources for a single U pip", () => {
+    const deck: ConsistencyEntry[] = [
+      { name: "Island", quantity: 18, cmc: 0, manaCost: null, typeLine: "Basic Land — Island", producedManaJson: '["U"]' },
+      { name: "Plains", quantity: 6, cmc: 0, manaCost: null, typeLine: "Basic Land — Plains", producedManaJson: '["W"]' },
+      { name: "Make Disappear", quantity: 18, cmc: 2, manaCost: "{1}{U}", typeLine: "Instant" },
+      { name: "Wrath", quantity: 18, cmc: 4, manaCost: "{2}{W}{W}", typeLine: "Sorcery" },
+    ];
+    const report = buildConsistencyReport(deck, 200);
+    expect(report.manaWarnings.find(w => w.color === "U")).toBeUndefined();
+  });
+
+  // Regression: a double-pip card on turn 2 needs ~20 sources; running only 14
+  // of that color must still flag (the old flat 8/6 floors missed this).
+  it("flags a double-pip UU@2 card when only 14 U sources are present", () => {
+    const deck: ConsistencyEntry[] = [
+      { name: "Island", quantity: 14, cmc: 0, manaCost: null, typeLine: "Basic Land — Island", producedManaJson: '["U"]' },
+      { name: "Mountain", quantity: 10, cmc: 0, manaCost: null, typeLine: "Basic Land — Mountain", producedManaJson: '["R"]' },
+      { name: "Counterspell", quantity: 36, cmc: 2, manaCost: "{U}{U}", typeLine: "Instant" },
+    ];
+    const report = buildConsistencyReport(deck, 200);
+    const u = report.manaWarnings.find(w => w.color === "U");
+    expect(u).toBeDefined();
+    expect(u!.required).toBe(20);
+    expect(u!.sources).toBe(14);
+  });
 });

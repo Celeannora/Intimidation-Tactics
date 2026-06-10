@@ -5,6 +5,7 @@ import {
   probAtLeastOne,
   probByTurn,
   castabilityByTurn,
+  probSpellAndLands,
 } from "../hypergeometric";
 
 describe("hypergeometricPMF", () => {
@@ -126,5 +127,54 @@ describe("castabilityByTurn", () => {
   it("turn numbers are sequential starting at 1", () => {
     const rows = castabilityByTurn(60, 4, 2, 24, 5);
     rows.forEach((r, i) => expect(r.turn).toBe(i + 1));
+  });
+});
+
+describe("probSpellAndLands (joint, non-independent)", () => {
+  // Hand-computed brute-force reference:
+  // N=10, spell K=2, lands L=4, other=4, draws=5, want >=1 spell AND >=2 lands.
+  // Enumerating all C(10,5)=252 hands gives P = 0.531746 (134/252).
+  it("matches the hand-computed small-deck value", () => {
+    expect(probSpellAndLands(10, 2, 4, 5, 1, 2)).toBeCloseTo(0.531746, 5);
+  });
+
+  it("is strictly less than the independence product (the bug it fixes)", () => {
+    // Independence (old, wrong) form for the same case:
+    // P(>=1 spell) * P(>=2 lands) = 0.574074 — overstates castability.
+    const joint = probSpellAndLands(10, 2, 4, 5, 1, 2);
+    expect(joint).toBeLessThan(0.574074);
+  });
+
+  it("never exceeds either marginal probability", () => {
+    const N = 60, K = 4, L = 24, draws = 5, minLand = 2;
+    const joint = probSpellAndLands(N, K, L, draws, 1, minLand);
+    const pSpell = hypergeometricCDF(N, K, draws, 1);
+    const pLand = hypergeometricCDF(N, L, draws, minLand);
+    expect(joint).toBeLessThanOrEqual(Math.min(pSpell, pLand) + 1e-9);
+  });
+
+  it("returns 0 when the requirement is impossible", () => {
+    expect(probSpellAndLands(60, 4, 24, 7, 5, 2)).toBe(0); // minSpell > copies
+    expect(probSpellAndLands(60, 4, 24, 7, 1, 25)).toBe(0); // minLand > lands
+  });
+});
+
+describe("castabilityByTurn — joint probability fix", () => {
+  it("probCastable equals the joint (not the independence product)", () => {
+    // deckSize 60, 4 copies, cmc 2, 24 lands, on the draw, turn 2 => 9 cards seen.
+    const rows = castabilityByTurn(60, 4, 2, 24, 8, true);
+    const t2 = rows.find(r => r.turn === 2)!;
+    const cardsSeen = 9; // 7 + turn (on the draw)
+    const expectedJoint = probSpellAndLands(60, 4, 24, cardsSeen, 1, 2);
+    expect(t2.probCastable).toBeCloseTo(parseFloat(expectedJoint.toFixed(4)), 4);
+    // And it must be below the old independence estimate.
+    expect(t2.probCastable).toBeLessThan(t2.probDrawn * t2.probMana + 1e-9);
+  });
+
+  it("cmc=0 card is castable exactly when drawn", () => {
+    const rows = castabilityByTurn(60, 4, 0, 24, 4);
+    for (const r of rows) {
+      expect(r.probCastable).toBeCloseTo(r.probDrawn, 4);
+    }
   });
 });

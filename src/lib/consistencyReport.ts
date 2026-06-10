@@ -12,6 +12,8 @@
 import { castabilityByTurn } from "./hypergeometric";
 import { simulateHands, deckToSimCards } from "./handSimulator";
 import type { SimulationSummary } from "./handSimulator";
+import { karstenSourcesNeeded, naturalTurn, type Color } from "./karsten";
+import { parsePips } from "./manaBase";
 
 /**
  * Flat entry type for consistency analysis.
@@ -82,8 +84,8 @@ export interface ConsistencyReport {
 }
 
 const LOW_CASTABILITY_THRESHOLD = 0.60;
-const MIN_SOURCES_TWO_COLOR = 8;
-const MIN_SOURCES_THREE_COLOR = 6;
+
+const COLORS: Color[] = ["W", "U", "B", "R", "G"];
 
 /**
  * Counts how many lands in the deck can produce a given color.
@@ -101,17 +103,41 @@ function countColorSources(entries: ConsistencyEntry[], color: string): number {
   return count;
 }
 
+interface ColorDemand {
+  /** Pip count of the single most demanding card of this color. */
+  pips: number;
+  /** Natural turn of the card driving the requirement. */
+  turn: number;
+}
+
 /**
- * Determine which colors the deck actually needs based on mana costs.
+ * For each color the deck's spells require, find the most demanding single
+ * card: the highest colored-pip count and the natural turn it must be castable
+ * on. This is what determines the Karsten source requirement — a {U}{U} card on
+ * turn 2 needs ~20 sources; a lone splashed {U} on turn 5 needs ~10.
  */
-function requiredColors(entries: ConsistencyEntry[]): string[] {
-  const colors = new Set<string>();
+function colorDemands(entries: ConsistencyEntry[]): Map<Color, ColorDemand> {
+  const demands = new Map<Color, ColorDemand>();
   for (const e of entries) {
+    if (e.typeLine.toLowerCase().includes("land")) continue;
     if (!e.manaCost) continue;
-    const matches = e.manaCost.match(/[WUBRG]/g) ?? [];
-    for (const c of matches) colors.add(c);
+    const pips = parsePips(e.manaCost);
+    for (const c of COLORS) {
+      const colorPips = pips[c];
+      if (colorPips <= 0) continue;
+      const cardPips = Math.ceil(colorPips);
+      const turn = naturalTurn(e.cmc, cardPips);
+      const current = demands.get(c);
+      if (
+        !current ||
+        cardPips > current.pips ||
+        (cardPips === current.pips && turn < current.turn)
+      ) {
+        demands.set(c, { pips: cardPips, turn });
+      }
+    }
   }
-  return [...colors];
+  return demands;
 }
 
 /**
@@ -199,23 +225,28 @@ export function buildConsistencyReport(
     });
   }
 
-  // ── Mana source sufficiency ──────────────────────────────────────────────
+  // ── Mana source sufficiency (Frank Karsten 2022 tables) ──────────────────
+  // The requirement is driven by the *hardest* card of each color (its pip
+  // count on its natural turn), not by a flat per-color-count floor. This is
+  // what stops the old false flag where a deck running 18 sources of a color
+  // was warned against an arbitrary "8 recommended".
   const manaWarnings: ManaSourceWarning[] = [];
-  const colors = requiredColors(mainboard);
-  const colorCount = colors.length;
-  const minSources = colorCount >= 3 ? MIN_SOURCES_THREE_COLOR : MIN_SOURCES_TWO_COLOR;
+  const demands = colorDemands(mainboard);
 
-  for (const color of colors) {
+  for (const [color, demand] of demands) {
+    const required = karstenSourcesNeeded(demand.pips, demand.turn);
     const sources = countColorSources(mainboard, color);
-    if (sources < minSources) {
+    if (sources < required) {
+      const pipText = "{" + color + "}".repeat(demand.pips);
       manaWarnings.push({
         color,
         sources,
-        required: minSources,
-        message: `Only ${sources} ${color} source${sources !== 1 ? "s" : ""} detected — recommend at least ${minSources} for a ${colorCount}-color deck.`,
+        required,
+        message: `Only ${sources} ${color} source${sources !== 1 ? "s" : ""} detected — Karsten recommends ${required} to cast a ${pipText} card on turn ${demand.turn}.`,
       });
     }
   }
+  manaWarnings.sort((a, b) => a.color.localeCompare(b.color));
 
   // ── Grade calculation ────────────────────────────────────────────────────
   // Score components (all 0-100):
