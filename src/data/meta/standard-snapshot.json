@@ -1,0 +1,96 @@
+{
+  "schemaVersion": 1,
+  "format": "standard",
+  "updatedAt": "2026-06-01T00:00:00.000Z",
+  "source": "manual snapshot — refresh before ship",
+  "archetypes": [
+    {
+      "id": "izzet-prowess",
+      "name": "Izzet Prowess",
+      "colors": ["U", "R"],
+      "macro": "Tempo",
+      "metaShare": 0.18,
+      "keyCards": ["Stormchaser's Talent", "Cori-Steel Cutter", "Monstrous Rage", "Sleight of Hand"],
+      "commonInteraction": ["Torch the Tower", "Spell Pierce", "Lightning Helix"],
+      "speed": "fast",
+      "notes": "Aggro-tempo spellslinger; prowess/magecraft creatures grow off cheap noncreature spells. Field-defining; assume game 1."
+    },
+    {
+      "id": "mono-green-landfall",
+      "name": "Mono-Green Landfall",
+      "colors": ["G"],
+      "macro": "Ramp",
+      "metaShare": 0.16,
+      "keyCards": ["Llanowar Elves", "Spelunking", "Scute Swarm", "Collected Company"],
+      "commonInteraction": ["Tear Asunder", "Pawpatch Recruit"],
+      "speed": "medium",
+      "notes": "Landfall payoffs plus ramp into wide/tall green threats. Vulnerable to sweepers."
+    },
+    {
+      "id": "dimir-excruciator",
+      "name": "Dimir Excruciator",
+      "colors": ["U", "B"],
+      "macro": "Control",
+      "metaShare": 0.10,
+      "keyCards": ["Enduring Curiosity", "Kaito, Bane of Nightmares", "Cut Down"],
+      "commonInteraction": ["Go for the Throat", "Sheoldred's Edict", "Spell Pierce", "Duress"],
+      "speed": "slow",
+      "notes": "Discard + removal control with card-advantage finishers. Grinds out fair decks."
+    },
+    {
+      "id": "izzet-spellementals",
+      "name": "Izzet Spellementals",
+      "colors": ["U", "R"],
+      "macro": "Combo",
+      "metaShare": 0.09,
+      "keyCards": ["Spellgyre", "Steamcore Scholar", "Galvanic Discharge"],
+      "commonInteraction": ["Torch the Tower", "Three Steps Ahead"],
+      "speed": "medium",
+      "notes": "Combo-tempo using spell-made Elemental tokens as a board-building engine."
+    },
+    {
+      "id": "izzet-lessons",
+      "name": "Izzet Lessons",
+      "colors": ["U", "R"],
+      "macro": "Control",
+      "metaShare": 0.09,
+      "keyCards": ["Lessons (Learn package)", "Confounding Riddle", "Fblthp, Lost on the Range"],
+      "commonInteraction": ["Three Steps Ahead", "Torch the Tower", "Negate"],
+      "speed": "slow",
+      "notes": "Control-combo leveraging the Learn/Lesson toolbox for flexible answers."
+    },
+    {
+      "id": "reanimator",
+      "name": "Reanimator",
+      "colors": ["B", "W", "U"],
+      "macro": "Graveyard",
+      "metaShare": 0.07,
+      "keyCards": ["Founding the Third Path", "Unburial Rites", "Atraxa, Grand Unifier"],
+      "commonInteraction": ["Go for the Throat", "Sheoldred's Edict"],
+      "speed": "medium",
+      "notes": "Discard/mill a fatty, then cheat it onto the battlefield. Soft to graveyard hate."
+    },
+    {
+      "id": "azorius-prison",
+      "name": "Azorius Prison",
+      "colors": ["W", "U"],
+      "macro": "Control",
+      "metaShare": 0.03,
+      "keyCards": ["Temporary Lockdown", "Day of Judgment", "The Wandering Emperor"],
+      "commonInteraction": ["No More Lies", "Get Lost", "Spell Pierce"],
+      "speed": "slow",
+      "notes": "Tax/lock pieces plus sweepers; wins slowly behind a single resilient threat."
+    },
+    {
+      "id": "other",
+      "name": "Other / Rogue",
+      "colors": [],
+      "macro": "Unknown",
+      "metaShare": 0.28,
+      "keyCards": [],
+      "commonInteraction": [],
+      "speed": "medium",
+      "notes": "Aggregate bucket for the long tail of sub-3% decks (Mono-Red Aggro, Azorius Momo, Selesnya Ouroboroid, 5c Elementals, brews, etc.). Not a single deck; do not classify against it."
+    }
+  ]
+}

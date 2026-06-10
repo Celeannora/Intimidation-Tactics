@@ -171,6 +171,11 @@ function generateOne(
   const focusProfiles = focusSourceEntries.map((e) => buildSynergyProfile(e.card));
   const deckAxes = deriveDeckAxes(options, [...seedProfiles, ...focusProfiles]);
   if (deckAxes.length > 0) reasoning.push(`Mechanical axes: ${deckAxes.join(", ")}`);
+  if (options.metaTargets?.length) {
+    // TODO(meta): apply counter-weighting — bias card scoring toward answers for
+    // these meta archetypes' key cards. No-op today; recorded for transparency only.
+    reasoning.push(`Meta targets (no-op): ${options.metaTargets.join(", ")}`);
+  }
 
   // ── Phase 1: greedy baseline by role slot, accounting for seed/focus entries ──
   const tentativeAvg = approxAvgCmcForArchetype(target);

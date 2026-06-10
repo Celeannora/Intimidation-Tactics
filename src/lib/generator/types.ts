@@ -82,6 +82,12 @@ export interface GenerateOptions {
   spellRatio?: SpellRatio;
   /** Boost synergy for selected deck architectures / mechanical focuses. */
   keywordFocus?: KeywordFocus[];
+  /**
+   * Meta archetype ids (see src/lib/meta) the deck should be weighted to beat.
+   * Currently a no-op hook: threaded through to scoring but not yet consumed.
+   * TODO(meta): apply counter-weighting against these targets' key cards.
+   */
+  metaTargets?: string[];
   /** Optional chosen-tribe support used by the Tribal Support architecture. */
   tribalSupport?: TribalSupportOptions;
 

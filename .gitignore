@@ -17,8 +17,8 @@ venv/
 *.egg-info/
 build/
 
-# App data
-data/
+# App data (runtime artifacts at repo root; bundled source data under src/ is tracked)
+/data/
 *.db
 *.db-shm
 *.db-wal
