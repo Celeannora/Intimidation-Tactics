@@ -1,0 +1,14 @@
+{
+  "name": "MTG Standard Deck Builder",
+  "short_name": "MTG Builder",
+  "description": "Build, validate, and analyze Standard MTG decks — offline-first.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#171614",
+  "theme_color": "#01696f",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ],
+  "categories": ["games", "utilities"]
+}
