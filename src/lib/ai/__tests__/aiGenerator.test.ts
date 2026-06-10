@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, afterEach } from "vitest";
 import type { CardRecord } from "../../types";
 import type { GenerateOptions } from "../../generator/types";
-import { buildAIPrompts, salvageDeckJSON } from "../aiGenerator";
+import { buildAIPrompts, clampAINonlandSpine, salvageDeckJSON } from "../aiGenerator";
 import { OllamaProvider } from "../ollama";
 
 function makeCard(overrides: Partial<CardRecord> & { name: string; typeLine?: string; oracleText?: string }): CardRecord {
@@ -236,5 +236,75 @@ describe("OllamaProvider", () => {
 
     const body = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
     expect(body.options).toMatchObject({ temperature: 0.2, num_predict: 1234 });
+  });
+});
+describe("clampAINonlandSpine", () => {
+  const entry = (name: string, qty: number, cmc = 2, typeLine = "Creature — Cat Cleric") => ({
+    card: makeCard({ name, cmc, typeLine }),
+    quantity: qty,
+    board: "main" as const,
+  });
+
+  it("leaves a within-budget spine untouched", () => {
+    const spine = [entry("A", 4), entry("B", 4), entry("C", 4)];
+    const res = clampAINonlandSpine(spine, [], 60);
+    expect(res.trimmedCopies).toBe(0);
+    expect(res.entries).toBe(spine);
+  });
+
+  it("clamps a 53-copy AI spine so the mana base keeps its full land budget (7-land regression)", () => {
+    // Reproduces the reported bug: AI ignored the 55-65% guidance and returned
+    // 53 nonland copies for a 60-card deck. Pre-fix, all 53 were locked and the
+    // offline pipeline could only fit 7 lands.
+    const spine = [
+      entry("Ajani's Pridemate", 4, 2), entry("Starscape Cleric", 4, 2),
+      entry("Leonardo, Cutting Edge", 4, 3), entry("Momo, Playful Pet", 3, 2),
+      entry("Essence Channeler", 2, 2), entry("Marauding Blight-Priest", 2, 3),
+      entry("Raven Eagle", 2, 2), entry("Experimental Confectioner", 2, 2),
+      entry("Featherbrained Filcher", 2, 4), entry("Mintstrosity", 2, 1),
+      entry("Charming Prince", 2, 2), entry("Lunar Convocation", 2, 3),
+      entry("Enduring Tenacity", 2, 4), entry("Scavenger's Talent", 2, 1),
+      entry("Sheltered by Ghosts", 2, 2), entry("Moseo, Vein's New Dean", 1, 2),
+      entry("Haliya, Guided by Light", 1, 3), entry("Syr Ginger, the Meal Ender", 1, 3),
+      entry("Sweettooth Witch", 1, 3), entry("Cat Collector", 1, 2),
+      entry("Vito, Fanatic of Aclazotz", 1, 3), entry("Midnight Snack", 2, 2),
+      entry("Minwu, White Mage", 1, 3), entry("Preacher of the Schism", 1, 3),
+      entry("Exemplar of Light", 1, 3), entry("Nullpriest of Oblivion", 1, 4),
+      entry("Lyra Dawnbringer", 2, 5), entry("Bloodthirsty Conqueror", 1, 5),
+      entry("Rottenmouth Viper", 1, 5),
+    ];
+    expect(spine.reduce((s, e) => s + e.quantity, 0)).toBe(53);
+
+    const res = clampAINonlandSpine(spine, [], 60);
+    const clampedCopies = res.entries.reduce((s, e) => s + e.quantity, 0);
+    expect(res.trimmedCopies).toBe(53 - res.maxCopies);
+    expect(clampedCopies).toBe(res.maxCopies);
+    // The land budget must survive: locked spine + recommended lands fit in 60.
+    expect(clampedCopies + res.landBudget).toBeLessThanOrEqual(60);
+    // Sanity: a real Standard mana base, not 7 lands.
+    expect(res.landBudget).toBeGreaterThanOrEqual(18);
+  });
+
+  it("trims highest-cmc copies first so the cheap curve survives", () => {
+    const spine = [
+      entry("Cheap", 4, 1),
+      entry("Mid", 4, 3),
+      entry("Expensive", 4, 6),
+    ];
+    // Force a tiny budget via a huge seed lock.
+    const seeds = [entry("Seed", 30, 2)];
+    const res = clampAINonlandSpine(spine, seeds, 60);
+    const byName = new Map(res.entries.map((e) => [e.card.name, e.quantity]));
+    expect(byName.get("Cheap")).toBe(4);
+    expect(byName.get("Expensive") ?? 0).toBeLessThan(4);
+  });
+
+  it("counts user seed nonlands against the budget but never trims them", () => {
+    const seeds = [entry("UserSeed", 10, 2)];
+    const spine = Array.from({ length: 12 }, (_, i) => entry(`AI${i}`, 4, 2));
+    const res = clampAINonlandSpine(spine, seeds, 60);
+    const clampedCopies = res.entries.reduce((s, e) => s + e.quantity, 0);
+    expect(clampedCopies + 10 + res.landBudget).toBeLessThanOrEqual(60);
+    expect(res.entries.every((e) => e.card.name.startsWith("AI"))).toBe(true);
   });
 });

@@ -13,6 +13,7 @@ import type {
   GenerateResult,
   GenerationDiagnostic,
 } from "../generator/types";
+import { recommendLandCount } from "../manaBase";
 import { resolveLines } from "./resolver";
 import type { AIProvider, AIChatMessage as ChatMessage } from "./provider";
 
@@ -197,6 +198,7 @@ export function buildAIPrompts(
     `You are an expert MTG ${formatRules.label} deckbuilder.`,
     `Build ONLY the NONLAND core for a tournament-viable ${targetMainboardSize}-card mainboard${formatRules.sideboardSize ? ` (${formatRules.sideboardSize}-card sideboard if requested)` : ""} using cards from the provided pool.`,
     `IMPORTANT: do NOT return a full ${targetMainboardSize}-card mainboard. An offline mana-base builder will add lands automatically. Return ${targetNonlandMin}-${targetNonlandMax} mainboard nonland cards (spells/creatures/planeswalkers/etc). Do NOT pad with basics or utility lands in main — leave all land slots for the offline builder.`,
+    `HARD CAP: main[] quantities must sum to AT MOST ${targetNonlandMax} nonland copies. Anything beyond that will be trimmed automatically (highest mana value first), so exceeding the cap only damages your own curve.`,
     "Each candidate has `score(total=...,power=...,syn=...,role=...,utility=...,pen=...,mult=...,tags=...)` from the offline engine. Treat `syn`, `mult`, and tags like `syn-dense`/`composition` as evidence that the card connects to the current deck; do not blindly pick raw-power cards over synergistic engine pieces.",
     "Do NOT invent or include cards that are not in the pool — that includes lands. Use ONLY the listed nonbasic lands when adding any utility land.",
     "Respond with strict JSON ONLY (no prose, no markdown fences) with this exact shape:",
@@ -216,7 +218,7 @@ export function buildAIPrompts(
     `Format: ${formatRules.label}`,
     options.playEnvironment ? `Environment: ${options.playEnvironment}` : "",
     `Final mainboard size after offline lands: exactly ${targetMainboardSize} cards`,
-    `Your JSON main[] target: ${targetNonlandMin}-${targetNonlandMax} nonland cards only`,
+    `Your JSON main[] target: ${targetNonlandMin}-${targetNonlandMax} nonland cards only (hard cap: ${targetNonlandMax} total copies)`,
     options.secondaryArchetypes?.length ? `Secondary archetypes: ${options.secondaryArchetypes.join(", ")}` : "",
     `Colors: ${options.colors.join("") || "(colorless)"}`,
     options.speed ? `Speed: ${options.speed}` : "",
@@ -512,14 +514,31 @@ function buildResultFromAIResponse(
   // pipeline locks them at the exact requested copy count and never removes/reduces
   // them — the optimizer may only gap-fill the remaining slots (lands, curve, removal).
   // Otherwise they remain soft preferences the optimizer is free to correct.
+  //
+  // CRITICAL: the locked spine MUST be clamped so it never crowds out the mana
+  // base. The prompt asks for 55-65% nonland cards, but LLMs routinely overshoot
+  // (e.g. returning 53 nonland copies for a 60-card deck). Without this clamp,
+  // every nonland is locked, the size-trim can only remove the freshly generated
+  // lands, and the land-floor guard cannot shed any locked card — shipping decks
+  // with 7-land mana bases.
   const useAIPicksAsFinal = options.aiPicksAsFinal === true;
+  let lockedAIPreferences = aiNonlandPreferences;
+  if (useAIPicksAsFinal) {
+    const clamp = clampAINonlandSpine(aiNonlandPreferences, options.seedEntries ?? [], targetMainboardSize);
+    lockedAIPreferences = clamp.entries;
+    if (clamp.trimmedCopies > 0) {
+      reasoning.push(
+        `AI overshot its nonland budget: returned ${clamp.originalCopies} nonland copies, clamped to ${clamp.maxCopies} (trimmed ${clamp.trimmedCopies} highest-cmc cop${clamp.trimmedCopies === 1 ? "y" : "ies"}) to reserve ${clamp.landBudget} slots for the offline mana base.`
+      );
+    }
+  }
   const offlineRun = generateOffline(
     {
       ...options,
       engine: "offline",
       ...(useAIPicksAsFinal
         ? {
-            seedEntries: mergeEntries(options.seedEntries ?? [], aiNonlandPreferences),
+            seedEntries: mergeEntries(options.seedEntries ?? [], lockedAIPreferences),
             preferEntries: options.preferEntries,
           }
         : { preferEntries: mergeEntries(options.preferEntries ?? [], aiNonlandPreferences) }),
@@ -528,14 +547,14 @@ function buildResultFromAIResponse(
     allCards
   );
   if (useAIPicksAsFinal) {
-    const lockedCopies = aiNonlandPreferences.reduce((s, e) => s + e.quantity, 0);
-    reasoning.push(`aiPicksAsFinal=true: AI's ${aiNonlandPreferences.length} nonland pick(s) (${lockedCopies} copies) locked as the deck spine at requested quantities — optimizer gap-fills remaining slots only.`);
+    const lockedCopies = lockedAIPreferences.reduce((s, e) => s + e.quantity, 0);
+    reasoning.push(`aiPicksAsFinal=true: AI's ${lockedAIPreferences.length} nonland pick(s) (${lockedCopies} copies) locked as the deck spine at requested quantities — optimizer gap-fills remaining slots only.`);
   }
 
   const normalizedSide = normalizeSideboard(aiSideEntries, options, reasoning);
   let entries = [...offlineRun.entries.filter((e) => e.board === "main"), ...normalizedSide];
   const lockedSpineIds = useAIPicksAsFinal
-    ? new Set([...(options.seedEntries ?? []), ...aiNonlandPreferences].map((e) => e.card.oracleId))
+    ? new Set([...(options.seedEntries ?? []), ...lockedAIPreferences].map((e) => e.card.oracleId))
     : undefined;
   entries = trimMainboardToSize(entries, targetMainboardSize, lockedSpineIds);
 
@@ -583,13 +602,55 @@ function buildResultFromAIResponse(
     totalCards: entries.reduce((s, e) => s + e.quantity, 0),
     diagnostics,
     seededCards: useAIPicksAsFinal
-      ? [...(options.seedEntries ?? []), ...aiNonlandPreferences].map((e) => e.card)
+      ? [...(options.seedEntries ?? []), ...lockedAIPreferences].map((e) => e.card)
       : (options.seedEntries ?? []).map((e) => e.card),
     focusedCards: (options.focusEntries ?? []).map((e) => e.card),
     cardReasons,
     scoreBreakdown,
     aiSummary: parsed.summary?.trim() || undefined,
     aiGamePlan: parsed.game_plan?.trim() || undefined,
+  };
+}
+
+/**
+ * Clamp the AI's locked nonland spine so the offline manabase builder always
+ * has room for a full land suite. Returns the (possibly trimmed) entries plus
+ * diagnostics. User seed entries are never touched — they only shrink the
+ * budget available to the AI's picks. Trimming removes highest-cmc copies
+ * first (mirroring trimMainboardToSize) so the cheap curve survives.
+ */
+export function clampAINonlandSpine(
+  aiNonlandEntries: DeckEntry[],
+  userSeedEntries: DeckEntry[],
+  targetMainboardSize: number
+): { entries: DeckEntry[]; originalCopies: number; maxCopies: number; trimmedCopies: number; landBudget: number } {
+  const userSeedMain = userSeedEntries.filter((e) => e.board === "main");
+  const userSeedNonlandCopies = userSeedMain
+    .filter((e) => !e.card.typeLine.includes("Land"))
+    .reduce((s, e) => s + e.quantity, 0);
+  // Estimate the land budget from the same nonland mix the offline builder
+  // will see (user seeds + AI picks); recommendLandCount ignores lands itself.
+  const landBudget = recommendLandCount([...userSeedMain, ...aiNonlandEntries]).recommended;
+  const maxCopies = Math.max(0, targetMainboardSize - landBudget - userSeedNonlandCopies);
+  const originalCopies = aiNonlandEntries.reduce((s, e) => s + e.quantity, 0);
+  if (originalCopies <= maxCopies) {
+    return { entries: aiNonlandEntries, originalCopies, maxCopies, trimmedCopies: 0, landBudget };
+  }
+  const next = aiNonlandEntries.map((e) => ({ ...e }));
+  const order = [...next].sort((a, b) => b.card.cmc - a.card.cmc);
+  let toTrim = originalCopies - maxCopies;
+  for (const entry of order) {
+    if (toTrim <= 0) break;
+    const remove = Math.min(entry.quantity, toTrim);
+    entry.quantity -= remove;
+    toTrim -= remove;
+  }
+  return {
+    entries: next.filter((e) => e.quantity > 0),
+    originalCopies,
+    maxCopies,
+    trimmedCopies: originalCopies - maxCopies,
+    landBudget,
   };
 }
 
