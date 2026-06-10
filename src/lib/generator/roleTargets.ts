@@ -18,15 +18,12 @@ export interface RoleTarget {
  */
 export const ROLE_TARGETS: Record<Archetype, RoleTarget> = {
   Aggro:     { threats: 24, removal: 8,  boardWipes: 0, counterspells: 0, cardDraw: 2, ramp: 0,  lands: 22, maxAvgCmc: 2.2 },
-  Burn:      { threats: 12, removal: 16, boardWipes: 0, counterspells: 0, cardDraw: 4, ramp: 0,  lands: 20, maxAvgCmc: 2.0 },
   Midrange:  { threats: 18, removal: 12, boardWipes: 2, counterspells: 2, cardDraw: 5, ramp: 2,  lands: 24, maxAvgCmc: 3.1 },
   Control:   { threats: 5,  removal: 14, boardWipes: 4, counterspells: 10, cardDraw: 8, ramp: 0,  lands: 26, maxAvgCmc: 3.4 },
   Tempo:     { threats: 16, removal: 8,  boardWipes: 0, counterspells: 8, cardDraw: 4, ramp: 0,  lands: 22, maxAvgCmc: 2.4 },
   Combo:     { threats: 8,  removal: 6,  boardWipes: 0, counterspells: 6, cardDraw: 8, ramp: 4,  lands: 24, maxAvgCmc: 3.0 },
   Ramp:      { threats: 10, removal: 6,  boardWipes: 3, counterspells: 0, cardDraw: 6, ramp: 12, lands: 26, maxAvgCmc: 3.7 },
-  Tokens:    { threats: 20, removal: 8,  boardWipes: 1, counterspells: 0, cardDraw: 4, ramp: 0,  lands: 22, maxAvgCmc: 2.7 },
-  Graveyard: { threats: 16, removal: 8,  boardWipes: 0, counterspells: 2, cardDraw: 6, ramp: 4,  lands: 22, maxAvgCmc: 3.0 },
-  Sacrifice: { threats: 18, removal: 8,  boardWipes: 0, counterspells: 0, cardDraw: 4, ramp: 0,  lands: 22, maxAvgCmc: 2.7 },
+  Prison:    { threats: 6,  removal: 10, boardWipes: 4, counterspells: 4, cardDraw: 8, ramp: 2,  lands: 24, maxAvgCmc: 3.2 },
   Unknown:   { threats: 18, removal: 10, boardWipes: 2, counterspells: 3, cardDraw: 5, ramp: 2,  lands: 24, maxAvgCmc: 2.9 },
 };
 

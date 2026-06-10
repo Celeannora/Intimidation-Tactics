@@ -5,7 +5,7 @@ import { rateSideboardCard } from "../sideboardPlan";
 import { buildPool } from "./pool";
 
 /** Default meta archetypes the sideboard targets. Order ≈ field share. */
-const META_ARCHETYPES = ["Aggro", "Midrange", "Control", "Combo"] as const;
+const META_ARCHETYPES = ["Aggro", "Midrange", "Control", "Tempo", "Combo", "Ramp", "Prison"] as const;
 
 const SIDEBOARD_SIZE = 15;
 const SLOT_PER_ARCH = Math.ceil(SIDEBOARD_SIZE / META_ARCHETYPES.length);

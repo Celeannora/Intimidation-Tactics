@@ -615,6 +615,7 @@ function deriveDeckAxes(options: GenerateOptions, seedProfiles: ReturnType<typeo
   return uniqueAxes([
     ...archetypeAxes(options.archetype),
     ...(options.secondaryArchetypes ?? []).flatMap(archetypeAxes),
+    ...(options.themes ?? []),
     ...keywordFocusToAxes(options.keywordFocus ?? []),
     ...inferPrimaryAxes(seedProfiles),
   ]).slice(0, 4);
@@ -622,17 +623,14 @@ function deriveDeckAxes(options: GenerateOptions, seedProfiles: ReturnType<typeo
 
 function archetypeAxes(archetype: GenerateOptions["archetype"]): MechanicAxis[] {
   switch (archetype) {
-    case "Burn":      return ["spellslinger"];
-    case "Tokens":    return ["tokens"];
-    case "Graveyard": return ["graveyard", "selfMill"];
-    case "Sacrifice": return ["sacrifice", "tokens"];
-    case "Tempo":     return ["spellslinger", "etb"];
-    case "Combo":     return ["draw", "spellslinger"];
-    case "Ramp":      return ["draw"];
-    case "Control":   return ["draw"];
-    case "Aggro":     return ["counters"];
-    case "Midrange":  return ["etb", "draw"];
-    case "Unknown":   return [];
+    case "Aggro":    return ["counters"];
+    case "Midrange": return ["etb", "draw"];
+    case "Control":  return ["draw"];
+    case "Tempo":    return ["spellslinger", "etb"];
+    case "Combo":    return ["draw", "spellslinger"];
+    case "Ramp":     return ["draw"];
+    case "Prison":   return ["stax"];
+    case "Unknown":  return [];
   }
 }
 

@@ -19,8 +19,10 @@ const ARCHETYPE_PATTERNS: Record<string, { hatecards: string[]; removeAgainst: s
   aggro:   { hatecards: ["life gain", "fog", "sweeper", "wrath", "destroy all"], removeAgainst: ["slow", "ramp", "enters"] },
   control: { hatecards: ["discard", "counter", "can't counter", "uncounterable", "hexproof"], removeAgainst: ["single target removal"] },
   midrange:{ hatecards: ["exile", "edict", "sacrifice"], removeAgainst: ["cheap interaction"] },
+  tempo:   { hatecards: ["can't be countered", "flash", "haste", "uncounterable", "hexproof"], removeAgainst: ["slow removal", "sorcery speed"] },
   combo:   { hatecards: ["disrupt", "counter", "exile", "graveyard hate", "remove from game"], removeAgainst: ["slow removal"] },
   ramp:    { hatecards: ["fast aggression", "discard", "hand disruption"], removeAgainst: ["late game"] },
+  prison:  { hatecards: ["destroy target artifact", "destroy target enchantment", "disenchant", "can't be countered", "uncounterable"], removeAgainst: ["reactive removal"] },
 };
 
 export function generateSideboardPlan(

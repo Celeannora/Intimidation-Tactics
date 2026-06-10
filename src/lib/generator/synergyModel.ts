@@ -49,21 +49,38 @@ export const COMMON_TRIBES = [
 
 export type EngineRole = "engine" | "enabler" | "payoff" | "support" | "interact";
 
+/**
+ * Mechanic axes drive source→payoff synergy detection. The subset of these that
+ * are user-facing strategy themes is enumerated canonically in
+ * {@link ../archetypeVocab.THEME_IDS}; the remaining axes (`draw`, `etb`,
+ * `selfMill`) are internal-only synergy primitives with no UI exposure.
+ */
 export type MechanicAxis =
+  // ── User-facing themes (must stay in sync with THEME_IDS) ──
   | "lifegain"
+  | "mill"
   | "tokens"
   | "sacrifice"
+  | "reanimator"
   | "graveyard"
+  | "spellslinger"
+  | "burn"
+  | "typal"
+  | "enchantress"
+  | "artifacts"
+  | "counters"
+  | "blink"
+  | "landfall"
+  | "domain"
+  | "energy"
+  | "vehicles"
+  | "stax"
+  | "discard"
+  | "storm"
+  // ── Internal-only synergy primitives (not surfaced as themes) ──
   | "draw"
   | "etb"
-  | "counters"
-  | "discard"
-  | "selfMill"
-  | "mill"
-  | "enchantress"
-  | "blink"
-  | "tribal"
-  | "spellslinger";
+  | "selfMill";
 
 // ── Directional pattern tables ────────────────────────────────────────────────
 
@@ -139,14 +156,59 @@ const SOURCE_PATTERNS: Record<MechanicAxis, RegExp[]> = {
     /\bflicker\b/i,
     /phase out/i,
   ],
-  tribal: [
+  typal: [
     /\b(human|humans|elf|elves|goblin|goblins|vampire|vampires|zombie|zombies|merfolk|dragon|dragons|angel|angels|warrior|warriors|wizard|wizards|knight|knights|rat|rats|spirit|spirits|bird|birds|cat|cats|cleric|clerics|soldier|soldiers|rogue|rogues|dinosaur|dinosaurs|faerie|faeries|phyrexian|phyrexians|demon|demons|elemental|elementals|beast|beasts)\b/i,
   ],
   spellslinger: [
     /\bprowess\b/i,
     /\bmagecraft\b/i,
     /whenever you cast (an instant|a sorcery|a spell)/i,
+  ],
+  reanimator: [
+    /return.{0,40}creature card.{0,40}from (your |a |their )?graveyard.{0,40}(to the battlefield|onto the battlefield)/i,
+    /put.{0,40}creature card.{0,40}from.{0,20}graveyard.{0,20}onto the battlefield/i,
+    /\breanimate\b/i,
+  ],
+  burn: [
+    /deals \d+ damage to (any target|target player|each opponent|that player)/i,
+    /deals damage to (any target|target player|each opponent) equal/i,
+  ],
+  artifacts: [
+    /\baffinity for artifacts\b/i,
+    /\baffinity\b/i,
+    /create[sd]? .{0,20}(treasure|clue|food|map|blood|powerstone|gold) token/i,
+    /\bartifact creature\b/i,
+  ],
+  landfall: [
+    /\blandfall\b/i,
+    /whenever a land enters/i,
+    /whenever a land you control enters/i,
+    /whenever .{0,30} land enters the battlefield under your control/i,
+  ],
+  domain: [
+    /basic land types? among lands you control/i,
+    /\bdomain\b/i,
+  ],
+  energy: [
+    /you get (?:\{e\}|one or more \{e\}|that much \{e\})/i,
+    /\{e\}\{e\}/i,
+    /pay (?:\{e\}|one \{e\}|.{0,12}\{e\})/i,
+  ],
+  vehicles: [
+    /\bcrew \d+\b/i,
+    /artifact .{0,10}vehicle/i,
+    /\bvehicle\b/i,
+  ],
+  stax: [
+    /(?:each |an? )?opponent[s']*.{0,40}can't/i,
+    /spells? cost \{?\d?\}? .{0,10}more to cast/i,
+    /players? can't/i,
+    /\btax\b/i,
+  ],
+  storm: [
     /\bstorm\b/i,
+    /copy (?:that|target) (?:instant or sorcery|spell)/i,
+    /for each spell .{0,20}cast this turn/i,
   ],
 };
 
@@ -219,7 +281,7 @@ const PAYOFF_PATTERNS: Record<MechanicAxis, RegExp[]> = {
     /whenever .{0,40} enters the battlefield/i,
     /when .{0,40} enters the battlefield/i,
   ],
-  tribal: [
+  typal: [
     /other .{0,20}(?:humans?|elves?|goblins?|vampires?|zombies?|merfolk|dragons?|angels?|warriors?|wizards?|knights?|rats?|spirits?|birds?|cats?|clerics?|soldiers?|rogues?|dinosaurs?|faeries?|phyrexians?|demons?|elementals?|beasts?) you control get/i,
     /for each .{0,20}(?:human|elf|goblin|vampire|zombie|merfolk|dragon|angel|warrior|wizard|knight|rat|spirit|bird|cat|cleric|soldier|rogue|dinosaur|faerie|phyrexian|demon|elemental|beast)/i,
     /choose a creature type/i,
@@ -228,6 +290,44 @@ const PAYOFF_PATTERNS: Record<MechanicAxis, RegExp[]> = {
     /for each (?:instant or sorcery|other spell|spell) (?:you'?ve )?cast this turn/i,
     /number of (?:instants?|sorceries|spells).*cast this turn/i,
     /spells? you cast this turn/i,
+  ],
+  reanimator: [
+    /for each creature card in your graveyard/i,
+    /return.{0,40}creature card.{0,40}from (your |a |their )?graveyard/i,
+  ],
+  burn: [
+    /whenever .{0,30} deals (?:combat )?damage to (?:a player|an opponent|each opponent)/i,
+    /can't gain life/i,
+  ],
+  artifacts: [
+    /for each artifact you control/i,
+    /whenever (?:an|another) artifact (?:you control )?enters/i,
+    /metalcraft/i,
+    /artifacts? you control/i,
+  ],
+  landfall: [
+    /whenever a land enters/i,
+    /\blandfall\b/i,
+  ],
+  domain: [
+    /for each basic land type among lands you control/i,
+    /basic land types? among lands you control/i,
+  ],
+  energy: [
+    /pay (?:\{e\}|one \{e\}|.{0,12}\{e\})/i,
+    /for each \{e\}/i,
+  ],
+  vehicles: [
+    /whenever .{0,20}vehicle .{0,20}(?:attacks|enters)/i,
+    /vehicles? you control/i,
+  ],
+  stax: [
+    /(?:each |an? )?opponent[s']*.{0,40}can't/i,
+    /players? can't/i,
+  ],
+  storm: [
+    /\bstorm\b/i,
+    /for each spell .{0,20}cast this turn/i,
   ],
 };
 
@@ -546,6 +646,13 @@ export function crossAxisCompositionBonus(
   if (hasPair(deckAxes, candidateAxes, "blink", "etb")) bonus += 8;
   if (hasPair(deckAxes, candidateAxes, "spellslinger", "draw")) bonus += 5;
   if (hasPair(deckAxes, candidateAxes, "enchantress", "lifegain")) bonus += 4;
+  if (hasPair(deckAxes, candidateAxes, "lifegain", "mill")) bonus += 5;
+  if (hasPair(deckAxes, candidateAxes, "reanimator", "selfMill")) bonus += 7;
+  if (hasPair(deckAxes, candidateAxes, "reanimator", "discard")) bonus += 6;
+  if (hasPair(deckAxes, candidateAxes, "artifacts", "vehicles")) bonus += 5;
+  if (hasPair(deckAxes, candidateAxes, "landfall", "domain")) bonus += 5;
+  if (hasPair(deckAxes, candidateAxes, "spellslinger", "storm")) bonus += 6;
+  if (hasPair(deckAxes, candidateAxes, "energy", "counters")) bonus += 4;
 
   return Math.min(18, bonus);
 }
@@ -675,7 +782,7 @@ export function keywordFocusToAxes(focus: string[]): MechanicAxis[] {
     Sacrifice: "sacrifice",
     Aristocrats: "sacrifice",
     Graveyard: "graveyard",
-    Reanimator: ["graveyard", "selfMill"],
+    Reanimator: ["reanimator", "graveyard", "selfMill"],
     Mill: "mill",
     Lifegain:  "lifegain",
     Counters:  "counters",
@@ -687,15 +794,15 @@ export function keywordFocusToAxes(focus: string[]): MechanicAxis[] {
     Prowess: "spellslinger",
     "ETB/Blink": "blink",
     Enchantress: "enchantress",
-    Artifacts: "tokens",
+    Artifacts: "artifacts",
     Ramp: "draw",
     "Big Mana": "draw",
-    "Tribal Support": "tribal",
+    "Tribal Support": "typal",
     "Voltron/Auras": "enchantress",
     Stompy: "counters",
     "Flash/Draw-Go": "draw",
     "Evasion Tempo": "spellslinger",
-    "Artifacts/Tokens": "tokens",
+    "Artifacts/Tokens": ["artifacts", "tokens"],
     "Draw-Go Control": "draw",
   };
   const axes: MechanicAxis[] = [];

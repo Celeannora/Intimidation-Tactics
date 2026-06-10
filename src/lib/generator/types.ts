@@ -1,4 +1,5 @@
 import type { Archetype } from "../archetype";
+import type { ThemeId } from "../archetypeVocab";
 import type { ManaColor, CardRecord } from "../types";
 import type { DeckEntry } from "../legality";
 import type { MechanicAxis } from "./synergyModel";
@@ -56,6 +57,8 @@ export interface GenerateOptions {
   archetype: Archetype;
   /** Optional secondary archetypes blended into role targets for broader playstyles. */
   secondaryArchetypes?: Archetype[];
+  /** Multi-select strategy themes (canonical ThemeIds) the deck should lean into. */
+  themes?: ThemeId[];
   colors: ManaColor[];
 
   /** If false/default, selected colors are a hard identity constraint. */

@@ -8,6 +8,8 @@ import { makeProvider } from "../lib/ai/factory";
 import { COMMON_TRIBES, buildSynergyProfile, inferPrimaryAxes, normalizeTribe } from "../lib/generator/synergyModel";
 import { assignRoles, isThreat } from "../lib/roles";
 import type { Archetype } from "../lib/archetype";
+import { detectArchetype } from "../lib/archetype";
+import { THEMES, THEME_ID_TO_LABEL, type ThemeId } from "../lib/archetypeVocab";
 import type { ManaColor } from "../lib/types";
 import type {
   GenerateOptions,
@@ -22,7 +24,7 @@ import { AISettingsDrawer } from "./AISettingsDrawer";
 import { CONSTRUCTED_FORMATS, getFormatRules, type ConstructedFormat, type PlayEnvironment } from "../lib/formats";
 
 const ARCHETYPES: Archetype[] = [
-  "Aggro", "Burn", "Midrange", "Tempo", "Control", "Combo", "Ramp", "Tokens", "Graveyard", "Sacrifice",
+  "Aggro", "Midrange", "Control", "Tempo", "Combo", "Ramp", "Prison",
 ];
 
 const COLORS: { code: ManaColor; bg: string }[] = [
@@ -32,8 +34,6 @@ const COLORS: { code: ManaColor; bg: string }[] = [
   { code: "R", bg: "bg-red-400 text-red-950" },
   { code: "G", bg: "bg-green-400 text-green-950" },
 ];
-
-const ROLE_ARCHETYPES: Archetype[] = ["Aggro", "Burn", "Midrange", "Tempo", "Control", "Combo", "Ramp", "Tokens", "Graveyard", "Sacrifice"];
 
 const ARCHITECTURE_GROUPS: { title: string; items: { focus: KeywordFocus; description: string }[] }[] = [
   {
@@ -107,7 +107,7 @@ export function GeneratorPanel() {
   const [format, setFormat] = useState<ConstructedFormat>("standard");
   const [playEnvironment, setPlayEnvironment] = useState<PlayEnvironment>("bo1");
   const [archetype, setArchetype] = useState<Archetype>("Midrange");
-  const [secondaryArchetypes, setSecondaryArchetypes] = useState<Archetype[]>([]);
+  const [themes, setThemes] = useState<ThemeId[]>([]);
   const [colors, setColors] = useState<ManaColor[]>([]);
   const [speed, setSpeed] = useState<SpeedProfile | "">("");
   const [spellRatio, setSpellRatio] = useState<SpellRatio | "">("");
@@ -183,8 +183,8 @@ export function GeneratorPanel() {
       return enabled ? p.filter((x) => x !== k) : [...p, k];
     });
   };
-  const toggleSecondaryArchetype = (a: Archetype) =>
-    setSecondaryArchetypes((p) => (p.includes(a) ? p.filter((x) => x !== a) : [...p, a]));
+  const toggleTheme = (t: ThemeId) =>
+    setThemes((p) => (p.includes(t) ? p.filter((x) => x !== t) : [...p, t]));
 
   const onFormatChange = (nextFormat: ConstructedFormat) => {
     const rules = getFormatRules(nextFormat);
@@ -206,23 +206,24 @@ export function GeneratorPanel() {
     const profiles = mainNonlands.flatMap((e) => Array.from({ length: e.quantity }, () => buildSynergyProfile(e.card)));
     const axes = inferPrimaryAxes(profiles);
     const detectedFocus = detectKeywordFocus(mainNonlands, axes);
-    const detectedPrimary = detectPrimaryArchetype(mainNonlands, axes, detectedSpeed, detectedColors);
-    const detectedSecondary = detectSecondaryArchetypes(detectedPrimary, mainNonlands, axes);
+    const detectedPrimary = detectPrimaryArchetype(mainNonlands);
+    const detectedThemes = detectDeckThemes(mainNonlands);
     const detectedTribe = detectTribe(mainNonlands);
 
     setColors(detectedColors);
     setSpeed(detectedSpeed);
     setSpellRatio(detectedSpellRatio);
     setArchetype(detectedPrimary);
-    setSecondaryArchetypes(detectedSecondary);
+    setThemes(detectedThemes);
     setKeywordFocus(detectedFocus);
     if (detectedTribe) {
       setTribalTribe(detectedTribe);
       setTribalMode("recommended");
     }
 
+    const themeLabels = detectedThemes.map((t) => THEME_ID_TO_LABEL[t]);
     setAnalysisSummary(
-      `Detected ${detectedPrimary}${detectedSecondary.length ? ` + ${detectedSecondary.join("/")}` : ""}, ${detectedColors.join("") || "colorless"}, ${detectedSpeed}, ${detectedSpellRatio}${detectedTribe ? `, ${detectedTribe} tribal` : ""}.`
+      `Detected ${detectedPrimary}${themeLabels.length ? ` + ${themeLabels.join("/")}` : ""}, ${detectedColors.join("") || "colorless"}, ${detectedSpeed}, ${detectedSpellRatio}${detectedTribe ? `, ${detectedTribe} tribal` : ""}.`
     );
   };
 
@@ -235,10 +236,10 @@ export function GeneratorPanel() {
     const profiles = mainNonlands.flatMap((e) => Array.from({ length: e.quantity }, () => buildSynergyProfile(e.card)));
     const axes = inferPrimaryAxes(profiles);
     const detectedFocus = detectKeywordFocus(mainNonlands, axes);
-    const detectedPrimary = detectPrimaryArchetype(mainNonlands, axes, detectedSpeed, detectedColors);
-    const detectedSecondary = detectSecondaryArchetypes(detectedPrimary, mainNonlands, axes);
+    const detectedPrimary = detectPrimaryArchetype(mainNonlands);
+    const detectedThemes = detectDeckThemes(mainNonlands);
     const detectedTribe = detectTribe(mainNonlands);
-    return { detectedColors, detectedSpeed, detectedSpellRatio, detectedFocus, detectedPrimary, detectedSecondary, detectedTribe };
+    return { detectedColors, detectedSpeed, detectedSpellRatio, detectedFocus, detectedPrimary, detectedThemes, detectedTribe };
   };
 
   const buildAutoDetectedOverrides = () => {
@@ -246,12 +247,12 @@ export function GeneratorPanel() {
     if (!detected) return {};
     const formLooksUnconfigured =
       colors.length === 0 ||
-      (archetype === "Midrange" && secondaryArchetypes.length === 0 && keywordFocus.length === 0 && !speed && !spellRatio);
+      (archetype === "Midrange" && themes.length === 0 && keywordFocus.length === 0 && !speed && !spellRatio);
     if (!formLooksUnconfigured) return {};
     return {
       colors: colors.length === 0 ? detected.detectedColors : colors,
       archetype: archetype === "Midrange" && keywordFocus.length === 0 ? detected.detectedPrimary : archetype,
-      secondaryArchetypes: secondaryArchetypes.length === 0 ? detected.detectedSecondary : secondaryArchetypes,
+      themes: themes.length === 0 ? detected.detectedThemes : themes,
       speed: speed || detected.detectedSpeed,
       spellRatio: spellRatio || detected.detectedSpellRatio,
       keywordFocus: keywordFocus.length === 0 ? detected.detectedFocus : keywordFocus,
@@ -318,7 +319,7 @@ export function GeneratorPanel() {
     const overrides = buildAutoDetectedOverrides();
     const effectiveColors = overrides.colors ?? colors;
     const effectiveArchetype = overrides.archetype ?? archetype;
-    const effectiveSecondaryArchetypes = overrides.secondaryArchetypes ?? secondaryArchetypes;
+    const effectiveThemes = overrides.themes ?? themes;
     const effectiveSpeed = overrides.speed ?? speed;
     const effectiveSpellRatio = overrides.spellRatio ?? spellRatio;
     const effectiveKeywordFocus = overrides.keywordFocus ?? keywordFocus;
@@ -332,7 +333,7 @@ export function GeneratorPanel() {
       format,
       playEnvironment,
       archetype: effectiveArchetype,
-      secondaryArchetypes: effectiveSecondaryArchetypes,
+      themes: effectiveThemes,
       colors: effectiveColors,
       ...currentDeck,
       speed: effectiveSpeed || undefined,
@@ -392,7 +393,7 @@ export function GeneratorPanel() {
       const overrides = buildAutoDetectedOverrides();
       const effectiveColors = overrides.colors ?? colors;
       const effectiveArchetype = overrides.archetype ?? archetype;
-      const effectiveSecondaryArchetypes = overrides.secondaryArchetypes ?? secondaryArchetypes;
+      const effectiveThemes = overrides.themes ?? themes;
       const effectiveSpeed = overrides.speed ?? speed;
       const effectiveSpellRatio = overrides.spellRatio ?? spellRatio;
       const effectiveKeywordFocus = overrides.keywordFocus ?? keywordFocus;
@@ -407,7 +408,7 @@ export function GeneratorPanel() {
         format,
         playEnvironment,
         archetype: effectiveArchetype,
-        secondaryArchetypes: effectiveSecondaryArchetypes,
+        themes: effectiveThemes,
         colors: effectiveColors,
         ...currentDeck,
         speed: effectiveSpeed || undefined,
@@ -661,29 +662,31 @@ export function GeneratorPanel() {
         </div>
       </div>
 
-      {/* Secondary archetypes */}
+      {/* Strategy themes (multi-select) */}
       <div>
-        <div className="mb-1 text-xs font-medium text-zinc-400">Secondary archetypes (optional)</div>
+        <div className="mb-1 text-xs font-medium text-zinc-400">Strategy themes (optional)</div>
         <div className="flex flex-wrap gap-1">
-          {ARCHETYPES.filter((a) => a !== archetype).map((a) => {
-            const on = secondaryArchetypes.includes(a);
+          {THEMES.map((t) => {
+            const on = themes.includes(t.id);
             return (
               <button
-                key={a}
-                onClick={() => toggleSecondaryArchetype(a)}
+                key={t.id}
+                onClick={() => toggleTheme(t.id)}
+                aria-pressed={on}
+                title={t.description}
                 className={`rounded-full border px-2 py-0.5 text-xs ${
                   on
                     ? "border-purple-400 bg-purple-600/20 text-purple-200"
                     : "border-zinc-700 bg-zinc-900 text-zinc-400 hover:bg-zinc-800"
                 }`}
               >
-                {a}
+                {t.label}
               </button>
             );
           })}
         </div>
         <p className="mt-1 text-[11px] text-zinc-600">
-          Optional subplans: blended into role targets and synergy axes without replacing the primary shell, e.g. Tempo + Tokens or Sacrifice + Graveyard.
+          Multi-select synergy engines layered on top of the macro shell, e.g. Lifegain + Mill or Tokens + Aristocrats. Each theme biases the generator's synergy axes.
         </p>
       </div>
 
@@ -1484,53 +1487,21 @@ function detectSpellRatio(nonlands: ReturnType<typeof useMainboardEntries>): Spe
 
 function detectPrimaryArchetype(
   nonlands: ReturnType<typeof useMainboardEntries>,
-  axes: string[],
-  deckSpeed: SpeedProfile,
-  deckColors: ManaColor[],
 ): Archetype {
-  const roleCounts = countRoles(nonlands);
-  const total = nonlands.reduce((sum, entry) => sum + entry.quantity, 0);
-  const threatShare = total > 0 ? roleCounts.threats / total : 0;
-  const interaction = roleCounts.removal + roleCounts.counterspells + roleCounts.boardWipes;
-  const highCmcCount = nonlands.filter((entry) => entry.card.cmc >= 4).reduce((sum, entry) => sum + entry.quantity, 0);
-  const avgCmc = total > 0 ? nonlands.reduce((sum, entry) => sum + entry.card.cmc * entry.quantity, 0) / total : 3;
-  const primaryAxis = axes[0];
-
-  // Axis-first evaluation: mechanical signals are more reliable than role-count heuristics
-  if (primaryAxis === "sacrifice") return "Sacrifice";
-  if (primaryAxis === "tokens") return "Tokens";
-  if (primaryAxis === "graveyard" || primaryAxis === "selfMill") return "Graveyard";
-  if (primaryAxis === "mill") return "Control";
-
-  // Axis-guided archetype matches with role count guards
-  if (axes.includes("spellslinger") && roleCounts.counterspells >= 3 && deckSpeed === "fast") return "Tempo";
-  if (axes.includes("spellslinger") && deckSpeed === "fast" && deckColors.includes("R") && roleCounts.removal >= 4) return "Burn";
-  if ((roleCounts.cardDraw >= 6 && axes.includes("draw")) || (roleCounts.tutor >= 2 && roleCounts.cardDraw >= 4)) return "Combo";
-
-  // Speed + role-count heuristics (only when axes don't clearly indicate an archetype)
-  if (deckSpeed === "fast" && threatShare >= 0.55 && roleCounts.threats >= interaction * 1.5) return "Aggro";
-  if ((deckSpeed === "slow" || highCmcCount / Math.max(1, total) >= 0.2) && interaction >= 7) return "Control";
-
-  // Ramp needs strong signal — raised threshold to avoid false positives from incidental mana rocks
-  if (roleCounts.ramp >= 10 && avgCmc >= 3.2) return "Ramp";
-
-  return "Midrange";
+  const { macro } = detectArchetype(nonlands);
+  return macro === "Unknown" ? "Midrange" : macro;
 }
 
-function detectSecondaryArchetypes(
-  primary: Archetype,
+/**
+ * Detect the dominant multi-label themes for the deck, surfaced as canonical
+ * {@link ThemeId}s for the theme multi-select chips. Macro-level classification
+ * now lives entirely in {@link detectArchetype}.
+ */
+function detectDeckThemes(
   nonlands: ReturnType<typeof useMainboardEntries>,
-  axes: string[],
-): Archetype[] {
-  const suggestions = new Set<Archetype>();
-  const roleCounts = countRoles(nonlands);
-  if (axes.includes("tokens") && primary !== "Tokens") suggestions.add("Tokens");
-  if (axes.includes("sacrifice") && primary !== "Sacrifice") suggestions.add("Sacrifice");
-  if ((axes.includes("graveyard") || axes.includes("selfMill")) && primary !== "Graveyard") suggestions.add("Graveyard");
-  if (axes.includes("spellslinger") && roleCounts.counterspells >= 2 && primary !== "Tempo") suggestions.add("Tempo");
-  if (roleCounts.ramp >= 6 && primary !== "Ramp") suggestions.add("Ramp");
-  if (roleCounts.boardWipes + roleCounts.counterspells >= 6 && primary !== "Control") suggestions.add("Control");
-  return [...suggestions].filter((a) => a !== primary && ROLE_ARCHETYPES.includes(a)).slice(0, 3);
+): ThemeId[] {
+  const { themes } = detectArchetype(nonlands);
+  return themes.slice(0, 4).map((t) => t.id);
 }
 
 /** Count how many unique nonland cards match the given regex on their oracle+type+keyword text. */

@@ -31,22 +31,19 @@ import { colorAffinity } from "./colorWeights";
 // Per-archetype role multipliers — how much each card type matters.
 const ROLE_WEIGHT: Record<Archetype, Partial<Record<CardRole | "Threat" | "default", number>>> = {
   Aggro:     { Beater: 2.1, EvasiveThreat: 2.3, Removal: 1.8, Protection: 1.2, BoardWipe: 0.05, Counterspell: 0.1, CardDraw: 0.8, Ramp: 0.2, Threat: 1.8, default: 0.55 },
-  Burn:      { Removal: 2.4, EvasiveThreat: 1.4, CardDraw: 1.2, Threat: 1.4, default: 0.6 },
   Midrange:  { Beater: 1.6, EvasiveThreat: 1.6, ValueEngine: 2.4, Removal: 2.2, Discard: 2.0, CardDraw: 1.8, BoardWipe: 1.4, Counterspell: 1.4, Threat: 1.5, default: 0.8 },
   Control:   { BoardWipe: 2.7, Counterspell: 2.8, CardDraw: 2.4, Removal: 2.4, Discard: 2.0, Bounce: 1.7, Finisher: 1.5, default: 0.45 },
   Tempo:     { EvasiveThreat: 2.4, Counterspell: 2.3, Bounce: 2.0, Removal: 1.8, Discard: 1.7, CardDraw: 1.5, Threat: 1.5, default: 0.65 },
   Combo:     { Tutor: 2.4, CardDraw: 2.0, Ramp: 1.6, Counterspell: 1.8, Discard: 1.8, Finisher: 1.5, default: 0.75 },
   Ramp:      { Ramp: 2.5, LandFetch: 2.2, BoardWipe: 1.8, Removal: 1.6, Finisher: 1.9, CardDraw: 1.5, default: 0.65 },
-  Tokens:    { Beater: 1.4, ValueEngine: 2.0, BoardWipe: 0.8, Removal: 1.6, Threat: 1.6, default: 0.75 },
-  Graveyard: { Discard: 1.8, ValueEngine: 2.0, Removal: 1.7, CardDraw: 1.6, Ramp: 1.2, Threat: 1.4, default: 0.8 },
-  Sacrifice: { ValueEngine: 2.2, Beater: 1.4, Removal: 1.8, Threat: 1.4, default: 0.8 },
+  Prison:    { BoardWipe: 2.2, Removal: 2.2, Counterspell: 2.0, CardDraw: 1.8, ValueEngine: 1.6, Finisher: 1.4, default: 0.5 },
   Unknown:   { Removal: 1.9, Counterspell: 1.5, Discard: 1.5, CardDraw: 1.4, Threat: 1.3, default: 0.75 },
 };
 
 const ARCHETYPE_TO_CURVE_PROFILE: Record<Archetype, ArchetypeCurveProfile> = {
-  Aggro: "aggro", Burn: "aggro", Tempo: "aggro",
-  Midrange: "midrange", Tokens: "midrange", Sacrifice: "midrange", Graveyard: "midrange",
-  Control: "control",
+  Aggro: "aggro", Tempo: "aggro",
+  Midrange: "midrange",
+  Control: "control", Prison: "control",
   Combo: "combo", Ramp: "control",
   Unknown: "midrange",
 };
@@ -136,7 +133,7 @@ export function cmcPenalty(card: CardRecord, archetype: Archetype, targetAvgCmc:
   if (card.typeLine.includes("Land")) return 0;
   const overshoot = Math.max(0, card.cmc - (targetAvgCmc + 1));
   // Stronger penalty for fast archetypes
-  const slope = archetype === "Aggro" || archetype === "Burn" ? 4 : 2;
+  const slope = archetype === "Aggro" ? 4 : 2;
   return overshoot * slope;
 }
 

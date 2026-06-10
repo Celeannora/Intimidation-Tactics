@@ -1,22 +1,76 @@
 import type { DeckEntry } from "./legality";
 import { assignRoles, isThreat } from "./roles";
+import { buildSynergyProfile, type MechanicAxis } from "./generator/synergyModel";
+import {
+  MACRO_LABELS,
+  type MacroLabel,
+  type ThemeId,
+  isThemeId,
+} from "./archetypeVocab";
 
-export type Archetype =
-  | "Aggro"
-  | "Burn"
-  | "Midrange"
-  | "Control"
-  | "Combo"
-  | "Tempo"
-  | "Ramp"
-  | "Tokens"
-  | "Graveyard"
-  | "Sacrifice"
-  | "Unknown";
+/**
+ * Macro archetype "spine" type. These TitleCase labels are the canonical macro
+ * display names (see {@link MACRO_LABELS}); every Record<Archetype, …> table in
+ * the generator/scoring/benchmark layers keys off exactly these values plus the
+ * detection-only `Unknown` sentinel.
+ *
+ * NOTE: pre-Wave-1 saved decks may carry legacy macro values (Burn, Tokens,
+ * Graveyard, Sacrifice). Use {@link migrateArchetype} to map those onto the
+ * current taxonomy before feeding them to any table lookup.
+ */
+export type Archetype = MacroLabel | "Unknown";
+
+/** Legacy macro values that no longer exist as standalone macros. */
+const LEGACY_ARCHETYPE_MIGRATION: Record<string, Archetype> = {
+  Burn: "Aggro", // burn is now a theme; its decks are aggro on the macro axis
+  Tokens: "Midrange", // tokens is a theme; go-wide decks are aggro/midrange
+  Graveyard: "Midrange", // graveyard value is a theme
+  Sacrifice: "Midrange", // aristocrats is a theme
+};
+
+/** Themes that a legacy macro value implies, for migration of saved state. */
+const LEGACY_ARCHETYPE_THEMES: Record<string, ThemeId> = {
+  Burn: "burn",
+  Tokens: "tokens",
+  Graveyard: "graveyard",
+  Sacrifice: "sacrifice",
+};
+
+const VALID_ARCHETYPES = new Set<string>([...MACRO_LABELS, "Unknown"]);
+
+/**
+ * Map any historical archetype string onto a valid current macro. Unknown
+ * inputs fall back to "Midrange" (the neutral generation default) rather than
+ * throwing, so old IndexedDB rows always load.
+ */
+export function migrateArchetype(value: string | null | undefined): Archetype {
+  if (!value) return "Unknown";
+  if (VALID_ARCHETYPES.has(value)) return value as Archetype;
+  return LEGACY_ARCHETYPE_MIGRATION[value] ?? "Midrange";
+}
+
+/** If a legacy macro value implied a theme, return it so callers can preserve intent. */
+export function legacyArchetypeTheme(value: string | null | undefined): ThemeId | undefined {
+  if (!value) return undefined;
+  return LEGACY_ARCHETYPE_THEMES[value];
+}
+
+export interface DetectedTheme {
+  id: ThemeId;
+  /** Detection confidence 0-1 for this theme. */
+  score: number;
+}
 
 export interface ArchetypeDetectionResult {
+  /** Detected macro archetype. Kept under `archetype` for backward compatibility. */
   archetype: Archetype;
-  confidence: number; // 0-1
+  /** Alias of `archetype` — the macro classification. */
+  macro: Archetype;
+  /** Macro detection confidence 0-1. */
+  confidence: number;
+  /** Multi-label strategy themes detected on the deck, scored descending. */
+  themes: DetectedTheme[];
+  /** Human-readable detection signals. */
   signals: string[];
 }
 
@@ -32,17 +86,14 @@ export interface RoleComposition {
 }
 
 export const ARCHETYPE_BENCHMARKS: Record<Archetype, Partial<RoleComposition>> = {
-  Aggro:     { threats: 26, removal: 6,  boardWipes: 0,  counterspells: 1,  cardDraw: 2,  ramp: 0,  lands: 21 },
-  Burn:      { threats: 12, removal: 16, boardWipes: 0,  counterspells: 0,  cardDraw: 4,  ramp: 0,  lands: 20 },
-  Midrange:  { threats: 18, removal: 10, boardWipes: 2,  counterspells: 2,  cardDraw: 6,  ramp: 2,  lands: 23 },
-  Control:   { threats: 8,  removal: 14, boardWipes: 4,  counterspells: 10, cardDraw: 12, ramp: 0,  lands: 25 },
-  Combo:     { threats: 10, removal: 6,  boardWipes: 0,  counterspells: 2,  cardDraw: 8,  ramp: 4,  lands: 23 },
-  Tempo:     { threats: 16, removal: 8,  boardWipes: 0,  counterspells: 6,  cardDraw: 6,  ramp: 0,  lands: 22 },
-  Ramp:      { threats: 10, removal: 6,  boardWipes: 2,  counterspells: 0,  cardDraw: 6,  ramp: 10, lands: 24 },
-  Tokens:    { threats: 20, removal: 6,  boardWipes: 4,  counterspells: 0,  cardDraw: 6,  ramp: 2,  lands: 22 },
-  Graveyard: { threats: 14, removal: 8,  boardWipes: 2,  counterspells: 2,  cardDraw: 8,  ramp: 4,  lands: 23 },
-  Sacrifice:{ threats: 16, removal: 10, boardWipes: 2,  counterspells: 0,  cardDraw: 8,  ramp: 2,  lands: 22 },
-  Unknown:   {}
+  Aggro:    { threats: 26, removal: 6,  boardWipes: 0, counterspells: 1,  cardDraw: 2,  ramp: 0,  lands: 21 },
+  Midrange: { threats: 18, removal: 10, boardWipes: 2, counterspells: 2,  cardDraw: 6,  ramp: 2,  lands: 23 },
+  Control:  { threats: 8,  removal: 14, boardWipes: 4, counterspells: 10, cardDraw: 12, ramp: 0,  lands: 25 },
+  Tempo:    { threats: 16, removal: 8,  boardWipes: 0, counterspells: 6,  cardDraw: 6,  ramp: 0,  lands: 22 },
+  Combo:    { threats: 10, removal: 6,  boardWipes: 0, counterspells: 2,  cardDraw: 8,  ramp: 4,  lands: 23 },
+  Ramp:     { threats: 10, removal: 6,  boardWipes: 2, counterspells: 0,  cardDraw: 6,  ramp: 10, lands: 24 },
+  Prison:   { threats: 6,  removal: 10, boardWipes: 4, counterspells: 4,  cardDraw: 8,  ramp: 2,  lands: 24 },
+  Unknown:  {},
 };
 
 export function getRoleComposition(entries: DeckEntry[]): RoleComposition {
@@ -66,10 +117,7 @@ export function getRoleComposition(entries: DeckEntry[]): RoleComposition {
   return { threats, removal, boardWipes, counterspells, cardDraw, ramp, lands, total };
 }
 
-function score(
-  comp: RoleComposition,
-  archetype: Archetype
-): number {
+function score(comp: RoleComposition, archetype: Archetype): number {
   const bench = ARCHETYPE_BENCHMARKS[archetype];
   if (!bench || archetype === "Unknown") return 0;
 
@@ -85,59 +133,165 @@ function score(
   return s;
 }
 
+// ── Theme detection ────────────────────────────────────────────────────────
+
+interface AxisCounts {
+  sources: number;
+  payoffs: number;
+}
+
+/**
+ * Count source/payoff coverage per mechanic axis across the deck, using the
+ * single canonical synergy model (the same patterns the generator scores on).
+ */
+function tallyAxes(entries: DeckEntry[]): Map<MechanicAxis, AxisCounts> {
+  const counts = new Map<MechanicAxis, AxisCounts>();
+  const bump = (axis: MechanicAxis, kind: "sources" | "payoffs", qty: number) => {
+    const c = counts.get(axis) ?? { sources: 0, payoffs: 0 };
+    c[kind] += qty;
+    counts.set(axis, c);
+  };
+  for (const e of entries) {
+    if (e.card.typeLine.includes("Land")) continue;
+    const profile = buildSynergyProfile(e.card);
+    for (const axis of profile.sourceTags) bump(axis, "sources", e.quantity);
+    for (const axis of profile.payoffTags) bump(axis, "payoffs", e.quantity);
+  }
+  return counts;
+}
+
+/**
+ * Detect multi-label strategy themes. Thresholds follow the research doc's
+ * "Detection Algorithm Summary": each theme requires a minimum number of source
+ * and/or payoff cards. Returns themes sorted by descending confidence.
+ *
+ * Internal-only axes (`draw`, `etb`, `selfMill`) are never reported as themes.
+ */
+export function detectThemes(entries: DeckEntry[]): DetectedTheme[] {
+  const axes = tallyAxes(entries);
+  const get = (a: MechanicAxis): AxisCounts => axes.get(a) ?? { sources: 0, payoffs: 0 };
+  const detected: DetectedTheme[] = [];
+
+  const add = (id: ThemeId, met: boolean, strength: number) => {
+    if (met && isThemeId(id)) detected.push({ id, score: Math.max(0, Math.min(1, strength)) });
+  };
+
+  const lifegain = get("lifegain");
+  add("lifegain", lifegain.sources >= 6 && lifegain.payoffs >= 4, (lifegain.sources + lifegain.payoffs) / 16);
+
+  const mill = get("mill");
+  add("mill", mill.sources >= 6, mill.sources / 10);
+
+  const tokens = get("tokens");
+  add("tokens", tokens.sources >= 10 || tokens.payoffs >= 6, (tokens.sources + tokens.payoffs) / 18);
+
+  const sacrifice = get("sacrifice");
+  add("sacrifice", sacrifice.sources >= 4 && sacrifice.payoffs >= 4, (sacrifice.sources + sacrifice.payoffs) / 12);
+
+  const reanimator = get("reanimator");
+  add("reanimator", reanimator.sources >= 3, (reanimator.sources + reanimator.payoffs) / 8);
+
+  const graveyard = get("graveyard");
+  add("graveyard", graveyard.sources + graveyard.payoffs >= 8, (graveyard.sources + graveyard.payoffs) / 16);
+
+  const spellslinger = get("spellslinger");
+  add("spellslinger", spellslinger.sources >= 4 || spellslinger.payoffs >= 4, (spellslinger.sources + spellslinger.payoffs) / 10);
+
+  const burn = get("burn");
+  add("burn", burn.sources >= 6, burn.sources / 10);
+
+  const typal = get("typal");
+  add("typal", typal.sources >= 8 && typal.payoffs >= 2, (typal.sources + typal.payoffs) / 18);
+
+  const enchantress = get("enchantress");
+  add("enchantress", enchantress.sources >= 12 || enchantress.payoffs >= 2, (enchantress.sources + enchantress.payoffs) / 16);
+
+  const artifacts = get("artifacts");
+  add("artifacts", artifacts.sources >= 6 && artifacts.payoffs >= 2, (artifacts.sources + artifacts.payoffs) / 16);
+
+  const counters = get("counters");
+  add("counters", counters.sources >= 8 || counters.payoffs >= 3, (counters.sources + counters.payoffs) / 14);
+
+  const blink = get("blink");
+  add("blink", blink.sources >= 4 && blink.payoffs >= 6, (blink.sources + blink.payoffs) / 12);
+
+  const landfall = get("landfall");
+  add("landfall", landfall.sources >= 6 || landfall.payoffs >= 4, (landfall.sources + landfall.payoffs) / 10);
+
+  const domain = get("domain");
+  add("domain", domain.sources + domain.payoffs >= 4, (domain.sources + domain.payoffs) / 6);
+
+  const energy = get("energy");
+  add("energy", energy.sources + energy.payoffs >= 6, (energy.sources + energy.payoffs) / 10);
+
+  const vehicles = get("vehicles");
+  add("vehicles", vehicles.sources >= 6, vehicles.sources / 8);
+
+  const stax = get("stax");
+  add("stax", stax.sources >= 6, stax.sources / 8);
+
+  const discard = get("discard");
+  add("discard", discard.sources >= 8, discard.sources / 12);
+
+  const storm = get("storm");
+  add("storm", storm.sources >= 4 || storm.payoffs >= 2, (storm.sources + storm.payoffs) / 8);
+
+  return detected.sort((a, b) => b.score - a.score);
+}
+
+// ── Macro detection ──────────────────────────────────────────────────────────
+
+const SCORED_MACROS: Archetype[] = ["Aggro", "Midrange", "Control", "Tempo", "Combo", "Ramp", "Prison"];
+
+/**
+ * Single unified detector. Returns the macro archetype (under both `archetype`
+ * and `macro`), a confidence, the multi-label themes, and the signal trace.
+ */
 export function detectArchetype(entries: DeckEntry[]): ArchetypeDetectionResult {
   const comp = getRoleComposition(entries);
-  const text = entries
-    .map(e => (e.card.oracleText ?? "").toLowerCase())
-    .join(" ");
-
-  const signals: string[] = [];
-
-  // Special pattern signals
-  const hasTokenMakers = text.includes("create") && text.includes("token");
-  const hasSacrificeOutlets = text.includes("sacrifice a creature");
-  const hasGraveyardRecur = text.includes("return") && text.includes("from your graveyard");
-  const hasDirectDamage = (text.match(/damage to (any target|target player|each opponent)/g) ?? []).length >= 6;
-  const avgCmc = comp.total > 0
-    ? entries.filter(e => !e.card.typeLine.includes("Land")).reduce((s, e) => s + e.card.cmc * e.quantity, 0)
-      / entries.filter(e => !e.card.typeLine.includes("Land")).reduce((s, e) => s + e.quantity, 1)
+  const nonlands = entries.filter((e) => !e.card.typeLine.includes("Land"));
+  const nonlandQty = nonlands.reduce((s, e) => s + e.quantity, 0);
+  const avgCmc = nonlandQty > 0
+    ? nonlands.reduce((s, e) => s + e.card.cmc * e.quantity, 0) / nonlandQty
     : 0;
 
-  if (hasTokenMakers) signals.push("Token creators detected");
-  if (hasSacrificeOutlets) signals.push("Sacrifice outlets detected");
-  if (hasGraveyardRecur) signals.push("Graveyard recursion detected");
-  if (hasDirectDamage) signals.push("Heavy direct damage package");
-  if (avgCmc < 2.2) signals.push(`Low avg MV (${avgCmc.toFixed(1)}) — aggressive curve`);
+  const themes = detectThemes(entries);
+  const themeIds = new Set(themes.map((t) => t.id));
+  const signals: string[] = [];
+
+  if (avgCmc > 0 && avgCmc < 2.2) signals.push(`Low avg MV (${avgCmc.toFixed(1)}) — aggressive curve`);
   if (avgCmc > 3.5) signals.push(`High avg MV (${avgCmc.toFixed(1)}) — late game curve`);
   if (comp.counterspells >= 8) signals.push("Heavy counterspell suite");
   if (comp.ramp >= 8) signals.push("Heavy ramp suite");
-
-  // Override detections
-  if (hasSacrificeOutlets && hasTokenMakers) {
-    return { archetype: "Sacrifice", confidence: 0.75, signals };
-  }
-  if (hasTokenMakers && comp.threats >= 18) {
-    return { archetype: "Tokens", confidence: 0.75, signals };
-  }
-  if (hasGraveyardRecur && comp.ramp >= 4) {
-    return { archetype: "Graveyard", confidence: 0.70, signals };
-  }
-  if (hasDirectDamage) {
-    return { archetype: "Burn", confidence: 0.80, signals };
+  for (const t of themes.slice(0, 4)) {
+    signals.push(`Theme: ${t.id} (${Math.round(t.score * 100)}%)`);
   }
 
-  // Score-based detection
-  const archetypes: Archetype[] = ["Aggro", "Midrange", "Control", "Combo", "Tempo", "Ramp"];
+  // Strong macro overrides driven by unambiguous structural signals.
+  if (themeIds.has("stax") || comp.boardWipes >= 4 && themeIds.has("stax")) {
+    return finalize("Prison", 0.7, themes, signals);
+  }
+  if (comp.ramp >= 10 && avgCmc >= 3.0) {
+    return finalize("Ramp", 0.75, themes, signals);
+  }
+
+  // Score-based detection across all macros.
   let bestArchetype: Archetype = "Unknown";
   let bestScore = 0;
-
-  for (const arch of archetypes) {
+  for (const arch of SCORED_MACROS) {
     const s = score(comp, arch);
     if (s > bestScore) { bestScore = s; bestArchetype = arch; }
   }
 
-  const maxPossible = 14;
-  const confidence = Math.min(bestScore / maxPossible, 1);
+  const confidence = Math.min(bestScore / 14, 1);
+  return finalize(bestArchetype, confidence, themes, signals);
+}
 
-  return { archetype: bestArchetype, confidence, signals };
+function finalize(
+  macro: Archetype,
+  confidence: number,
+  themes: DetectedTheme[],
+  signals: string[],
+): ArchetypeDetectionResult {
+  return { archetype: macro, macro, confidence, themes, signals };
 }

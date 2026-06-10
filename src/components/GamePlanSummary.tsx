@@ -12,10 +12,6 @@ const PLANS: Record<string, (opts: { color: string; threats: string[]; avg: stri
     `This ${color} Aggro deck aims to establish an overwhelming board presence in turns 1–3${
       threats[0] ? `, anchored by ${threats[0]}` : ""
     }. Avg MV ${avg} — end the game before the opponent stabilizes. Win target: turns 3–5.`,
-  Burn:      ({ color, threats, avg }) =>
-    `This ${color} Burn deck uses direct damage spells to race to 20${
-      threats[0] ? ` with ${threats[0]}` : ""
-    }. Avg MV ${avg} — point everything at the face. Win target: turns 3–4.`,
   Midrange:  ({ color, threats, avg }) =>
     `This ${color} Midrange deck plays efficient threats and answers on every turn${
       threats[0] ? `, led by ${threats[0]}` : ""
@@ -36,18 +32,10 @@ const PLANS: Record<string, (opts: { color: string; threats: string[]; avg: stri
     `This ${color} Ramp deck accelerates mana to cast outsized payoffs${
       threats[0] ? ` like ${threats[0]}` : ""
     } ahead of curve. Avg MV ${avg} — overwhelm opponents with threats they cannot match on rate.`,
-  Tokens:    ({ color, threats, avg }) =>
-    `This ${color} Tokens deck floods the board with wide armies${
-      threats[0] ? ` led by ${threats[0]}` : ""
-    }, then leverages anthems and sacrifice synergies to close the game. Avg MV ${avg} — win turns 4–6.`,
-  Graveyard: ({ color, threats, avg }) =>
-    `This ${color} Graveyard deck fills the yard early, then recurs powerful threats${
-      threats[0] ? ` including ${threats[0]}` : ""
-    }. Avg MV ${avg} — snowball into an unbeatable board through attrition.`,
-  Sacrifice: ({ color, threats, avg }) =>
-    `This ${color} Sacrifice deck generates incremental value by sacrificing creatures for profit${
-      threats[0] ? ` through payoffs like ${threats[0]}` : ""
-    }. Avg MV ${avg} — drain life and grind opponents out through repeated value.`,
+  Prison:    ({ color, threats, avg }) =>
+    `This ${color} Prison deck deploys lock pieces and sweepers to deny the opponent's game plan${
+      threats[0] ? `, grinding behind ${threats[0]}` : ""
+    }. Avg MV ${avg} — lock the board, then win slowly with a single resilient threat.`,
   Unknown:   ({ color, avg }) =>
     `This ${color || "colorless"} deck has an avg MV of ${avg}. Add more cards to auto-detect your game plan.`,
 };

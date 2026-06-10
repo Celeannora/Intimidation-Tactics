@@ -28,11 +28,11 @@ import type {
 function macroSpeed(macro: Archetype): MetaSpeed {
   switch (macro) {
     case "Aggro":
-    case "Burn":
     case "Tempo":
       return "fast";
     case "Control":
     case "Ramp":
+    case "Prison":
       return "slow";
     default:
       return "medium";

@@ -8,20 +8,18 @@ import {
 } from "../lib/archetype";
 import { scoreDeck } from "../lib/scoring";
 import { inferPrimaryAxes, buildSynergyProfile } from "../lib/generator/synergyModel";
+import { THEME_ID_TO_LABEL } from "../lib/archetypeVocab";
 import type { DeckEntry } from "../lib/legality";
 
 const ARCHETYPE_COLOR: Record<string, string> = {
-  Aggro:     "text-red-400",
-  Burn:      "text-orange-400",
-  Midrange:  "text-amber-400",
-  Control:   "text-blue-400",
-  Combo:     "text-purple-400",
-  Tempo:     "text-cyan-400",
-  Ramp:      "text-green-400",
-  Tokens:    "text-yellow-400",
-  Graveyard: "text-zinc-400",
-  Sacrifice: "text-rose-400",
-  Unknown:   "text-zinc-500",
+  Aggro:    "text-red-400",
+  Midrange: "text-amber-400",
+  Control:  "text-blue-400",
+  Tempo:    "text-cyan-400",
+  Combo:    "text-purple-400",
+  Ramp:     "text-green-400",
+  Prison:   "text-indigo-400",
+  Unknown:  "text-zinc-500",
 };
 
 const ROLE_LABELS: Array<{ key: keyof RoleComposition; label: string }> = [
@@ -84,6 +82,19 @@ export function ArchetypePanel() {
             {Math.round(detection.confidence * 100)}% confidence
           </span>
         </div>
+        {detection.themes.length > 0 && (
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {detection.themes.map((t) => (
+              <span
+                key={t.id}
+                className="rounded-full bg-purple-600/20 px-2.5 py-0.5 text-xs text-purple-200"
+                title={`${Math.round(t.score * 100)}% confidence`}
+              >
+                {THEME_ID_TO_LABEL[t.id]}
+              </span>
+            ))}
+          </div>
+        )}
         {detection.signals.length > 0 && (
           <ul className="mt-2 space-y-0.5 text-zinc-500">
             {detection.signals.map((s, i) => <li key={i}>· {s}</li>)}
