@@ -91,7 +91,6 @@ describe("detection logic principles", () => {
     // Intimidation Tactics, Strategic Betrayal, Deep-Cavern Bat — all discard cards.
     // These should legitimately trigger "Discard" focus.
 
-    const discardPattern = /you may discard|discard a card|draw.*discard|discard.*draw|loot|rummage/i;
     const oldDiscardPattern = /discard|look at .* hand|reveals? .* hand/i;
 
     const userDeckOracleTexts = [

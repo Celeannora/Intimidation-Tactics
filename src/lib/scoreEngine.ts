@@ -11,7 +11,6 @@
 import type { CardRecord } from "./types";
 import type { DeckEntry } from "./legality";
 import type { Archetype } from "./archetype";
-import { assignRoles, isThreat } from "./roles";
 import { computePowerScore } from "./powerScore";
 import {
   buildSynergyProfile,
@@ -21,8 +20,6 @@ import {
   synergyDensityMultiplier,
   crossAxisCompositionBonus,
   castabilityFeedbackPenalty,
-  keywordFocusToAxes,
-  type CardSynergyProfile,
   type SynergyConnectionSummary,
   type MechanicAxis,
 } from "./generator/synergyModel";

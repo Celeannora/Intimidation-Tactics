@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { loadAISettings, saveAISettings, type AISettings } from "../lib/ai/provider";
 import { makeProvider } from "../lib/ai/factory";
 import { listModelsFor } from "../lib/ai/models";
@@ -202,7 +202,7 @@ interface ModelPickerProps {
   fetcher: () => Promise<string[]>;
   deps: unknown[];
   fallback: string;
-  hint?: React.ReactNode;
+  hint?: ReactNode;
 }
 
 function ModelPicker({ label, value, onChange, fetcher, deps, fallback, hint }: ModelPickerProps) {
@@ -224,7 +224,6 @@ function ModelPicker({ label, value, onChange, fetcher, deps, fallback, hint }: 
     } finally {
       setLoading(false);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps);
 
   useEffect(() => {

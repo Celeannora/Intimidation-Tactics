@@ -2,7 +2,7 @@ import { getMatchRecords } from "./bo3";
 import type { CardRecord } from "./types";
 import type { DeckEntry } from "./legality";
 import type { Archetype } from "./archetype";
-import { computeSynergyScoreV2, buildSynergyProfile } from "./generator/synergyModel";
+import { computeSynergyScoreV2 } from "./generator/synergyModel";
 import { roleMultiplier } from "./generator/weights";
 import { computePowerScore } from "./powerScore";
 
@@ -48,10 +48,6 @@ export function suggestTechCardsV2(
   allCards: CardRecord[],
   metaArchetype: Archetype
 ): CardRecord[] {
-  const deckProfiles = deckEntries
-    .filter((e) => !e.card.typeLine.includes("Land"))
-    .map((e) => buildSynergyProfile(e.card));
-
   const scored = allCards
     .filter((c) => !c.typeLine.includes("Land"))
     .map((card) => {
@@ -78,7 +74,7 @@ export function suggestTechCardsV2(
 
 /** Legacy wrapper — uses V2 engine instead of hardcoded strings. */
 export async function suggestTechCards(
-  deckId: string,
+  _deckId: string,
   worstArchetype: string
 ): Promise<string[]> {
   // Deprecated: callers should migrate to suggestTechCardsV2().

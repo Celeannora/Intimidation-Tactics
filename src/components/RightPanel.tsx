@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { DeckStatsBar } from "./DeckStatsBar";
 import { ManaCurveChart } from "./ManaCurveChart";
 import { ManaBasePanel } from "./ManaBasePanel";
@@ -99,7 +99,7 @@ export function RightPanel({ activeDeckId }: Props) {
   );
 }
 
-function PersistentTabPanel({ tab, activeTab, children }: { tab: Tab; activeTab: Tab; children: React.ReactNode }) {
+function PersistentTabPanel({ tab, activeTab, children }: { tab: Tab; activeTab: Tab; children: ReactNode }) {
   const active = tab === activeTab;
   return (
     <div

@@ -1,8 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { buildConsistencyReport } from "../consistencyReport";
-import type { DeckEntry } from "../consistencyReport";
+import type { ConsistencyEntry } from "../consistencyReport";
 
-function makeAggroDeck(): DeckEntry[] {
+function makeAggroDeck(): ConsistencyEntry[] {
   return [
     { name: "Plains", quantity: 22, cmc: 0, manaCost: null, typeLine: "Basic Land — Plains", producedManaJson: '["W"]' },
     { name: "Savannah Lions", quantity: 4, cmc: 1, manaCost: "{W}", typeLine: "Creature" },
@@ -81,7 +81,7 @@ describe("buildConsistencyReport", () => {
 
   it("manaWarnings fire when sources are too low", () => {
     // Deck with zero lands that produce U, but spells need U
-    const deck: DeckEntry[] = [
+    const deck: ConsistencyEntry[] = [
       { name: "Island", quantity: 2, cmc: 0, manaCost: null, typeLine: "Basic Land", producedManaJson: '["U"]' },
       { name: "Mountain", quantity: 22, cmc: 0, manaCost: null, typeLine: "Basic Land", producedManaJson: '["R"]' },
       { name: "Counterspell", quantity: 36, cmc: 2, manaCost: "{U}{U}", typeLine: "Instant" },
@@ -92,7 +92,7 @@ describe("buildConsistencyReport", () => {
   });
 
   it("no manaWarnings for a well-built mono-white deck", () => {
-    const deck: DeckEntry[] = [
+    const deck: ConsistencyEntry[] = [
       { name: "Plains", quantity: 24, cmc: 0, manaCost: null, typeLine: "Basic Land", producedManaJson: '["W"]' },
       { name: "Soldier", quantity: 36, cmc: 2, manaCost: "{W}{W}", typeLine: "Creature" },
     ];

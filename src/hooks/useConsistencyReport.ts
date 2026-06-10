@@ -9,7 +9,7 @@
  */
 import { useState, useEffect, useRef, useMemo } from "react";
 import { buildConsistencyReport } from "../lib/consistencyReport";
-import type { ConsistencyReport, DeckEntry } from "../lib/consistencyReport";
+import type { ConsistencyReport, ConsistencyEntry } from "../lib/consistencyReport";
 import { useMainboardEntries } from "../store/deckStore";
 
 export type ReportState =
@@ -27,7 +27,7 @@ const TRIALS = 10_000;
  */
 function toDeckEntries(
   entries: ReturnType<typeof useMainboardEntries>
-): DeckEntry[] {
+): ConsistencyEntry[] {
   return entries.map(e => ({
     name:             e.card.name,
     quantity:         e.quantity,

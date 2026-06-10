@@ -13,7 +13,7 @@
  */
 import { describe, expect, it } from "vitest";
 import type { CardRecord } from "../../lib/types";
-import { assignRoles, isThreat } from "../../lib/roles";
+import { assignRoles } from "../../lib/roles";
 import { buildSynergyProfile, inferPrimaryAxes } from "../../lib/generator/synergyModel";
 
 // ─── Helper: build a CardRecord from minimal fields ──────────────────────────
@@ -332,11 +332,11 @@ describe("3. synergyModel.ts → inferPrimaryAxes()", () => {
   it("discard/lifegain deck should have discard in profile data (sources exist even if lifegain/draw/blink win top-3)", () => {
     const profiles = NONLANDS.map((c) => buildSynergyProfile(c));
     const axes = inferPrimaryAxes(profiles);
-    console.log("Inferred axes:", axes);
+    console.warn("Inferred axes:", axes);
     // Count discard source tags in the deck
     const discardSources = profiles.filter(p => p.sourceTags.has("discard")).length;
     const discardPayoffs = profiles.filter(p => p.payoffTags.has("discard")).length;
-    console.log(`Discard sources: ${discardSources}, payoffs: ${discardPayoffs}`);
+    console.warn(`Discard sources: ${discardSources}, payoffs: ${discardPayoffs}`);
     // Verify that discard patterns are correctly detected
     expect(discardSources).toBeGreaterThanOrEqual(4);
     expect(discardPayoffs).toBeGreaterThanOrEqual(1);
@@ -405,7 +405,7 @@ describe("5. Full pipeline summary", () => {
     lines.push(`\n=== INFERRED DECK AXES ===`);
     lines.push(`  ${axes.join(", ") || "none"}`);
 
-    console.log(lines.join("\n"));
+    console.warn(lines.join("\n"));
     expect(lines.length).toBeGreaterThan(0);
   });
 });

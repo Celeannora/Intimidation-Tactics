@@ -40,7 +40,6 @@ function rankPool(
 
   for (const card of pool) {
     if (card.typeLine.includes("Land")) continue;
-    const rank = quickRank(card, options.archetype);
     const roles = _getRoles(card);
     for (const slot of slots) {
       if (_matchesSlot(slot, roles)) {

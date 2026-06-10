@@ -1509,7 +1509,6 @@ function detectKeywordFocus(nonlands: ReturnType<typeof useMainboardEntries>, ax
   // Path B: regex-based checks with minimum card-count thresholds.
   // These prevent single incidental cards (e.g. one mana rock, one "noncreature" text)
   // from triggering themes that aren't actually present in the deck.
-  const total = nonlands.reduce((s, e) => s + e.quantity, 0);
 
   // Prowess — remove "noncreature" which is generic MTG templating, not Prowess
   if (countMatchingCards(nonlands, /\bprowess\b/i) >= 3) focus.add("Prowess");
