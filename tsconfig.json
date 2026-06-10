@@ -21,7 +21,7 @@
     "useDefineForClassFields": true,
 
     "noEmit": true,
-    "types": ["vite/client", "vitest/globals"]
+    "types": ["node", "vite/client", "vitest/globals"]
   },
   "include": ["src", "vite.config.ts", "vitest.config.ts"],
   "exclude": ["src/experimental", "node_modules", "dist"]
