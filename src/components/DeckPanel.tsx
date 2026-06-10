@@ -2,6 +2,8 @@ import { useState } from "react";
 import { useDeckStore } from "../store/deckStore";
 import type { DeckEntry } from "../lib/legality";
 import { parseDecklistText, resolveDeckEntries } from "../lib/deckParser";
+import { getFormatRules } from "../lib/formats";
+import { suggestCuts, type SuggestCutsResult } from "../lib/generator/suggestCuts";
 
 type Board = "main" | "side";
 type DeckSection = "Creatures" | "Planeswalkers" | "Noncreature Spells" | "Lands";
@@ -22,23 +24,29 @@ function deckSection(entry: DeckEntry): DeckSection {
 
 function DeckEntryTile({
   entry,
+  pinned,
+  canPin,
   onIncrement,
   onDecrement,
   onRemove,
   onMove,
+  onTogglePin,
   onCardClick,
 }: {
   entry: DeckEntry;
+  pinned: boolean;
+  canPin: boolean;
   onIncrement: () => void;
   onDecrement: () => void;
   onRemove: () => void;
   onMove: () => void;
+  onTogglePin: () => void;
   onCardClick?: (card: DeckEntry["card"]) => void;
 }) {
   const manaValue = entry.card.cmc || "";
 
   return (
-    <article className="group relative overflow-hidden rounded-xl border border-zinc-800 bg-zinc-950 shadow-sm transition hover:border-teal-600/70 hover:shadow-teal-950/40">
+    <article className={`group relative overflow-hidden rounded-xl border bg-zinc-950 shadow-sm transition hover:shadow-teal-950/40 ${pinned ? "border-amber-500/80 ring-1 ring-amber-500/40" : "border-zinc-800 hover:border-teal-600/70"}`}>
       <button
         className="block w-full text-left"
         onClick={() => onCardClick?.(entry.card)}
@@ -68,11 +76,28 @@ function DeckEntryTile({
         )}
       </button>
 
-      <div className="pointer-events-none absolute left-1.5 top-1.5 rounded-full bg-teal-500 px-2 py-0.5 text-xs font-bold text-white shadow">
-        ×{entry.quantity}
+      <div className="pointer-events-none absolute left-1.5 top-1.5 flex items-center gap-1">
+        <span className="rounded-full bg-teal-500 px-2 py-0.5 text-xs font-bold text-white shadow">
+          ×{entry.quantity}
+        </span>
+        {pinned && (
+          <span className="rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-bold text-amber-950 shadow" title="Pinned — locked from optimizer swaps">
+            📌
+          </span>
+        )}
       </div>
 
       <div className="absolute right-1.5 top-1.5 flex gap-1 opacity-100 sm:opacity-0 sm:transition-opacity sm:group-hover:opacity-100">
+        {canPin && (
+          <button
+            onClick={onTogglePin}
+            className={`h-6 w-6 rounded-full text-xs shadow ${pinned ? "bg-amber-500 text-amber-950 hover:bg-amber-400" : "bg-zinc-950/85 text-zinc-300 hover:bg-zinc-700 hover:text-amber-300"}`}
+            title={pinned ? "Unpin (allow optimizer to swap this card)" : "Pin (lock this card from optimizer swaps)"}
+            aria-label={pinned ? "Unpin card" : "Pin card"}
+          >
+            📌
+          </button>
+        )}
         <button
           onClick={onDecrement}
           className="h-6 w-6 rounded-full bg-zinc-950/85 text-sm text-zinc-300 shadow hover:bg-zinc-700 hover:text-zinc-100"
@@ -123,12 +148,36 @@ function DeckEntryTile({
 export function DeckPanel({ onCardClick }: { onCardClick?: (card: DeckEntry["card"]) => void }) {
   const { deckName, setDeckName, entries, validation, removeCard, setQuantity, moveCard, clearDeck, addCard } =
     useDeckStore();
+  const pins = useDeckStore((s) => s.pins);
+  const pinCard = useDeckStore((s) => s.pinCard);
+  const unpinCard = useDeckStore((s) => s.unpinCard);
   const [activeBoard, setActiveBoard] = useState<Board>("main");
   const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
   const [importOpen, setImportOpen] = useState(false);
   const [importText, setImportText] = useState("");
   const [importBusy, setImportBusy] = useState(false);
   const [importStatus, setImportStatus] = useState<string | null>(null);
+  const [cutsModal, setCutsModal] = useState<{ card: DeckEntry["card"]; result: SuggestCutsResult } | null>(null);
+
+  const formatRules = getFormatRules("standard");
+  const mainTotal = entries.filter((e) => e.board === "main").reduce((s, e) => s + e.quantity, 0);
+
+  const togglePin = (entry: DeckEntry) => {
+    if (entry.board !== "main") return;
+    if (entry.card.oracleId in pins) {
+      unpinCard(entry.card.oracleId);
+      return;
+    }
+    // Pinning into a full (or over-target) deck: surface suggested cuts rather
+    // than silently swapping. The pin itself is applied immediately; the modal
+    // recommends which non-pinned cards to trim to stay at the target size.
+    pinCard(entry.card.oracleId);
+    if (mainTotal >= formatRules.defaultMainboardSize) {
+      const newlyPinned: DeckEntry[] = [{ card: entry.card, quantity: entry.quantity, board: "main" }];
+      const result = suggestCuts(entries, newlyPinned, 1, { engine: "offline", archetype: "Midrange", colors: [] });
+      if (result.candidates.length > 0) setCutsModal({ card: entry.card, result });
+    }
+  };
 
   const runImport = async (replace: boolean) => {
     if (!importText.trim()) {
@@ -335,6 +384,8 @@ export function DeckPanel({ onCardClick }: { onCardClick?: (card: DeckEntry["car
                   <DeckEntryTile
                     key={`${entry.card.oracleId}-${entry.board}`}
                     entry={entry}
+                    pinned={entry.card.oracleId in pins}
+                    canPin={entry.board === "main" && !entry.card.typeLine.includes("Land")}
                     onCardClick={onCardClick}
                     onIncrement={() =>
                       setQuantity(entry.card.oracleId, entry.board, entry.quantity + 1)
@@ -350,6 +401,7 @@ export function DeckPanel({ onCardClick }: { onCardClick?: (card: DeckEntry["car
                         entry.board === "main" ? "side" : "main"
                       )
                     }
+                    onTogglePin={() => togglePin(entry)}
                   />
                 ))}
               </div>
@@ -421,6 +473,77 @@ export function DeckPanel({ onCardClick }: { onCardClick?: (card: DeckEntry["car
               >
                 {importBusy ? "Importing…" : "Replace deck"}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {cutsModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+          onClick={() => setCutsModal(null)}
+        >
+          <div
+            className="w-full max-w-lg rounded-lg border border-zinc-700 bg-zinc-950 p-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-2 flex items-center justify-between">
+              <div className="text-sm font-medium text-amber-200">
+                📌 Pinned {cutsModal.card.name}
+              </div>
+              <button
+                onClick={() => setCutsModal(null)}
+                className="rounded border border-zinc-700 px-2 py-1 text-xs text-zinc-300 hover:bg-zinc-800"
+              >
+                Close
+              </button>
+            </div>
+            <p className="mb-3 text-[11px] text-zinc-400">
+              Your deck is at {mainTotal} cards. {cutsModal.card.name} is now locked from optimizer swaps.
+              To stay at {formatRules.defaultMainboardSize}, consider trimming the weakest / most redundant
+              non-pinned cards below. Nothing is removed automatically.
+            </p>
+            <div className="mb-3 space-y-1.5">
+              {cutsModal.result.candidates.map((c) => (
+                <div
+                  key={c.card.oracleId}
+                  className="flex items-center justify-between gap-2 rounded border border-zinc-800 bg-zinc-900/60 p-2"
+                >
+                  <div className="min-w-0">
+                    <div className="truncate text-xs font-medium text-zinc-200">
+                      {c.cut}× {c.card.name}
+                    </div>
+                    <div className="truncate text-[10px] text-zinc-500">{c.reason}</div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      const remaining = entries.find(
+                        (e) => e.card.oracleId === c.card.oracleId && e.board === "main"
+                      );
+                      if (remaining) {
+                        setQuantity(c.card.oracleId, "main", Math.max(0, remaining.quantity - c.cut));
+                      }
+                      setCutsModal((m) =>
+                        m
+                          ? { ...m, result: { ...m.result, candidates: m.result.candidates.filter((x) => x.card.oracleId !== c.card.oracleId) } }
+                          : null
+                      );
+                    }}
+                    className="shrink-0 rounded border border-red-800 bg-red-950/30 px-2 py-1 text-[11px] text-red-200 hover:bg-red-900/40"
+                  >
+                    Cut
+                  </button>
+                </div>
+              ))}
+            </div>
+            <div className="rounded border border-zinc-800 bg-zinc-900/40 p-2 text-[11px] text-zinc-400">
+              Curve consistency delta if you apply these cuts:{" "}
+              <span className={cutsModal.result.curveDelta <= 0 ? "text-teal-300" : "text-amber-300"}>
+                {cutsModal.result.curveDelta <= 0 ? "improves" : "worsens"} by{" "}
+                {Math.abs(cutsModal.result.curveDelta).toFixed(2)}
+              </span>{" "}
+              (curve deviation {cutsModal.result.curveBefore.toFixed(2)} →{" "}
+              {cutsModal.result.curveAfter.toFixed(2)}; lower is better).
             </div>
           </div>
         </div>

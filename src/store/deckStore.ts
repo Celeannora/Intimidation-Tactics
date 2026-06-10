@@ -18,6 +18,8 @@ export interface DeckState {
   deckId: string | null;
   deckName: string;
   entries: DeckEntry[];
+  /** oracleId -> locked quantity. Pinned cards are immune to generator/optimizer swaps. */
+  pins: Record<string, number>;
   validation: ValidationResult;
   companionCheck: CompanionCheckResult | null;
 
@@ -37,10 +39,42 @@ export interface DeckState {
   clearDeck: () => void;
   setDeckName: (name: string) => void;
   loadFromSnapshot: (decoded: ShareableDecoded) => Promise<void>;
+
+  // Card pinning (post-generation locks)
+  /** Pin a card at the given quantity (defaults to its current mainboard quantity). */
+  pinCard: (oracleId: string, quantity?: number) => void;
+  unpinCard: (oracleId: string) => void;
+  setPinQuantity: (oracleId: string, quantity: number) => void;
+  isPinned: (oracleId: string) => boolean;
 }
 
 function makeId(): string {
   return `deck_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+}
+
+/**
+ * Keep the pins map consistent with mainboard edits. Pins only track mainboard
+ * cards. If a mainboard card is removed, drop its pin; if its quantity drops
+ * below the pinned amount, clamp the pin down.
+ */
+function prunePin(
+  pins: Record<string, number>,
+  oracleId: string,
+  board: "main" | "side",
+  removed: boolean,
+  newMainQty: number
+): Record<string, number> {
+  if (board !== "main") return pins;
+  if (!(oracleId in pins)) return pins;
+  if (removed) {
+    const next = { ...pins };
+    delete next[oracleId];
+    return next;
+  }
+  if (pins[oracleId] > newMainQty) {
+    return { ...pins, [oracleId]: newMainQty };
+  }
+  return pins;
 }
 
 function revalidate(
@@ -64,6 +98,7 @@ export const useDeckStore = create<DeckState>((set, get) => ({
   deckId: null,
   deckName: "New Deck",
   entries: [],
+  pins: {},
   savedDecks: [],
   validation: {
     legal: false,
@@ -81,7 +116,7 @@ export const useDeckStore = create<DeckState>((set, get) => ({
   },
 
   async saveCurrentDeck() {
-    const { activeDeckId, deckName, entries } = get();
+    const { activeDeckId, deckName, entries, pins } = get();
     const record: SavedDeck = {
       id:        activeDeckId,
       name:      deckName,
@@ -91,6 +126,7 @@ export const useDeckStore = create<DeckState>((set, get) => ({
       wins:      0,
       losses:    0,
       draws:     0,
+      pins:      { ...pins },
     };
     const existing = await db.savedDecks.get(activeDeckId);
     if (existing) {
@@ -124,10 +160,18 @@ export const useDeckStore = create<DeckState>((set, get) => ({
       if (card) entries.push({ card, quantity: qty, board: "side" });
     }
 
+    // Only keep pins for cards still present in the loaded mainboard.
+    const mainIds = new Set(entries.filter((e) => e.board === "main").map((e) => e.card.oracleId));
+    const pins: Record<string, number> = {};
+    for (const [oracleId, qty] of Object.entries(saved.pins ?? {})) {
+      if (mainIds.has(oracleId)) pins[oracleId] = qty;
+    }
+
     set({
       activeDeckId: saved.id,
       deckName:     saved.name,
       entries,
+      pins,
       ...revalidate(entries),
     });
   },
@@ -155,6 +199,7 @@ export const useDeckStore = create<DeckState>((set, get) => ({
       deckId:       null,
       deckName:     "New Deck",
       entries,
+      pins:         {},
       ...revalidate(entries),
     });
   },
@@ -181,21 +226,22 @@ export const useDeckStore = create<DeckState>((set, get) => ({
   },
 
   removeCard(oracleId, board) {
-    const { entries } = get();
+    const { entries, pins } = get();
     const existing   = entries.find(e => e.card.oracleId === oracleId && e.board === board);
     if (!existing) return;
-    const updated = existing.quantity <= 1
+    const removed = existing.quantity <= 1;
+    const updated = removed
       ? entries.filter(e => !(e.card.oracleId === oracleId && e.board === board))
       : entries.map(e =>
           e.card.oracleId === oracleId && e.board === board
             ? { ...e, quantity: e.quantity - 1 }
             : e
         );
-    set({ entries: updated, ...revalidate(updated) });
+    set({ entries: updated, pins: prunePin(pins, oracleId, board, removed, existing.quantity - 1), ...revalidate(updated) });
   },
 
   setQuantity(oracleId, board, qty) {
-    const { entries }  = get();
+    const { entries, pins }  = get();
     const card         = entries.find(e => e.card.oracleId === oracleId)?.card;
     const maxCopies    = card ? maxCopiesForCard(card) : 4;
     const clampedQty   = Math.max(0, Math.min(qty, maxCopies));
@@ -212,7 +258,7 @@ export const useDeckStore = create<DeckState>((set, get) => ({
           : e
       );
     }
-    set({ entries: updated, ...revalidate(updated) });
+    set({ entries: updated, pins: prunePin(pins, oracleId, board, clampedQty === 0, clampedQty), ...revalidate(updated) });
   },
 
   moveCard(oracleId, from, to) {
@@ -237,7 +283,7 @@ export const useDeckStore = create<DeckState>((set, get) => ({
 
   clearDeck() {
     const entries: DeckEntry[] = [];
-    set({ entries, activeDeckId: makeId(), ...revalidate(entries) });
+    set({ entries, pins: {}, activeDeckId: makeId(), ...revalidate(entries) });
   },
 
   setDeckName(name) {
@@ -258,7 +304,38 @@ export const useDeckStore = create<DeckState>((set, get) => ({
       const card = cardMap.get(id);
       if (card) entries.push({ card, quantity: q, board });
     }
-    set({ entries, deckName: decoded.name, activeDeckId: makeId(), ...revalidate(entries) });
+    set({ entries, pins: {}, deckName: decoded.name, activeDeckId: makeId(), ...revalidate(entries) });
+  },
+
+  // ── Card pinning ────────────────────────────────────────────────────────────
+
+  pinCard(oracleId, quantity) {
+    const { entries, pins } = get();
+    const mainEntry = entries.find((e) => e.card.oracleId === oracleId && e.board === "main");
+    if (!mainEntry) return; // only mainboard cards can be pinned
+    const qty = Math.max(1, Math.floor(quantity ?? mainEntry.quantity));
+    set({ pins: { ...pins, [oracleId]: Math.min(qty, mainEntry.quantity) } });
+  },
+
+  unpinCard(oracleId) {
+    const { pins } = get();
+    if (!(oracleId in pins)) return;
+    const next = { ...pins };
+    delete next[oracleId];
+    set({ pins: next });
+  },
+
+  setPinQuantity(oracleId, quantity) {
+    const { entries, pins } = get();
+    if (!(oracleId in pins)) return;
+    const mainEntry = entries.find((e) => e.card.oracleId === oracleId && e.board === "main");
+    if (!mainEntry) return;
+    const qty = Math.max(1, Math.min(Math.floor(quantity), mainEntry.quantity));
+    set({ pins: { ...pins, [oracleId]: qty } });
+  },
+
+  isPinned(oracleId) {
+    return oracleId in get().pins;
   },
 }));
 

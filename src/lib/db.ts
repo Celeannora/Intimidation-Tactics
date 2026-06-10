@@ -15,6 +15,12 @@ export interface SavedDeck {
   wins: number;
   losses: number;
   draws: number;
+  /**
+   * Pinned cards: oracleId -> locked quantity. Pinned cards are immune to
+   * optimizer swaps/upgrades on regeneration. Optional for backward compat with
+   * decks saved before pinning existed.
+   */
+  pins?: Record<string, number>;
 }
 
 export interface MatchResult {

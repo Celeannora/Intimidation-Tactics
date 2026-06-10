@@ -507,27 +507,37 @@ function buildResultFromAIResponse(
     reasoning.push(`AI picked ${landTotal} land(s) across ${aiLandPicks.length} name(s); offline manabase builder will rebuild the land suite around the AI's nonland preferences.`);
   }
 
-  // When aiPicksAsFinal is true, treat AI's nonland picks as locked focusEntries
-  // so they are guaranteed in the final deck instead of being just soft preferences.
+  // When aiPicksAsFinal is true, treat AI's nonland picks (and the quantities the
+  // LLM requested) as a locked spine: route them through seedEntries so the offline
+  // pipeline locks them at the exact requested copy count and never removes/reduces
+  // them — the optimizer may only gap-fill the remaining slots (lands, curve, removal).
+  // Otherwise they remain soft preferences the optimizer is free to correct.
   const useAIPicksAsFinal = options.aiPicksAsFinal === true;
   const offlineRun = generateOffline(
     {
       ...options,
       engine: "offline",
       ...(useAIPicksAsFinal
-        ? { focusEntries: mergeEntries(options.focusEntries ?? [], aiNonlandPreferences), preferEntries: options.preferEntries }
+        ? {
+            seedEntries: mergeEntries(options.seedEntries ?? [], aiNonlandPreferences),
+            preferEntries: options.preferEntries,
+          }
         : { preferEntries: mergeEntries(options.preferEntries ?? [], aiNonlandPreferences) }),
       generateSideboard: false,
     },
     allCards
   );
   if (useAIPicksAsFinal) {
-    reasoning.push(`aiPicksAsFinal=true: AI's nonland picks locked as focus entries (guaranteed in deck).`);
+    const lockedCopies = aiNonlandPreferences.reduce((s, e) => s + e.quantity, 0);
+    reasoning.push(`aiPicksAsFinal=true: AI's ${aiNonlandPreferences.length} nonland pick(s) (${lockedCopies} copies) locked as the deck spine at requested quantities — optimizer gap-fills remaining slots only.`);
   }
 
   const normalizedSide = normalizeSideboard(aiSideEntries, options, reasoning);
   let entries = [...offlineRun.entries.filter((e) => e.board === "main"), ...normalizedSide];
-  entries = trimMainboardToSize(entries, targetMainboardSize);
+  const lockedSpineIds = useAIPicksAsFinal
+    ? new Set([...(options.seedEntries ?? []), ...aiNonlandPreferences].map((e) => e.card.oracleId))
+    : undefined;
+  entries = trimMainboardToSize(entries, targetMainboardSize, lockedSpineIds);
 
   reasoning.push("— Offline pipeline (AI cards as soft preferences) —");
   for (const line of offlineRun.diagnostics.reasoning) reasoning.push(line);
@@ -572,7 +582,9 @@ function buildResultFromAIResponse(
     archetype: options.archetype,
     totalCards: entries.reduce((s, e) => s + e.quantity, 0),
     diagnostics,
-    seededCards: (options.seedEntries ?? []).map((e) => e.card),
+    seededCards: useAIPicksAsFinal
+      ? [...(options.seedEntries ?? []), ...aiNonlandPreferences].map((e) => e.card)
+      : (options.seedEntries ?? []).map((e) => e.card),
     focusedCards: (options.focusEntries ?? []).map((e) => e.card),
     cardReasons,
     scoreBreakdown,
@@ -707,13 +719,13 @@ function normalizedMainboardSize(options: GenerateOptions): number {
   return Math.max(rules.minMainboardSize, Math.min(rules.maxMainboardSize, Math.round(requested)));
 }
 
-function trimMainboardToSize(entries: DeckEntry[], targetSize: number): DeckEntry[] {
+function trimMainboardToSize(entries: DeckEntry[], targetSize: number, lockedIds?: Set<string>): DeckEntry[] {
   const next = entries.map((entry) => ({ card: entry.card, quantity: entry.quantity, board: entry.board }));
   let total = next.filter((e) => e.board === "main").reduce((sum, entry) => sum + entry.quantity, 0);
   if (total <= targetSize) return next;
 
   const removable = next
-    .filter((entry) => entry.board === "main")
+    .filter((entry) => entry.board === "main" && !(lockedIds?.has(entry.card.oracleId)))
     .sort((a, b) => {
       const landA = a.card.typeLine.includes("Land") ? 1 : 0;
       const landB = b.card.typeLine.includes("Land") ? 1 : 0;

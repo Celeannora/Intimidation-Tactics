@@ -100,6 +100,7 @@ export function GeneratorPanel() {
   const clearDeck = useDeckStore((s) => s.clearDeck);
   const addCard = useDeckStore((s) => s.addCard);
   const setDeckName = useDeckStore((s) => s.setDeckName);
+  const pins = useDeckStore((s) => s.pins);
 
   // Form state
   const [engine, setEngine] = useState<GenerationEngine>("offline");
@@ -121,6 +122,10 @@ export function GeneratorPanel() {
   const [generateSideboard, setGenSide] = useState(false);
   const [currentDeckMode, setCurrentDeckMode] = useState<"off" | "suggestion" | "tuneCore" | "buildAround" | "lockExact" | "redefine">("buildAround");
   const [seedFuzzSwaps, setSeedFuzzSwaps] = useState<number>(0);
+  // Locked spine: AI's nonland picks (and the quantities the LLM specifies) become
+  // a locked deck spine the optimizer may only gap-fill around. Default ON for AI;
+  // a toggle lets the user relax it back to "soft preferences" behavior.
+  const [lockAIPicks, setLockAIPicks] = useState<boolean>(true);
   const [analysisSummary, setAnalysisSummary] = useState<string | null>(null);
 
   const [busy, setBusy] = useState(false);
@@ -256,6 +261,38 @@ export function GeneratorPanel() {
 
   const buildCurrentDeckEntries = () => {
     const nonlandMain = mainEntries.filter((e) => e.board === "main" && !e.card.typeLine.includes("Land"));
+    const base = buildCurrentDeckEntriesForMode(nonlandMain);
+    return applyPinnedLocks(base);
+  };
+
+  // Pinned cards are always locked seeds at their pinned quantity, regardless of the
+  // current-deck mode. They are removed from focus/prefer lists so they are not
+  // double-counted, guaranteeing the optimizer never swaps or reduces them.
+  const applyPinnedLocks = (base: ReturnType<typeof buildCurrentDeckEntriesForMode>) => {
+    const pinnedIds = Object.keys(pins);
+    if (pinnedIds.length === 0) return base;
+    const pinnedSet = new Set(pinnedIds);
+    const pinnedEntries = mainEntries
+      .filter((e) => e.board === "main" && pinnedSet.has(e.card.oracleId))
+      .map((e) => ({ card: e.card, quantity: Math.min(pins[e.card.oracleId], e.quantity), board: "main" as const }));
+
+    const dropPinned = (list: typeof base.seedEntries) =>
+      list ? list.filter((e) => !pinnedSet.has(e.card.oracleId)) : list;
+
+    const mergedSeeds = [
+      ...(base.seedEntries ? base.seedEntries.filter((e) => !pinnedSet.has(e.card.oracleId)) : []),
+      ...pinnedEntries,
+    ];
+
+    return {
+      seedEntries: mergedSeeds.length ? mergedSeeds : undefined,
+      focusEntries: dropPinned(base.focusEntries),
+      preferEntries: dropPinned(base.preferEntries),
+      seedFuzzSwaps: base.seedFuzzSwaps,
+    };
+  };
+
+  const buildCurrentDeckEntriesForMode = (nonlandMain: typeof mainEntries) => {
     switch (currentDeckMode) {
       case "off":
         return { seedEntries: undefined, focusEntries: undefined, preferEntries: undefined, seedFuzzSwaps: undefined };
@@ -311,7 +348,7 @@ export function GeneratorPanel() {
       variants,
       optimizationIterations: iterations,
       aiIterations,
-      aiPicksAsFinal: engine === "ai" && currentDeckMode === "redefine",
+      aiPicksAsFinal: engine === "ai" && (lockAIPicks || currentDeckMode === "redefine"),
       userContext: userContext.trim() || undefined,
       generateSideboard: getFormatRules(format).sideboardSize == null ? false : generateSideboard,
     };
@@ -386,7 +423,7 @@ export function GeneratorPanel() {
         variants,
         optimizationIterations: iterations,
         aiIterations,
-        aiPicksAsFinal: engine === "ai" && currentDeckMode === "redefine",
+        aiPicksAsFinal: engine === "ai" && (lockAIPicks || currentDeckMode === "redefine"),
         userContext: userContext.trim() || undefined,
         generateSideboard: getFormatRules(format).sideboardSize == null ? false : generateSideboard,
       };
@@ -934,6 +971,22 @@ export function GeneratorPanel() {
               Sent directly to the LLM with the generated prompt. Use this for playstyle, meta notes, pet cards, cards to preserve, or constraints the controls do not capture.
             </p>
           </div>
+          <label className="flex items-start gap-2 rounded-md border border-zinc-800 bg-zinc-900/60 p-2 text-xs">
+            <input
+              type="checkbox"
+              checked={lockAIPicks}
+              onChange={(e) => setLockAIPicks(e.target.checked)}
+              className="mt-0.5 accent-teal-500"
+            />
+            <span>
+              <span className="font-medium text-zinc-200">Lock AI picks (spine)</span>
+              <span className="mt-0.5 block text-[11px] leading-snug text-zinc-500">
+                {lockAIPicks
+                  ? "On (recommended): the AI's nonland picks and the quantities it requests are locked as the deck spine. The offline optimizer only gap-fills the remaining slots (lands, curve fill, removal) and never removes or reduces an AI pick."
+                  : "Off: the AI's picks are treated as strong soft preferences. The offline optimizer is free to swap weaker AI choices for higher-scoring cards."}
+              </span>
+            </span>
+          </label>
           <button
             onClick={onPreviewPrompt}
             className="w-full rounded-md border border-teal-700 bg-teal-600/10 px-3 py-1.5 text-xs text-teal-200 hover:bg-teal-600/20"
