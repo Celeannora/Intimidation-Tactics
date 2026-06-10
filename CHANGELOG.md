@@ -2,6 +2,37 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased] — repo cleanup pass
+
+### Added
+- `LICENSE` — the project is now licensed under GPL-3.0.
+- Fan Content attribution notice and accurate documentation in `README.md`.
+
+### Corrections to earlier entries
+The "triage pass" entries below contain two claims that do not match the actual
+repository tree. They are left in place for history and corrected here:
+
+- **`main.py` was NOT removed.** It still exists and is a working Python
+  launcher that wraps the Vite dev/preview server (dependency checks, port
+  freeing, install). The "Removed `main.py`" line below is inaccurate.
+- **No `src/experimental/` quarantine directory exists.** The "Quarantined
+  (moved to `src/experimental/`)" section below describes files and a directory
+  that are not present in the tree. Treat that section as historical/aspirational
+  notes only, not a description of the current layout.
+
+### Removed (cleanup pass)
+- Untracked `node_modules/` (was committed) and added it, plus `dist/`,
+  `coverage/`, `*.log`, and `.sisyphus/`, to `.gitignore`.
+- Deleted leaked process artifacts: `plan.txt`, `plan_v2.md`,
+  `implementation_plan.md`, `audit_report.md`, `SESSION_STATUS.md`, `TODO.md`,
+  `all_files.txt`, `dev.log`, `tsc.log`, and the `.sisyphus/` directory.
+- Deleted dead stub `src/lib/scryfallApi.ts` (no importers) and the empty
+  `src/lib/generator/__tests__/millDebug.diagnostic.ts`.
+
+### Changed (cleanup pass)
+- Vitest `include` now matches `.test.tsx` as well as `.test.ts`; coverage
+  `include` widened from `src/lib/**` to `src/**` (test files excluded).
+
 ## [Unreleased] — triage pass
 
 ### Added
