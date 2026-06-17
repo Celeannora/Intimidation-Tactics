@@ -45,6 +45,90 @@ const BASIC_BY_COLOR: Record<ManaColor, string> = {
   G: "Forest",
 };
 
+/** Absolute minimum lands a deck must have, regardless of any other calculation.
+ *  A deck with fewer lands than this is structurally broken and will be
+ *  auto-corrected. */
+const ABSOLUTE_MINIMUM_LANDS = 10;
+
+/** Synthetic basic land CardRecord entries used as a hard fallback when the
+ *  real Scryfall database is missing basic lands (e.g. a filtered import).
+ *  These are minimal but sufficient for the generator to always produce a
+ *  functioning mana base. */
+function syntheticBasicLand(name: string, colors: ManaColor[]): CardRecord {
+  const id = `synthetic-basic-${name.toLowerCase()}`;
+  return {
+    id,
+    oracleId: id,
+    name,
+    lang: "en",
+    layout: "normal",
+    cardFacesJson: null,
+    manaCost: "",
+    cmc: 0,
+    colorsJson: JSON.stringify(colors),
+    colorIdentityJson: JSON.stringify(colors),
+    typeLine: `Basic Land${colors.length === 0 ? "" : ` — ${colors.join("/")}`}`,
+    oracleText: colors.length === 0
+      ? "{T}: Add {C}."
+      : `{T}: Add {${colors.join("}, {")}}.`,
+    keywordsJson: "[]",
+    power: null,
+    toughness: null,
+    loyalty: null,
+    producedManaJson: JSON.stringify(colors),
+    legalityStandard: "legal",
+    legalityFuture: "legal",
+    bannedInStandard: 0,
+    legalitiesJson: "{}",
+    setCode: "M20",
+    setName: "Core Set 2020",
+    setType: null,
+    collectorNumber: null,
+    rarity: "common",
+    imageNormal: null,
+    priceUsd: 0,
+    priceUsdFoil: null,
+    priceEur: null,
+    edhrecRank: 99999,
+    gameChanger: 0,
+    flavorText: null,
+    artist: null,
+    searchText: name.toLowerCase(),
+    importedAt: new Date(0).toISOString(),
+  };
+}
+
+const SYNTHETIC_BASICS: CardRecord[] = [
+  syntheticBasicLand("Plains", ["W"]),
+  syntheticBasicLand("Island", ["U"]),
+  syntheticBasicLand("Swamp", ["B"]),
+  syntheticBasicLand("Mountain", ["R"]),
+  syntheticBasicLand("Forest", ["G"]),
+  syntheticBasicLand("Wastes", []),
+];
+
+/** Resolve a basic land by name from the database, falling back to a synthetic
+ *  entry when the database doesn't contain it. This guarantees the generator
+ *  can always produce a mana base. */
+function resolveBasicLand(allCards: CardRecord[], name: string): CardRecord {
+  // Prefer cheapest real print (avoids premium foils / masterpieces)
+  const real = allCards
+    .filter((c) => c.name === name && c.typeLine.includes("Basic"))
+    .sort((a, b) => (a.priceUsd ?? 0) - (b.priceUsd ?? 0));
+  if (real.length > 0) return real[0];
+  // Fallback to synthetic — this ensures zero-land decks are impossible
+  const synth = SYNTHETIC_BASICS.find((c) => c.name === name);
+  if (synth) {
+    console.warn(
+      `[generator] Database missing basic land "${name}" — using synthetic fallback. ` +
+      `Re-import the full Scryfall dump to restore real card data.`
+    );
+    return synth;
+  }
+  // Ultimate fallback — should never happen with SYNTHETIC_BASICS defined above
+  return SYNTHETIC_BASICS[0];
+}
+
 assertOfflineStageOrder([
   "pool-builder",
   "role-fill",
@@ -573,8 +657,8 @@ function pickBasicLands(
   if (count <= 0) return [];
 
   if (colors.length === 0) {
-    const wastes = allCards.find((c) => c.name === "Wastes" && BASIC_LAND_NAMES.has(c.name));
-    return wastes ? [{ card: wastes, quantity: count, board: "main" }] : [];
+    const wastes = resolveBasicLand(allCards, "Wastes");
+    return [{ card: wastes, quantity: count, board: "main" }];
   }
 
   const perColor = Math.floor(count / colors.length);
@@ -583,10 +667,7 @@ function pickBasicLands(
 
   colors.forEach((color, i) => {
     const name = BASIC_BY_COLOR[color];
-    const land = allCards
-      .filter((c) => c.name === name && c.typeLine.includes("Basic"))
-      .sort((a, b) => (a.priceUsd ?? 0) - (b.priceUsd ?? 0))[0];
-    if (!land) return;
+    const land = resolveBasicLand(allCards, name);
     const qty = perColor + (i < remainder ? 1 : 0);
     if (qty > 0) entries.push({ card: land, quantity: qty, board: "main" });
   });
@@ -769,14 +850,15 @@ function enforceLandFloor(
   targetMainboardSize: number,
   reasoning: string[]
 ): void {
-  // Land floor with a small tolerance: don't refuse a deck that's within 2 lands
-  // of the recommendation. Below that, top up.
-  const tolerance = 2;
-  const minLands = Math.max(0, landFloor - tolerance);
+  /* STRICT land floor — no tolerance. Every deck MUST have at least
+   * ABSOLUTE_MINIMUM_LANDS or landFloor (whichever is higher). Synthetic
+   * basic land fallback (resolveBasicLand) guarantees we can always add
+   * lands even when the real Scryfall database is missing them. */
+  const requiredLands = Math.max(ABSOLUTE_MINIMUM_LANDS, landFloor);
   let landCount = countMainLands(entries);
-  if (landCount >= minLands) return;
+  if (landCount >= requiredLands) return;
 
-  const needed = landFloor - landCount;
+  const needed = requiredLands - landCount;
   const before = landCount;
 
   // Step 1: shed the highest-cmc removable nonlands to make room.
@@ -797,7 +879,7 @@ function enforceLandFloor(
     for (let i = entries.length - 1; i >= 0; i--) if (entries[i].quantity <= 0) entries.splice(i, 1);
   }
 
-  // Step 2: add basics up to landFloor (or until mainboard hits target).
+  // Step 2: add basics up to requiredLands (or until mainboard hits target).
   const room = Math.max(0, targetMainboardSize - entries.filter((e) => e.board === "main").reduce((s, e) => s + e.quantity, 0));
   const toAdd = Math.min(needed, room);
   if (toAdd > 0) {
@@ -811,9 +893,9 @@ function enforceLandFloor(
 
   landCount = countMainLands(entries);
   if (landCount > before) {
-    reasoning.push(`Land-floor guard: padded ${landCount - before} basic land(s) to reach recommended ${landFloor} (was ${before})`);
-  } else if (landCount < landFloor) {
-    reasoning.push(`Land-floor guard: deck is ${landFloor - landCount} land(s) short of recommended ${landFloor} (no room or no basics available)`);
+    reasoning.push(`Land-floor guard: padded ${landCount - before} basic land(s) to reach required ${requiredLands} (was ${before})`);
+  } else if (landCount < requiredLands) {
+    reasoning.push(`ERROR: deck has ${landCount} land(s), required ${requiredLands} minimum. This should not happen — the synthetic basic land fallback guarantees lands are always available.`);
   }
 }
 
