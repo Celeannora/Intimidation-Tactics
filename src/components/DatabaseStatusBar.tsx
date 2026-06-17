@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { db } from "../lib/db";
 import type { DatabaseStatus } from "../hooks/useDBStatus";
 import { requestPersistentStorage, estimateStorage, type PersistenceStatus } from "../lib/persistence";
+import { UpdateDatabaseButton } from "./UpdateDatabaseButton";
 
 const STALE_AFTER_MS = 30 * 24 * 60 * 60 * 1000;
 
@@ -48,8 +49,15 @@ export function DatabaseStatusBar({ onRequestImport }: Props) {
     const id = setInterval(refresh, 60_000);
     const handler = (e: Event) => setPersistence((e as CustomEvent<PersistenceStatus>).detail);
     window.addEventListener("storage-persistence", handler);
+    // Re-read card count after a manual DB update
+    const dbRefreshHandler = () => { void refresh(); };
+    window.addEventListener("db-refreshed", dbRefreshHandler);
     void requestPersistentStorage().then(setPersistence);
-    return () => { clearInterval(id); window.removeEventListener("storage-persistence", handler); };
+    return () => {
+      clearInterval(id);
+      window.removeEventListener("storage-persistence", handler);
+      window.removeEventListener("db-refreshed", dbRefreshHandler);
+    };
   }, []);
 
   const onClickPersist = async () => setPersistence(await requestPersistentStorage());
@@ -111,6 +119,9 @@ export function DatabaseStatusBar({ onRequestImport }: Props) {
           </span>
         </>
       )}
+      <span className="text-zinc-700">·</span>
+      <UpdateDatabaseButton />
+
       <span className="ml-auto">
         <a
           href="https://scryfall.com"

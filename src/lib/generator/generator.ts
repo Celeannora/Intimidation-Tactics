@@ -24,6 +24,7 @@ import {
   keywordFocusToAxes,
   type MechanicAxis,
 } from "./synergyModel";
+import { buildSeedSynergyGraph } from "../analysis/synergyGraph";
 import type {
   GenerateOptions,
   GenerateResult,
@@ -269,8 +270,26 @@ function generateOne(
 
   const seedProfiles = seedEntries.map((e) => buildSynergyProfile(e.card));
   const focusProfiles = focusSourceEntries.map((e) => buildSynergyProfile(e.card));
-  const deckAxes = deriveDeckAxes(options, [...seedProfiles, ...focusProfiles]);
+
+  // Build the seed synergy graph (cached) to extract graph-confirmed axes.
+  // These are pairwise source→payoff relationships proven between actual seed cards —
+  // stronger axis evidence than inferPrimaryAxes (per-card tag coverage only).
+  // The graph is also reused by aiGenerator when building the LLM prompt, so the
+  // cache hit rate is high during AI generation flows.
+  const seedCardsForGraph = seedEntries.map((e) => e.card);
+  const seedGraph = seedCardsForGraph.length >= 2 ? buildSeedSynergyGraph(seedCardsForGraph) : null;
+  const graphConfirmedAxes: MechanicAxis[] = seedGraph?.connectedAxes
+    .filter((a) => a.edgeCount >= 1)
+    .map((a) => a.axis)
+    .slice(0, 3) ?? [];
+
+  const deckAxes = deriveDeckAxes(options, [...seedProfiles, ...focusProfiles], graphConfirmedAxes);
   if (deckAxes.length > 0) reasoning.push(`Mechanical axes: ${deckAxes.join(", ")}`);
+  if (seedGraph && graphConfirmedAxes.length > 0) {
+    reasoning.push(
+      `Seed graph: ${graphConfirmedAxes.length} confirmed axis/axes (${graphConfirmedAxes.join(", ")}) from ${seedGraph.edges.length} synergy link(s) at density ${Math.round(seedGraph.density * 100)}%`
+    );
+  }
   if (options.metaTargets?.length) {
     // TODO(meta): apply counter-weighting — bias card scoring toward answers for
     // these meta archetypes' key cards. No-op today; recorded for transparency only.
@@ -936,13 +955,27 @@ function isWithinColorIdentity(card: CardRecord, colors: ManaColor[]): boolean {
   }
 }
 
-function deriveDeckAxes(options: GenerateOptions, seedProfiles: ReturnType<typeof buildSynergyProfile>[]): MechanicAxis[] {
+/**
+ * Derive the deck's mechanical axes from archetype defaults, user keyword focus,
+ * seed-profile inference, and — crucially — graph-confirmed axes from the seed
+ * synergy graph.
+ *
+ * graphConfirmedAxes are pairwise source→payoff relationships proven between actual
+ * seed cards. They carry stronger evidence than inferPrimaryAxes (which only requires
+ * per-card tag coverage), so they are prepended to get first-pick priority.
+ */
+function deriveDeckAxes(
+  options: GenerateOptions,
+  seedProfiles: ReturnType<typeof buildSynergyProfile>[],
+  graphConfirmedAxes: MechanicAxis[] = [],
+): MechanicAxis[] {
   return uniqueAxes([
+    ...graphConfirmedAxes,             // highest confidence: proven pairwise links
     ...archetypeAxes(options.archetype),
     ...(options.secondaryArchetypes ?? []).flatMap(archetypeAxes),
     ...(options.themes ?? []),
     ...keywordFocusToAxes(options.keywordFocus ?? []),
-    ...inferPrimaryAxes(seedProfiles),
+    ...inferPrimaryAxes(seedProfiles), // lowest confidence: per-card tag coverage
   ]).slice(0, 4);
 }
 

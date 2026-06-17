@@ -19,6 +19,7 @@ All persistent state lives in a single Dexie database with four object stores. N
 | 1 | `cards`, `meta` — initial bulk-import stores |
 | 2 | Added `savedDecks` (id, updatedAt) and `matchResults` (++id, deckId, playedAt) |
 | 3 | Schema audit; no structural changes — version bump ensures clean upgrade path |
+| 3 (live) | Added `scryfallDatasetUpdatedAt` and `scryfallDatasetSize` meta keys (written by `UpdateDatabaseButton` / `ScryfallUpdateController`; no schema bump required) |
 
 ---
 
@@ -81,8 +82,10 @@ Primary key: `key` (string)
 |-----|-------|-------------|
 | `lastImportedAt` | ISO timestamp string | When the last successful bulk import ran |
 | `cardCount` | numeric string | Number of card records in `cards` store |
+| `scryfallDatasetUpdatedAt` | ISO timestamp string | When the Scryfall `oracle_cards` dataset was last published (from the bulk-data manifest); written by `ScryfallUpdateController` on success |
+| `scryfallDatasetSize` | numeric string (bytes) | Byte size of the downloaded dataset blob; written by `ScryfallUpdateController` on success |
 
-Populated atomically with the `cards` store inside a `replaceAllCards` transaction to prevent partial-state reads.
+`lastImportedAt` and `cardCount` are populated atomically with the `cards` store inside a `replaceAllCards` transaction to prevent partial-state reads. `scryfallDatasetUpdatedAt` and `scryfallDatasetSize` are written separately after a successful manual refresh via `UpdateDatabaseButton`.
 
 ---
 

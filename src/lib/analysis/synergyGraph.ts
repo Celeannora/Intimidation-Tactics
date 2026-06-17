@@ -155,7 +155,7 @@ export function formatSynergyGraphForPrompt(graph: SeedSynergyGraph): string {
 
   const edgeLines = graph.edges.slice(0, 12).map((edge) => `- [${edge.kind}] ${edge.explanation}`).join("\n") || "- None";
 
-  return [
+  const prose = [
     "Seed synergy graph:",
     `- Density: ${Math.round(graph.density * 100)}%`,
     `- Summary: ${graph.narrative}`,
@@ -164,6 +164,61 @@ export function formatSynergyGraphForPrompt(graph: SeedSynergyGraph): string {
     "Key seed links:",
     edgeLines,
   ].join("\n");
+
+  // Structured constraint block: LLMs follow JSON constraints more reliably than prose.
+  // The <synergy_constraints> block gives the model explicit axis priorities and the
+  // confirmed source→payoff links it must honor when selecting/reasoning about cards.
+  const constraints = buildSynergyConstraints(graph);
+  const constraintBlock = `<synergy_constraints>\n${JSON.stringify(constraints, null, 2)}\n</synergy_constraints>`;
+
+  return `${prose}\n\n${constraintBlock}`;
+}
+
+/**
+ * Build a compact, structured constraint object from the seed synergy graph.
+ * Serialised as JSON inside <synergy_constraints> so the LLM treats it as
+ * hard requirements rather than advisory prose.
+ */
+export interface SynergyConstraints {
+  /** Top axes the deck MUST build around, ordered by evidence strength. */
+  requiredAxes: MechanicAxis[];
+  /** Secondary axes that support the primary plan. */
+  supportingAxes: MechanicAxis[];
+  /** Graph density 0-1: lower density = seeds don't strongly connect; treat plan as ambiguous. */
+  densityScore: number;
+  /** Confirmed pairwise links — each represents a real source→payoff relationship between seed cards. */
+  confirmedLinks: Array<{
+    from: string;
+    to: string;
+    axis: MechanicAxis;
+    kind: SynergyEdgeKind;
+  }>;
+  /** Instruction derived from density: how aggressively to enforce axis coherence. */
+  buildInstruction: string;
+}
+
+function buildSynergyConstraints(graph: SeedSynergyGraph): SynergyConstraints {
+  const sorted = [...graph.connectedAxes].sort((a, b) => b.edgeCount - a.edgeCount);
+  const required = sorted.filter((a) => a.edgeCount >= 2).map((a) => a.axis).slice(0, 3);
+  const supporting = sorted.filter((a) => a.edgeCount === 1).map((a) => a.axis).slice(0, 3);
+
+  const confirmedLinks = graph.edges
+    .filter((e) => e.kind === "source-to-payoff" || e.kind === "mutual-engine")
+    .slice(0, 10)
+    .map((e) => ({ from: e.fromName, to: e.toName, axis: e.axis, kind: e.kind }));
+
+  let buildInstruction: string;
+  if (graph.density >= 0.5) {
+    buildInstruction = `High-density seed set (${Math.round(graph.density * 100)}%). Prioritize cards that connect to ≥2 required axes. Penalize off-axis inclusions unless they fill mandatory interaction roles.`;
+  } else if (graph.density >= 0.2) {
+    buildInstruction = `Moderate-density seed set (${Math.round(graph.density * 100)}%). Build around required axes but allow 30-40% supporting/off-axis cards to maintain resilience.`;
+  } else if (required.length > 0) {
+    buildInstruction = `Low-density seed set (${Math.round(graph.density * 100)}%) but ${required.length} confirmed axis/axes exist. Lean into those axes while treating other seed cards as flexible slots.`;
+  } else {
+    buildInstruction = `No confirmed axis pairs detected. Treat seed cards as role-based signals only, not mechanical-axis evidence. Build the most coherent competitive interpretation.`;
+  }
+
+  return { requiredAxes: required, supportingAxes: supporting, densityScore: round2(graph.density), confirmedLinks, buildInstruction };
 }
 
 function pushEdge(edges: SynergyGraphEdge[], seen: Set<string>, edge: SynergyGraphEdge): void {

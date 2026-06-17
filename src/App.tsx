@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { BulkImporter } from "./components/BulkImporter";
+import { SynergyPreAnalysisPanel } from "./components/SynergyPreAnalysisPanel";
 import { CardSearchPanel } from "./components/CardSearchPanel";
 import { DeckPanel } from "./components/DeckPanel";
 import { RightPanel } from "./components/RightPanel";
@@ -141,6 +142,7 @@ export default function App() {
   const [mobilePanelIdx, setMobilePanelIdx] = useState(0);
   const [deckListOpen, setDeckListOpen]     = useState(false);
   const [cheatsheetOpen, setCheatsheetOpen] = useState(false);
+  const [leftTab, setLeftTab]               = useState<"search" | "synergy">("search");
 
   const { isReady, refresh } = useDBStatus();
   const activeDeckId         = useDeckStore(s => s.activeDeckId);
@@ -325,16 +327,39 @@ export default function App() {
                     </svg>
                     My Decks
                   </button>
+                  {/* Search / Synergy tab toggle */}
+                  <div role="tablist" aria-label="Left panel view" className="flex flex-1 justify-center">
+                    <div className="flex rounded-md border border-zinc-700 overflow-hidden">
+                      <button
+                        role="tab"
+                        aria-selected={leftTab === "search"}
+                        onClick={() => setLeftTab("search")}
+                        className={`px-2.5 py-0.5 text-xs font-medium transition-colors ${leftTab === "search" ? "bg-zinc-700 text-zinc-100" : "text-zinc-500 hover:text-zinc-300"}`}
+                      >
+                        Search
+                      </button>
+                      <button
+                        role="tab"
+                        aria-selected={leftTab === "synergy"}
+                        onClick={() => setLeftTab("synergy")}
+                        className={`px-2.5 py-0.5 text-xs font-medium border-l border-zinc-700 transition-colors ${leftTab === "synergy" ? "bg-teal-900/70 text-teal-200" : "text-zinc-500 hover:text-zinc-300"}`}
+                      >
+                        Synergy
+                      </button>
+                    </div>
+                  </div>
                   <button
                     onClick={() => setCheatsheetOpen(o => !o)}
-                    className="ml-auto rounded px-1.5 py-0.5 text-xs text-zinc-600 hover:text-zinc-400 transition-colors"
+                    className="rounded px-1.5 py-0.5 text-xs text-zinc-600 hover:text-zinc-400 transition-colors"
                     aria-label="Keyboard shortcuts"
                     title="Keyboard shortcuts (?)"
                   >
                     ?
                   </button>
                 </div>
-                <CardSearchPanel onCardClick={setDetailCard} />
+                {leftTab === "search"
+                  ? <CardSearchPanel onCardClick={setDetailCard} />
+                  : <div className="flex-1 overflow-y-auto p-3"><SynergyPreAnalysisPanel onCardClick={setDetailCard} /></div>}
               </section>
 
               <section aria-label="Deck editor" className="flex flex-col overflow-hidden border-r border-zinc-800">
@@ -350,7 +375,27 @@ export default function App() {
             <div className="flex flex-col h-full overflow-hidden md:hidden flex-1">
               {mobilePanelIdx === 0 && (
                 <section id="mobile-panel-0" role="tabpanel" aria-label="Card search" className="flex flex-col h-full">
-                  <CardSearchPanel onCardClick={setDetailCard} />
+                  <div role="tablist" className="flex shrink-0 border-b border-zinc-800 bg-zinc-950">
+                    <button
+                      role="tab"
+                      aria-selected={leftTab === "search"}
+                      onClick={() => setLeftTab("search")}
+                      className={`flex-1 py-1.5 text-xs font-medium transition-colors ${leftTab === "search" ? "border-b-2 border-teal-500 text-teal-300" : "text-zinc-500 hover:text-zinc-300"}`}
+                    >
+                      Search
+                    </button>
+                    <button
+                      role="tab"
+                      aria-selected={leftTab === "synergy"}
+                      onClick={() => setLeftTab("synergy")}
+                      className={`flex-1 py-1.5 text-xs font-medium transition-colors ${leftTab === "synergy" ? "border-b-2 border-teal-500 text-teal-300" : "text-zinc-500 hover:text-zinc-300"}`}
+                    >
+                      Synergy
+                    </button>
+                  </div>
+                  {leftTab === "search"
+                    ? <CardSearchPanel onCardClick={setDetailCard} />
+                    : <div className="flex-1 overflow-y-auto p-3"><SynergyPreAnalysisPanel onCardClick={setDetailCard} /></div>}
                 </section>
               )}
               {mobilePanelIdx === 1 && (
