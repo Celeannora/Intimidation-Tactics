@@ -7,6 +7,20 @@ import { IDEAL_CURVES, recommendColorSources, parsePips, type ArchetypeCurveProf
 import type { GenerateOptions, KeywordFocus, ScoreBreakdown } from "./types";
 import { axisScore, buildSynergyProfile, crossAxisCompositionBonus, keywordFocusToAxes, summarizeSynergyConnections, synergyDensityMultiplier, tribalCardBonus } from "./synergyModel";
 import { colorAffinity } from "./colorWeights";
+import {
+  getCardConfig,
+  getDeckConfig,
+} from "../config/scoringConfig";
+import { computeMetaPerformance } from "../meta/metaScoring";
+import {
+  ARCHETYPE_PROFILES,
+  computeProfileLoss,
+  computeRedundancyScore,
+  rolesToBuckets,
+  cmcToCurveBin,
+  type CurveBin,
+  type RoleBucket,
+} from "../config/archetypeProfiles";
 
 /**
  * Research-backed scoring engine.
@@ -254,14 +268,26 @@ export function cardScoreDetail(
   const flexibility = flexibilityScore(card, roles);
   const ladder = ladderBo1Score(card, roles, options);
   const deadCardPen = deadCardPenalty(card, roles, options);
+  // Load config for current format/environment
+  const cardCfg = getCardConfig(options.format, options.playEnvironment);
+
   const rawRolePowerContribution = role * power * colorAff;
-  const rolePowerContribution = rawRolePowerContribution <= 35
+  const rolePowerContribution = rawRolePowerContribution <= cardCfg.rolePowerLinearCap
     ? rawRolePowerContribution
-    : 35 + Math.log1p(rawRolePowerContribution - 35) * 6;
-  const directionalContribution = 5.0 * directional * synergyMultiplier;
-  const efficiencyContribution = 1.2 * efficiency;
-  const flexibilityContribution = 0.9 * flexibility;
-  const ladderContribution = 0.8 * ladder;
+    : cardCfg.rolePowerLinearCap + Math.log1p(rawRolePowerContribution - cardCfg.rolePowerLinearCap) * cardCfg.rolePowerLogSlope;
+
+  // Config-driven directional contribution with log-compression
+  const rawSynergy = directional * synergyMultiplier;
+  let compressedSynergy: number;
+  if (rawSynergy <= cardCfg.directionalLinearCap) {
+    compressedSynergy = rawSynergy;
+  } else {
+    compressedSynergy = cardCfg.directionalLinearCap + Math.log1p(rawSynergy - cardCfg.directionalLinearCap) * cardCfg.directionalLogSlope;
+  }
+  const directionalContribution = Math.min(cardCfg.directionalMaxContribution, cardCfg.directionalScalar * compressedSynergy);
+  const efficiencyContribution = cardCfg.efficiencyScalar * efficiency;
+  const flexibilityContribution = cardCfg.flexibilityScalar * flexibility;
+  const ladderContribution = cardCfg.ladderScalar * ladder;
 
   const total =
     rolePowerContribution +
@@ -375,6 +401,102 @@ export interface DeckScore {
   cardScoreSum: number;
   curveDeviation: number;
   manaBaseCoverage: number;
+  /** role-profile loss (lower is better, 0 = perfect fit). */
+  profileLoss: number;
+  /** redundancy score (0–20, higher = more robust engines). */
+  redundancyScore: number;
+  /** meta performance score ([−20, +20], positive = favorable matchups). */
+  metaPerformance: number;
+  /** curve penalty term. */
+  curvePenalty: number;
+  /** mana coverage penalty term. */
+  manaPenalty: number;
+  /** role profile penalty term. */
+  profilePenalty: number;
+  /** redundancy contribution term. */
+  redundancyContribution: number;
+  /** meta performance contribution term. */
+  metaPerformanceContribution: number;
+}
+
+/**
+ * Compute deck-level role bucket counts and curve histogram from entries.
+ */
+function computeDeckRoleProfile(entries: DeckEntry[]): {
+  buckets: Partial<Record<RoleBucket, number>>;
+  curve: Record<CurveBin, number>;
+  landCount: number;
+} {
+  const buckets: Partial<Record<RoleBucket, number>> = {};
+  const curve: Record<CurveBin, number> = { 0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0, 7: 0 };
+  let landCount = 0;
+
+  for (const e of entries) {
+    if (e.card.typeLine.includes("Land")) {
+      landCount += e.quantity;
+    } else {
+      const roles = assignRoles(e.card);
+      const roleBuckets = rolesToBuckets(roles, e.card.cmc);
+      for (const bucket of roleBuckets) {
+        buckets[bucket] = (buckets[bucket] ?? 0) + e.quantity;
+      }
+      // Also count synergy engine cards (any card with an active engine-related role)
+      const profile = buildSynergyProfile(e.card);
+      const er = profile.engineRole;
+      if (er === "engine" || er === "enabler" || er === "payoff") {
+        buckets["synergyEngine"] = (buckets["synergyEngine"] ?? 0) + e.quantity;
+      }
+
+      const bin = cmcToCurveBin(e.card.cmc);
+      curve[bin] = (curve[bin] ?? 0) + e.quantity;
+    }
+  }
+  return { buckets, curve, landCount };
+}
+
+/**
+ * Compute redundancy metrics from synergy profiles of all nonland cards.
+ */
+function computeDeckRedundancy(entries: DeckEntry[]): number {
+  const nonlands = entries.filter((e) => !e.card.typeLine.includes("Land"));
+  if (nonlands.length === 0) return 0;
+
+  const profiles = nonlands.map((e) => buildSynergyProfile(e.card));
+
+  // Aggregate per-axis counts across the deck using sourceTags and payoffTags
+  const axisData = new Map<string, { sources: number; payoffs: number; engines: number }>();
+  for (const p of profiles) {
+    for (const axis of p.sourceTags) {
+      const existing = axisData.get(axis) ?? { sources: 0, payoffs: 0, engines: 0 };
+      existing.sources += 1;
+      axisData.set(axis, existing);
+    }
+    for (const axis of p.payoffTags) {
+      const existing = axisData.get(axis) ?? { sources: 0, payoffs: 0, engines: 0 };
+      existing.payoffs += 1;
+      axisData.set(axis, existing);
+    }
+    // Count engines/enablers per axis — if the card has an engine role and any source/payoff tag,
+    // attribute an engine count to those axes
+    if (p.engineRole === "engine") {
+      for (const axis of new Set([...p.sourceTags, ...p.payoffTags])) {
+        const existing = axisData.get(axis) ?? { sources: 0, payoffs: 0, engines: 0 };
+        existing.engines += 1;
+        axisData.set(axis, existing);
+      }
+    }
+  }
+
+  // Determine primary axes by coverage (simple heuristic: sources + payoffs >= 5)
+  const axisProfiles = Array.from(axisData.entries()).map(([, data]) => ({
+    sources: data.sources,
+    payoffs: data.payoffs,
+    engines: data.engines,
+    isPrimary: data.sources + data.payoffs >= 5,
+  }));
+
+  const metrics = computeRedundancyScore(axisProfiles);
+  return metrics.score;
 }
 
 export function deckScore(
@@ -382,6 +504,8 @@ export function deckScore(
   options: GenerateOptions,
   targetAvgCmc: number
 ): DeckScore {
+  const deckCfg = getDeckConfig(options.format, options.playEnvironment);
+
   let cardScoreSum = 0;
   for (const e of entries) {
     if (e.card.typeLine.includes("Land")) continue;
@@ -390,12 +514,54 @@ export function deckScore(
   const curveDev = curveDeviation(entries, options.archetype);
   const coverage = manaBaseCoverage(entries);
 
-  const total = cardScoreSum - 7.0 * curveDev - 10.0 * (1 - coverage);
+  // Compute role profile loss
+  const profile = computeDeckRoleProfile(entries);
+  const archetypeProfile = ARCHETYPE_PROFILES[options.archetype];
+  const profileLoss = computeProfileLoss(
+    profile.buckets,
+    profile.curve,
+    profile.landCount,
+    archetypeProfile,
+  );
+
+  // Compute redundancy score
+  const redundancy = computeDeckRedundancy(entries);
+
+  // Apply config-driven multipliers
+  const curvePenalty = deckCfg.curveDeviationMultiplier * curveDev;
+  const manaPenalty = deckCfg.manaCoverageMultiplier * (1 - coverage);
+  const profilePenalty = deckCfg.roleProfileLossMultiplier * profileLoss;
+  const redundancyContribution = deckCfg.redundancyMultiplier * redundancy;
+
+  // Compute meta performance against specified targets
+  const metaPerf = computeMetaPerformance(
+    entries.map((e) => ({ card: e.card, quantity: e.quantity })),
+    options.metaTargets ?? undefined,
+    undefined, // metaContext — pass undefined until wired from snapshot
+  );
+  const metaPerformanceContribution = deckCfg.metaPerformanceMultiplier * metaPerf;
+
+  const total =
+    cardScoreSum +
+    redundancyContribution +
+    metaPerformanceContribution -
+    curvePenalty -
+    manaPenalty -
+    profilePenalty;
+
   return {
     total,
     cardScoreSum,
     curveDeviation: curveDev,
     manaBaseCoverage: coverage,
+    profileLoss,
+    redundancyScore: redundancy,
+    metaPerformance: metaPerf,
+    curvePenalty,
+    manaPenalty,
+    profilePenalty,
+    redundancyContribution,
+    metaPerformanceContribution,
   };
 }
 
@@ -440,15 +606,15 @@ export function buildScoreBreakdown(
     .sort((a, b) => b.contribution - a.contribution);
 
   const score = deckScore(entries, options, targetAvgCmc);
-  const curvePenalty = 7.0 * score.curveDeviation;
-  const manaPenalty = 10.0 * (1 - score.manaBaseCoverage);
 
   return {
     cardScores,
     totals: {
       cardScoreSum: score.cardScoreSum,
-      curvePenalty,
-      manaPenalty,
+      curvePenalty: score.curvePenalty,
+      manaPenalty: score.manaPenalty,
+      profilePenalty: score.profilePenalty,
+      redundancyContribution: score.redundancyContribution,
       finalScore: score.total,
     },
   };

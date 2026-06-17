@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, afterEach } from "vitest";
 import type { CardRecord } from "../../types";
 import type { GenerateOptions } from "../../generator/types";
-import { buildAIPrompts, clampAINonlandSpine, salvageDeckJSON } from "../aiGenerator";
+import { buildAIPrompts, clampAINonlandSpine, salvageDeckJSON, validateAIProposal } from "../aiGenerator";
 import { OllamaProvider } from "../ollama";
 
 function makeCard(overrides: Partial<CardRecord> & { name: string; typeLine?: string; oracleText?: string }): CardRecord {
@@ -222,6 +222,51 @@ describe("salvageDeckJSON", () => {
     expect(salvaged.summary).toBe("Green beatdown");
     expect(salvaged.main).toEqual([{ name: "Test Beast", qty: 4, reason: "efficient threat" }]);
     expect(salvaged.side).toEqual([{ name: "Naturalize", qty: 2, reason: "artifact answer" }]);
+  });
+});
+
+
+describe("validateAIProposal", () => {
+  it("reports unresolved, out-of-pool, illegal, land, and quantity issues", () => {
+    const legal = makeCard({ name: "Legal Beast" });
+    const offColor = makeCard({
+      name: "Red Intruder",
+      colorsJson: JSON.stringify(["R"]),
+      colorIdentityJson: JSON.stringify(["R"]),
+    });
+    const banned = makeCard({
+      name: "Banned Beast",
+      legalitiesJson: JSON.stringify({ standard: "banned" }),
+      legalityStandard: "banned",
+    });
+    const forest = makeCard({
+      name: "Forest",
+      typeLine: "Basic Land — Forest",
+      manaCost: "",
+      cmc: 0,
+      oracleText: "({T}: Add {G}.)",
+    });
+
+    const result = validateAIProposal({
+      resolvedEntries: [
+        { card: legal, quantity: 9, board: "main" },
+        { card: offColor, quantity: 1, board: "main" },
+        { card: banned, quantity: 1, board: "main" },
+        { card: forest, quantity: 4, board: "main" },
+      ],
+      unresolvedNames: ["Imaginary Card"],
+      allCards: [legal, offColor, banned, forest],
+      options,
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.issues.map((issue) => issue.code)).toEqual(expect.arrayContaining([
+      "UNRESOLVED_CARD",
+      "OUT_OF_POOL",
+      "NOT_LEGAL",
+      "MAINBOARD_LAND_IGNORED",
+      "QUANTITY_CLAMPED",
+    ]));
   });
 });
 

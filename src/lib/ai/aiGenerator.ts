@@ -1,13 +1,15 @@
 import type { CardRecord } from "../types";
 import type { DeckEntry } from "../legality";
-import { BASIC_LAND_NAMES, maxCopiesForCard } from "../legality";
-import { getFormatRules } from "../formats";
+import { BASIC_LAND_NAMES, maxCopiesForCard, validateDeck } from "../legality";
+import { getCardLegality, getFormatRules } from "../formats";
 import { assignRoles } from "../roles";
 import { buildPool } from "../generator/pool";
 import { generateDeck as generateOffline } from "../generator/generator";
 import { buildScoreBreakdown, cardScoreDetail, deckScore, targetAvgCmcFor } from "../generator/weights";
 import { blendRoleTargets } from "../generator/roleTargets";
 import { buildSynergyProfile, generateCardReasons, generateTribalReasons, keywordFocusToAxes } from "../generator/synergyModel";
+import { analyzeSeeds, formatSeedSummaryForPrompt } from "../analysis/seedAnalyzer";
+import { buildSeedSynergyGraph, formatSynergyGraphForPrompt } from "../analysis/synergyGraph";
 import type {
   GenerateOptions,
   GenerateResult,
@@ -137,6 +139,17 @@ function summarizeDeckEntries(entries: DeckEntry[], label: string, poolIds: Set<
   return `${label}: ${inPool.length} unique / ${total} copies (${examples}${suffix}${droppedText})`;
 }
 
+function dedupeCardsByOracle(cards: CardRecord[]): CardRecord[] {
+  const seen = new Set<string>();
+  const out: CardRecord[] = [];
+  for (const card of cards) {
+    if (seen.has(card.oracleId)) continue;
+    seen.add(card.oracleId);
+    out.push(card);
+  }
+  return out;
+}
+
 /** Build the exact system+user messages that will be sent to the AI provider. */
 export function buildAIPrompts(
   options: GenerateOptions,
@@ -191,6 +204,17 @@ export function buildAIPrompts(
   const seedList = summarizeDeckEntries(options.seedEntries ?? [], "Current locked/seed deck context", fullPoolIds);
   const focusList = summarizeDeckEntries(options.focusEntries ?? [], "Current synergy core / build-around context", fullPoolIds);
   const preferList = summarizeDeckEntries(options.preferEntries ?? [], "Current preferred deck context", fullPoolIds);
+  const intentSeeds = [
+    ...(options.focusEntries ?? []),
+    ...(options.seedEntries ?? []),
+    ...(options.preferEntries ?? []),
+  ].map((entry) => entry.card);
+  const uniqueIntentSeeds = dedupeCardsByOracle(intentSeeds);
+  const seedSummary = analyzeSeeds(uniqueIntentSeeds);
+  const seedGraph = buildSeedSynergyGraph(uniqueIntentSeeds);
+  const seedIntentBlock = intentSeeds.length > 0
+    ? [formatSeedSummaryForPrompt(seedSummary), "", formatSynergyGraphForPrompt(seedGraph)].join("\n")
+    : "";
   const userContext = options.userContext?.trim();
 
   const isRedefine = options.aiPicksAsFinal === true;
@@ -199,6 +223,8 @@ export function buildAIPrompts(
     `Build ONLY the NONLAND core for a tournament-viable ${targetMainboardSize}-card mainboard${formatRules.sideboardSize ? ` (${formatRules.sideboardSize}-card sideboard if requested)` : ""} using cards from the provided pool.`,
     `IMPORTANT: do NOT return a full ${targetMainboardSize}-card mainboard. An offline mana-base builder will add lands automatically. Return ${targetNonlandMin}-${targetNonlandMax} mainboard nonland cards (spells/creatures/planeswalkers/etc). Do NOT pad with basics or utility lands in main — leave all land slots for the offline builder.`,
     `HARD CAP: main[] quantities must sum to AT MOST ${targetNonlandMax} nonland copies. Anything beyond that will be trimmed automatically (highest mana value first), so exceeding the cap only damages your own curve.`,
+    "Seed cards are evidence of user intent, not necessarily mandatory deck slots. Infer the plan from seed intent analysis, then build the most competitive version of that plan. If a seed is off-plan or too weak, mention the tension in summary/game_plan and let the offline optimizer replace it if needed.",
+    "When seed intent confidence is low, choose the most coherent competitive interpretation and explain the ambiguity briefly in `summary`.",
     "Each candidate has `score(total=...,power=...,syn=...,role=...,utility=...,pen=...,mult=...,tags=...)` from the offline engine. Treat `syn`, `mult`, and tags like `syn-dense`/`composition` as evidence that the card connects to the current deck; do not blindly pick raw-power cards over synergistic engine pieces.",
     "Do NOT invent or include cards that are not in the pool — that includes lands. Use ONLY the listed nonbasic lands when adding any utility land.",
     "Respond with strict JSON ONLY (no prose, no markdown fences) with this exact shape:",
@@ -231,6 +257,7 @@ export function buildAIPrompts(
     seedList ? `${seedList}. Strongly consider keeping this structure, but improve weak/off-plan cards when needed.` : "",
     focusList ? `${focusList}. Treat these as a starting synergy core, not a literal shopping list.` : "",
     preferList ? `${preferList}. Prefer preserving important support pieces and mana rocks unless clearly off-plan.` : "",
+    seedIntentBlock,
     userContext ? `User context / instructions: ${userContext}` : "",
     "",
     `Candidate pool (${deckCardsInDigest.length} deck + ${poolCardsInDigest.length} candidates = ${deckCardsInDigest.length + poolCardsInDigest.length} of ${fullPoolSize} pre-scored by offline engine):`,
@@ -440,6 +467,32 @@ type Parsed = {
   sideboard?: ParsedLine[];
 };
 
+export interface AIProposalValidationIssue {
+  code:
+    | "UNRESOLVED_CARD"
+    | "OUT_OF_POOL"
+    | "NOT_LEGAL"
+    | "QUANTITY_CLAMPED"
+    | "MAINBOARD_LAND_IGNORED"
+    | "SIDEBOARD_NORMALIZED"
+    | "FINAL_DECK_VIOLATION";
+  message: string;
+  cardNames?: string[];
+}
+
+export interface AIProposalValidationResult {
+  ok: boolean;
+  issues: AIProposalValidationIssue[];
+}
+
+export interface ValidateAIProposalInput {
+  resolvedEntries: DeckEntry[];
+  unresolvedNames?: string[];
+  allCards: CardRecord[];
+  options: GenerateOptions;
+  finalEntries?: DeckEntry[];
+}
+
 function buildResultFromAIResponse(
   options: GenerateOptions,
   allCards: CardRecord[],
@@ -484,6 +537,13 @@ function buildResultFromAIResponse(
   if (parsed.game_plan?.trim()) reasoning.push(`AI game plan: ${parsed.game_plan.trim()}`);
 
   const { resolved, unresolved } = resolveLines(lines, allCards);
+  const proposalValidation = validateAIProposal({
+    resolvedEntries: resolved,
+    unresolvedNames: unresolved.map((entry) => entry.name),
+    allCards,
+    options,
+  });
+  appendAIProposalValidationReasoning(proposalValidation, reasoning);
   if (unresolved.length > 0) {
     reasoning.push(`Dropped ${unresolved.length} unresolved card name(s): ${unresolved.slice(0, 6).map((u) => u.name).join(", ")}${unresolved.length > 6 ? "…" : ""}`);
   }
@@ -558,6 +618,35 @@ function buildResultFromAIResponse(
     : undefined;
   entries = trimMainboardToSize(entries, targetMainboardSize, lockedSpineIds);
 
+  // Post-trim land-floor diagnostic. The Phase 2 fix in generator.ts should prevent
+  // this from firing in normal use. If it still triggers, it means the locked AI/seed
+  // spine crowded out the mana base even after the pre-trim shedding step — most likely
+  // because all nonlands were locked and left fewer slots than the recommended land count.
+  {
+    const mainEntries = entries.filter((e) => e.board === "main");
+    const mainLandCount = mainEntries
+      .filter((e) => e.card.typeLine.includes("Land"))
+      .reduce((s, e) => s + e.quantity, 0);
+    const mainNonlands = mainEntries.filter((e) => !e.card.typeLine.includes("Land"));
+    const targetLands = recommendLandCount(mainNonlands).recommended;
+    if (mainLandCount < targetLands - 2) {
+      reasoning.push(
+        `WARNING: final deck has only ${mainLandCount} land${mainLandCount === 1 ? "" : "s"} ` +
+        `(recommended ${targetLands}). This means too many nonland cards were locked as seeds, ` +
+        `leaving insufficient room for a full mana base. ` +
+        `Reduce the number of seed/locked cards and regenerate.`
+      );
+    }
+  }
+
+  const finalValidation = validateAIProposal({
+    resolvedEntries: aiEntries,
+    allCards,
+    options,
+    finalEntries: entries,
+  });
+  appendAIProposalValidationReasoning(finalValidation, reasoning);
+
   reasoning.push("— Offline pipeline (AI cards as soft preferences) —");
   for (const line of offlineRun.diagnostics.reasoning) reasoning.push(line);
 
@@ -610,6 +699,90 @@ function buildResultFromAIResponse(
     aiSummary: parsed.summary?.trim() || undefined,
     aiGamePlan: parsed.game_plan?.trim() || undefined,
   };
+}
+
+export function validateAIProposal(input: ValidateAIProposalInput): AIProposalValidationResult {
+  const issues: AIProposalValidationIssue[] = [];
+  const poolIds = new Set(buildPool(input.allCards, input.options).map((card) => card.oracleId));
+
+  if (input.unresolvedNames?.length) {
+    issues.push({
+      code: "UNRESOLVED_CARD",
+      message: `AI referenced ${input.unresolvedNames.length} card name(s) that could not be resolved.`,
+      cardNames: [...new Set(input.unresolvedNames)],
+    });
+  }
+
+  const combinedCounts = new Map<string, { card: CardRecord; requested: number }>();
+  for (const entry of input.resolvedEntries) {
+    if (!poolIds.has(entry.card.oracleId)) {
+      issues.push({
+        code: "OUT_OF_POOL",
+        message: `AI referenced a resolved card outside the selected pool: ${entry.card.name}.`,
+        cardNames: [entry.card.name],
+      });
+    }
+    if (getCardLegality(entry.card, input.options.format) !== "legal") {
+      issues.push({
+        code: "NOT_LEGAL",
+        message: `AI referenced a card that is not legal for the selected format: ${entry.card.name}.`,
+        cardNames: [entry.card.name],
+      });
+    }
+    if (entry.board === "main" && entry.card.typeLine.includes("Land")) {
+      issues.push({
+        code: "MAINBOARD_LAND_IGNORED",
+        message: `AI included mainboard land ${entry.card.name}; offline mana-base builder will ignore/rebuild lands.`,
+        cardNames: [entry.card.name],
+      });
+    }
+    const aggregate = combinedCounts.get(entry.card.oracleId);
+    if (aggregate) aggregate.requested += entry.quantity;
+    else combinedCounts.set(entry.card.oracleId, { card: entry.card, requested: entry.quantity });
+  }
+
+  for (const { card, requested } of combinedCounts.values()) {
+    const cap = maxCopiesForCard(card, input.options.format);
+    if (requested > cap) {
+      issues.push({
+        code: "QUANTITY_CLAMPED",
+        message: `AI requested ${requested} copies of ${card.name}; capped at ${cap}.`,
+        cardNames: [card.name],
+      });
+    }
+  }
+
+  if (input.finalEntries) {
+    const finalValidation = validateDeck(input.finalEntries, input.options.format);
+    if (!finalValidation.legal) {
+      for (const violation of finalValidation.violations) {
+        issues.push({
+          code: "FINAL_DECK_VIOLATION",
+          message: violation.message,
+          cardNames: violation.cardNames,
+        });
+      }
+    }
+  }
+
+  return { ok: issues.length === 0, issues };
+}
+
+function appendAIProposalValidationReasoning(validation: AIProposalValidationResult, reasoning: string[]): void {
+  if (validation.issues.length === 0) return;
+  const grouped = new Map<AIProposalValidationIssue["code"], AIProposalValidationIssue[]>();
+  for (const issue of validation.issues) {
+    const bucket = grouped.get(issue.code) ?? [];
+    bucket.push(issue);
+    grouped.set(issue.code, bucket);
+  }
+  for (const [code, issues] of grouped) {
+    const examples = issues
+      .slice(0, 3)
+      .map((issue) => issue.cardNames?.join(", ") || issue.message)
+      .join("; ");
+    reasoning.push(`AI proposal validation: ${code} ×${issues.length}${examples ? ` (${examples}${issues.length > 3 ? "…" : ""})` : ""}`);
+  }
 }
 
 /**

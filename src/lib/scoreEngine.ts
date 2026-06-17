@@ -12,6 +12,8 @@ import type { CardRecord } from "./types";
 import type { DeckEntry } from "./legality";
 import type { Archetype } from "./archetype";
 import { computePowerScore } from "./powerScore";
+import { getCompetitivePower } from "./competitivePower";
+
 import {
   buildSynergyProfile,
   inferPrimaryAxes,
@@ -19,12 +21,12 @@ import {
   summarizeSynergyConnections,
   synergyDensityMultiplier,
   crossAxisCompositionBonus,
-  castabilityFeedbackPenalty,
   type SynergyConnectionSummary,
   type MechanicAxis,
 } from "./generator/synergyModel";
 import { roleMultiplier, keywordBonus, focusCardBonus, preferCardBonus } from "./generator/weights";
 import type { GenerateOptions } from "./generator/types";
+import { getCardConfig, getCastabilityConfig } from "./config/scoringConfig";
 
 export interface CompositeScore {
   total: number;
@@ -82,18 +84,25 @@ export function computeCompositeScore(
   // Cross-axis composition bonus (0–18)
   const compositionBonus = crossAxisCompositionBonus(profile, deckProfiles);
 
-  // Castability feedback penalty (0–5)
+  // Load scoring configuration for current format/environment
+  const cardCfg = getCardConfig();
+  const castCfg = getCastabilityConfig();
+
+  // Castability feedback penalty (config-driven, convex, 0–maxPenalty)
   const castabilityPenalty = castabilityProb != null
-    ? castabilityFeedbackPenalty(castabilityProb)
+    ? computeCastabilityPenalty(castabilityProb, castCfg)
     : 0;
 
-  // Role weight × power score (with log1p cap)
-  const basePower = computePowerScore(card);
+  // Role weight × power score (with log1p cap).
+  // basePower is anchored to real competitive play data when available, falling
+  // back to the heuristic for cards absent from the snapshot.
+  const basePower = computePowerScore(card, getCompetitivePower(card));
+
   const role = roleMultiplier(card, options.archetype);
   const rawRolePower = role * basePower;
-  const rolePowerScore = rawRolePower <= 35
+  const rolePowerScore = rawRolePower <= cardCfg.rolePowerLinearCap
     ? rawRolePower
-    : 35 + Math.log1p(rawRolePower - 35) * 6;
+    : cardCfg.rolePowerLinearCap + Math.log1p(rawRolePower - cardCfg.rolePowerLinearCap) * cardCfg.rolePowerLogSlope;
 
   // Bonus contributions
   const kwBonus = keywordBonus(card, options.keywordFocus);
@@ -101,9 +110,13 @@ export function computeCompositeScore(
   const prefer = preferCardBonus(card, { preferEntries: options.preferEntries ?? [] } as GenerateOptions);
   const bonusTotal = kwBonus + focusCard + prefer;
 
-  // Directional contribution with density multiplier
-  const directionalContribution = 5.0 * directionalScore * synergyMultiplier;
-  const compositionContribution = compositionBonus;
+  // Directional contribution with rebalanced scaling and log-compression
+  const directionalContribution = computeDirectionalContribution(
+    directionalScore,
+    synergyMultiplier,
+    cardCfg,
+  );
+  const compositionContribution = compositionBonus * cardCfg.compositionScalar;
 
   // Composition bonus already 0–18; no multiplier applied.
   const total =
@@ -128,6 +141,44 @@ export function computeCompositeScore(
     synergyConnectionSummary: summary,
     deckAxes,
   };
+}
+
+/**
+ * Config-driven directional contribution with log-compression.
+ * Prevents synergy from dwarfing role-power and mana terms.
+ */
+function computeDirectionalContribution(
+  directionalScore: number,
+  synergyMultiplier: number,
+  cfg: ReturnType<typeof getCardConfig>,
+): number {
+  const raw = directionalScore * synergyMultiplier;
+  let compressed: number;
+  if (raw <= cfg.directionalLinearCap) {
+    compressed = raw;
+  } else {
+    compressed = cfg.directionalLinearCap + Math.log1p(raw - cfg.directionalLinearCap) * cfg.directionalLogSlope;
+  }
+  return Math.min(cfg.directionalMaxContribution, cfg.directionalScalar * compressed);
+}
+
+/**
+ * Config-driven castability penalty with convex growth.
+ * Heavy penalties for low castability, mild/none for high.
+ */
+function computeCastabilityPenalty(
+  prob: number,
+  cfg: ReturnType<typeof getCastabilityConfig>,
+): number {
+  if (prob >= cfg.noPenaltyAbove) return 0;
+  if (prob <= 0) return cfg.maxPenalty;
+  // Convex ramp across the full [0, noPenaltyAbove] interval. The earlier
+  // implementation used mildPenaltyStart as the denominator, which saturated
+  // too quickly (e.g. 80% and 20% castability both hit max penalty). Keeping
+  // the curve full-range preserves strong low-probability penalties while
+  // remaining proportional for testability and diagnostics.
+  const t = (cfg.noPenaltyAbove - prob) / cfg.noPenaltyAbove;
+  return Math.min(cfg.maxPenalty, cfg.maxPenalty * t * t);
 }
 
 /**

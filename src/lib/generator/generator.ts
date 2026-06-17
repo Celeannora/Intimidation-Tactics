@@ -24,6 +24,7 @@ import type {
   GenerateMultiResult,
   GenerationDiagnostic,
 } from "./types";
+import { assertOfflineStageOrder } from "./pipeline";
 
 type RoleSlot = "threats" | "removal" | "boardWipes" | "counterspells" | "cardDraw" | "ramp";
 
@@ -43,6 +44,15 @@ const BASIC_BY_COLOR: Record<ManaColor, string> = {
   R: "Mountain",
   G: "Forest",
 };
+
+assertOfflineStageOrder([
+  "pool-builder",
+  "role-fill",
+  "mana-base",
+  "optimizer",
+  "sideboard",
+  "result-assembly",
+]);
 
 /** Top-level entrypoint. Builds 1–3 variants and returns them sorted best-first. */
 export function generateDecks(
@@ -254,7 +264,51 @@ function generateOne(
   // Seed lands count toward the total; add dual/nonbasic fixing first, then basics.
   const seedLandTotal = seedLands.reduce((s, e) => s + e.quantity, 0);
   const landBudget = recommendLandCount(entries).recommended;
-  const remainingLands = Math.max(0, landBudget - seedLandTotal);
+  const idealGeneratedLands = Math.max(0, landBudget - seedLandTotal);
+
+  // Guarantee the mana base has room. Without this guard, if locked/seed nonlands already
+  // occupy more slots than (targetMainboardSize - landBudget), trimMainboardToSize is forced
+  // to cut the freshly-added lands (the only unlocked cards), producing decks with as few
+  // as 7 lands. Fix: shed the highest-CMC *unlocked* nonlands first; then cap generated
+  // lands to whatever slots actually remain after locked cards are accounted for.
+  const idealNonlandSlots = targetMainboardSize - landBudget - seedLandTotal;
+  const currentNonlandTotal = entries.reduce((s, e) => s + e.quantity, 0);
+  if (currentNonlandTotal > idealNonlandSlots) {
+    const toShed = currentNonlandTotal - idealNonlandSlots;
+    const shedable = entries
+      .filter((e) => !lockedIds.has(e.card.oracleId))
+      .sort((a, b) => b.card.cmc - a.card.cmc);
+    let remaining = toShed;
+    for (const e of shedable) {
+      if (remaining <= 0) break;
+      const cut = Math.min(e.quantity, remaining);
+      e.quantity -= cut;
+      remaining -= cut;
+    }
+    for (let i = entries.length - 1; i >= 0; i--) if (entries[i].quantity <= 0) entries.splice(i, 1);
+    const actualShed = toShed - remaining;
+    if (actualShed > 0) {
+      reasoning.push(
+        `Mana-base reserve: shed ${actualShed} unlocked nonland cop${actualShed === 1 ? "y" : "ies"} (highest CMC first) to guarantee ${landBudget} land slot${landBudget === 1 ? "" : "s"}`
+      );
+    }
+  }
+
+  // Cap generated lands to the actual open slots. If locked nonlands claim all remaining
+  // space, we generate only what fits and warn — forcing the user to reduce seed count.
+  const placedNonlandCopies = entries.reduce((s, e) => s + e.quantity, 0);
+  const availableLandSlots = Math.max(0, targetMainboardSize - placedNonlandCopies - seedLandTotal);
+  const remainingLands = Math.min(idealGeneratedLands, availableLandSlots);
+  if (remainingLands < idealGeneratedLands) {
+    const lockedNonlandCopies = entries
+      .filter((e) => lockedIds.has(e.card.oracleId))
+      .reduce((s, e) => s + e.quantity, 0);
+    reasoning.push(
+      `Land-budget constraint: ${lockedNonlandCopies} locked nonland cop${lockedNonlandCopies === 1 ? "y" : "ies"} leave only ${availableLandSlots} slot${availableLandSlots === 1 ? "" : "s"} for lands ` +
+      `(target ${landBudget}, generating ${seedLandTotal + remainingLands}). ` +
+      `Reduce seed card count to reach the recommended mana base.`
+    );
+  }
   reasoning.push(
     `Mana base: ${landBudget} target lands (${seedLandTotal} from seed, ${remainingLands} generated lands to add)`
   );

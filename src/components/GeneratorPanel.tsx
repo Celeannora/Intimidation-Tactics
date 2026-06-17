@@ -628,7 +628,7 @@ export function GeneratorPanel() {
       {/* Archetype + colors */}
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <label className="mb-1 block text-xs font-medium text-zinc-400">Primary archetype</label>
+          <label className="mb-1 block text-xs font-medium text-zinc-400">Archetype</label>
           <select
             value={archetype}
             onChange={(e) => setArchetype(e.target.value as Archetype)}
@@ -662,33 +662,6 @@ export function GeneratorPanel() {
         </div>
       </div>
 
-      {/* Strategy themes (multi-select) */}
-      <div>
-        <div className="mb-1 text-xs font-medium text-zinc-400">Strategy themes (optional)</div>
-        <div className="flex flex-wrap gap-1">
-          {THEMES.map((t) => {
-            const on = themes.includes(t.id);
-            return (
-              <button
-                key={t.id}
-                onClick={() => toggleTheme(t.id)}
-                aria-pressed={on}
-                title={t.description}
-                className={`rounded-full border px-2 py-0.5 text-xs ${
-                  on
-                    ? "border-purple-400 bg-purple-600/20 text-purple-200"
-                    : "border-zinc-700 bg-zinc-900 text-zinc-400 hover:bg-zinc-800"
-                }`}
-              >
-                {t.label}
-              </button>
-            );
-          })}
-        </div>
-        <p className="mt-1 text-[11px] text-zinc-600">
-          Multi-select synergy engines layered on top of the macro shell, e.g. Lifegain + Mill or Tokens + Aristocrats. Each theme biases the generator's synergy axes.
-        </p>
-      </div>
 
       {/* Current deck handling */}
       <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-3 text-xs space-y-2">
@@ -769,10 +742,37 @@ export function GeneratorPanel() {
         </div>
       </div>
 
-      {/* Deck architecture focus */}
+      {/* Strategy focuses — themes + architecture in one section */}
       <div>
-        <div className="mb-1 text-xs font-medium text-zinc-400">Deck architecture / mechanical focus</div>
+        <div className="mb-1 text-xs font-medium text-zinc-400">Strategy focuses</div>
         <div className="space-y-2 rounded-lg border border-zinc-800 bg-zinc-950/30 p-2">
+          {/* Synergy-engine themes (broad strokes) */}
+          {THEMES.length > 0 && (
+            <div>
+              <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Synergy engine</div>
+              <div className="flex flex-wrap gap-1">
+                {THEMES.map((t) => {
+                  const on = themes.includes(t.id);
+                  return (
+                    <button
+                      key={t.id}
+                      onClick={() => toggleTheme(t.id)}
+                      aria-pressed={on}
+                      title={t.description}
+                      className={`rounded-full border px-2 py-0.5 text-xs ${
+                        on
+                          ? "border-purple-400 bg-purple-600/20 text-purple-200"
+                          : "border-zinc-700 bg-zinc-900 text-zinc-400 hover:bg-zinc-800"
+                      }`}
+                    >
+                      {t.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+          {/* Per-mechanic keyword focuses */}
           {ARCHITECTURE_GROUPS.map((group) => (
             <div key={group.title}>
               <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">{group.title}</div>

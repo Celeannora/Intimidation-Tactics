@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "format": "standard",
+  "updatedAt": "2026-06-15",
+  "source": "HAND-SEEDED SAMPLE — illustrative starter values. REPLACE with aggregated top-decklist data (MTGGoldfish / MTGTop8 / WotC Metagame Mentor). Keyed by lowercased card name.",
+  "notes": "playRate = fraction of competitive decks running >=1 copy (0..1). copiesAvg = avg copies in decks that run it (0..4). topDeckPresence = fraction of top-finishing lists featuring it (0..1). These are the real competitive signal that anchors card power; values here are seeds, not measured truth.",
+  "cards": [
+    { "name": "Cut Down", "playRate": 0.42, "copiesAvg": 2.8, "topDeckPresence": 0.46 },
+    { "name": "Go for the Throat", "playRate": 0.38, "copiesAvg": 2.9, "topDeckPresence": 0.44 },
+    { "name": "Sheoldred, the Apocalypse", "playRate": 0.31, "copiesAvg": 2.6, "topDeckPresence": 0.40 },
+    { "name": "Slickshot Show-Off", "playRate": 0.27, "copiesAvg": 3.6, "topDeckPresence": 0.33 },
+    { "name": "Heartfire Hero", "playRate": 0.22, "copiesAvg": 3.8, "topDeckPresence": 0.28 },
+    { "name": "Monstrous Rage", "playRate": 0.24, "copiesAvg": 3.4, "topDeckPresence": 0.30 },
+    { "name": "Get Lost", "playRate": 0.29, "copiesAvg": 2.7, "topDeckPresence": 0.35 },
+    { "name": "Up the Beanstalk", "playRate": 0.18, "copiesAvg": 3.1, "topDeckPresence": 0.24 },
+    { "name": "Overlord of the Hauntwoods", "playRate": 0.21, "copiesAvg": 2.8, "topDeckPresence": 0.27 },
+    { "name": "Llanowar Elves", "playRate": 0.16, "copiesAvg": 3.7, "topDeckPresence": 0.19 },
+    { "name": "Healer's Hawk", "playRate": 0.06, "copiesAvg": 3.2, "topDeckPresence": 0.05 },
+    { "name": "Hinterland Sanctifier", "playRate": 0.04, "copiesAvg": 2.4, "topDeckPresence": 0.03 }
+  ]
+}

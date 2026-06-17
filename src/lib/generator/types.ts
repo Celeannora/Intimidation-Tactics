@@ -168,6 +168,10 @@ export interface ScoreBreakdown {
     cardScoreSum: number;
     curvePenalty: number;
     manaPenalty: number;
+    /** Penalty for deviating from archetype's ideal role profile. */
+    profilePenalty: number;
+    /** Contribution from engine redundancy (sources × payoffs robustness). */
+    redundancyContribution: number;
     finalScore: number;
   };
 }

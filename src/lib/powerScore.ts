@@ -1,17 +1,49 @@
 /**
  * powerScore.ts — Raw card quality signal (0–40)
  *
- * Heuristics based on available CardRecord fields:
- * EDHREC rank, rarity, game_changer flag, cmc, type line.
+ * Two sources, in priority order:
+ *  1. Real competitive signal (`competitivePower`) when the card appears in the
+ *     bundled top-decklist snapshot — this is the trustworthy anchor.
+ *  2. Heuristic fallback (EDHREC rank, rarity, game_changer flag, cmc, type line)
+ *     for cards with no competitive data (new/fringe cards).
+ *
+ * NOTE: EDHREC rank is Commander popularity, not constructed power; it remains a
+ * weak *fallback-only* prior. Once the competitive snapshot has broad coverage,
+ * the heuristic should matter only at the margins.
  */
 
 import type { CardRecord } from "./types";
 
 /**
- * Returns a raw power score 0–40.
- * Higher = stronger card in isolation.
+ * Blend weight for the competitive signal when it is available. The heuristic is
+ * kept as a small smoother/tiebreaker so two staples with identical play data
+ * still order sensibly by curve/type.
  */
-export function computePowerScore(card: CardRecord): number {
+const COMPETITIVE_BLEND = 0.8;
+
+/**
+ * Returns a raw power score 0–40. Higher = stronger card in isolation.
+ *
+ * @param card - The card to score.
+ * @param competitivePower - Optional 0–40 competitive signal (from
+ *   `competitivePower.getCompetitivePower`). When provided (non-null), it
+ *   dominates the score; the heuristic acts only as a minor smoother. When
+ *   omitted/null, the pure heuristic is used (backwards-compatible).
+ */
+export function computePowerScore(card: CardRecord, competitivePower?: number | null): number {
+  const heuristic = computeHeuristicPowerScore(card);
+  if (competitivePower != null && Number.isFinite(competitivePower)) {
+    const blended = COMPETITIVE_BLEND * competitivePower + (1 - COMPETITIVE_BLEND) * heuristic;
+    return Math.min(40, Math.max(0, Math.round(blended * 10) / 10));
+  }
+  return heuristic;
+}
+
+/**
+ * Pure heuristic power score 0–40 (no competitive data). Exported for tests and
+ * for callers that explicitly want the data-free signal.
+ */
+export function computeHeuristicPowerScore(card: CardRecord): number {
   let score = 0;
 
   // Game changer flag (Wizards curated)
