@@ -3,7 +3,13 @@ import type { DeckEntry } from "../legality";
 import { BASIC_LAND_NAMES, maxCopiesForCard } from "../legality";
 import { getFormatRules } from "../formats";
 import { assignRoles, isThreat, type CardRole } from "../roles";
-import { recommendDualLands, recommendLandCount } from "../manaBase";
+import {
+  recommendDualLands,
+  recommendLandCount,
+  recommendColorSources,
+  classifyColorRoles,
+  type ColorRoleTarget,
+} from "../manaBase";
 import { blendRoleTargets, type RoleTarget } from "./roleTargets";
 import { buildPool } from "./pool";
 import { buildScoreBreakdown, cardScore, deckScore, targetAvgCmcFor } from "./weights";
@@ -397,7 +403,23 @@ function generateOne(
     `Mana base: ${landBudget} target lands (${seedLandTotal} from seed, ${remainingLands} generated lands to add)`
   );
   entries.push(...seedLands);
-  const generatedLands = pickManaBaseLands(allCards, effectiveColors, remainingLands, seedLands, effectiveOptions.format);
+
+  // ── Classify colors into main / secondary / splash and compute per-color
+  //    source targets BEFORE selecting any lands.  This is the fix for the
+  //    "one green splash card → 10 Forests" class of bug: instead of treating
+  //    every color in effectiveColors as symmetric, we now assign role-aware
+  //    target source counts and honour hard caps for splash colors.
+  const nonlandEntriesForClassify = entries.filter((e) => !e.card.typeLine.includes("Land"));
+  const colorSourceRecs = recommendColorSources(nonlandEntriesForClassify, landBudget);
+  const colorTargets = classifyColorRoles(colorSourceRecs, nonlandEntriesForClassify, targetMainboardSize);
+  if (colorTargets.length > 0) {
+    const rolesSummary = colorTargets
+      .map((t) => `${t.color}=${t.role}(target ${t.targetSources}src)`)
+      .join(", ");
+    reasoning.push(`Mana-base roles: ${rolesSummary}`);
+  }
+
+  const generatedLands = pickManaBaseLands(allCards, colorTargets, effectiveColors, remainingLands, seedLands, effectiveOptions.format);
   entries.push(...generatedLands);
   const generatedDualCount = generatedLands
     .filter((e) => !BASIC_LAND_NAMES.has(e.card.name))
@@ -412,16 +434,55 @@ function generateOne(
   }
 
   // Pad to target size with extra basics if anything fell short.
+  // Choose the main/secondary-color basic with the greatest remaining source
+  // deficit so padding goes where it is most needed rather than always
+  // landing on whatever basic came first in generatedLands.
   let total = entries.reduce((s, e) => s + e.quantity, 0);
-  const basicEntries = generatedLands.filter((e) => BASIC_LAND_NAMES.has(e.card.name));
-  if (total < targetMainboardSize && basicEntries.length > 0) {
-    const deficit = targetMainboardSize - total;
-    basicEntries[0].quantity += deficit;
-    reasoning.push(`Padded ${deficit} extra basic ${basicEntries[0].card.name}(s) to reach ${targetMainboardSize}`);
-    total = entries.reduce((s, e) => s + e.quantity, 0);
-  } else if (total < targetMainboardSize) {
-    reasoning.push(`Could not pad (no basic lands found in DB) — short ${targetMainboardSize - total} cards`);
-  } else if (total > targetMainboardSize) {
+  if (total < targetMainboardSize) {
+    const padDeficit = targetMainboardSize - total;
+    // Re-compute current source counts across all lands chosen so far.
+    const padSources: Record<string, number> = {};
+    for (const t of colorTargets) padSources[t.color] = 0;
+    for (const e of entries) {
+      if (!e.card.typeLine.includes("Land")) continue;
+      try {
+        const ci = JSON.parse(e.card.colorIdentityJson) as ManaColor[];
+        for (const c of ci) {
+          if (c in padSources) padSources[c] = (padSources[c] ?? 0) + e.quantity;
+        }
+      } catch { /* ignore */ }
+    }
+    // Pick the color entry with the largest remaining deficit that is NOT a
+    // splash (splashes keep their maxBasics cap).
+    const basicLandEntries = entries.filter((e) => e.board === "main" && BASIC_LAND_NAMES.has(e.card.name));
+    const bestPadEntry = basicLandEntries.filter((e) => {
+      try {
+        const ci = JSON.parse(e.card.colorIdentityJson) as ManaColor[];
+        if (ci.length !== 1) return false;
+        const t = colorTargets.find((x) => x.color === ci[0]);
+        return !t || t.role !== "splash";
+      } catch { return false; }
+    }).sort((a, b) => {
+      const getDeficit = (entry: DeckEntry) => {
+        try {
+          const ci = JSON.parse(entry.card.colorIdentityJson) as ManaColor[];
+          if (ci.length !== 1) return -Infinity;
+          const t = colorTargets.find((x) => x.color === ci[0]);
+          return (t?.targetSources ?? 0) - (padSources[ci[0]] ?? 0);
+        } catch { return -Infinity; }
+      };
+      return getDeficit(b) - getDeficit(a);
+    })[0] ?? basicLandEntries[0];
+
+    if (bestPadEntry) {
+      bestPadEntry.quantity += padDeficit;
+      reasoning.push(`Padded ${padDeficit} extra basic ${bestPadEntry.card.name}(s) to reach ${targetMainboardSize}`);
+      total = entries.reduce((s, e) => s + e.quantity, 0);
+    } else if (total < targetMainboardSize) {
+      reasoning.push(`Could not pad (no basic lands found in DB) — short ${targetMainboardSize - total} cards`);
+    }
+  }
+  if (total > targetMainboardSize) {
     const before = total;
     trimMainboardToSize(entries, targetMainboardSize, lockedIds);
     total = entries.reduce((s, e) => s + e.quantity, 0);
@@ -675,41 +736,170 @@ function pickBasicLands(
   return entries;
 }
 
+/**
+ * Demand-driven mana base picker.
+ *
+ * The OLD version treated every color in `colors` as a symmetric peer: it
+ * divided basic land slots evenly and equalised land counts across all
+ * colors.  That produced catastrophic results for splash colors (e.g. one
+ * green card → 10 Forests).
+ *
+ * The NEW version works from `colorTargets`, which already encodes:
+ *   - role (main / secondary / splash)
+ *   - targetSources: how many effective sources this color needs
+ *   - maxBasics: hard cap on basic lands for this color (splashes = 2)
+ *
+ * Algorithm:
+ *   1. Fill fixing slots with dual lands, preferring those that serve the
+ *      largest combined source deficit.  Count each dual as a source for
+ *      each of its colors.
+ *   2. Fill remaining basic slots using a deficit-aware greedy loop:
+ *      always add a basic for the color with the largest positive
+ *      (targetSources − currentSources) that has not yet hit maxBasics.
+ *   3. If all targets are satisfied but slots remain, distribute extras to
+ *      main colors proportionally (overflow safety net).
+ */
 function pickManaBaseLands(
   allCards: CardRecord[],
+  colorTargets: ColorRoleTarget[],
   colors: ManaColor[],
   count: number,
   seedLands: DeckEntry[],
   format?: GenerateOptions["format"]
 ): DeckEntry[] {
   if (count <= 0) return [];
-  if (colors.length < 2) return pickBasicLands(allCards, colors, count);
+
+  // Fall back to simple even split when there is no role information or only
+  // one color — this keeps mono-color and colorless decks working.
+  if (colorTargets.length === 0 || colors.length < 2) {
+    return pickBasicLands(allCards, colors, count);
+  }
 
   const entries: DeckEntry[] = [];
-  const existingByOracle = new Map(seedLands.map((entry) => [entry.card.oracleId, entry.quantity]));
-  const seedLandTotal = seedLands.reduce((sum, entry) => sum + entry.quantity, 0);
-  const seedBasicTotal = seedLands
-    .filter((entry) => BASIC_LAND_NAMES.has(entry.card.name))
-    .reduce((sum, entry) => sum + entry.quantity, 0);
+  const existingByOracle = new Map(seedLands.map((e) => [e.card.oracleId, e.quantity]));
+
+  // Build initial current-sources map from seed lands.
+  const currentSources: Record<string, number> = {};
+  for (const t of colorTargets) currentSources[t.color] = 0;
+  for (const sl of seedLands) {
+    try {
+      const ci = JSON.parse(sl.card.colorIdentityJson) as ManaColor[];
+      for (const c of ci) {
+        if (c in currentSources) currentSources[c] = (currentSources[c] ?? 0) + sl.quantity;
+      }
+    } catch { /* ignore */ }
+  }
+
+  // Build per-color target and cap maps.
+  const targetMap: Record<string, number> = {};
+  const maxBasicsMap: Record<string, number> = {};
+  for (const t of colorTargets) {
+    targetMap[t.color] = t.targetSources;
+    maxBasicsMap[t.color] = t.maxBasics;
+  }
+
+  // ── Step 1: dual / fixing lands ────────────────────────────────────────
+  // Allocate roughly 60 % of remaining slots to fixing (same rough split as
+  // before), but later we can recover any wasted fixing slots into basics.
+  const seedLandTotal = seedLands.reduce((sum, e) => sum + e.quantity, 0);
   const totalLandTarget = seedLandTotal + count;
-  const desiredBasicTotal = recommendedBasicLandReserve(colors, totalLandTarget);
-  const basicSlots = Math.min(count, Math.max(0, desiredBasicTotal - seedBasicTotal));
-  const fixingSlots = Math.max(0, count - basicSlots);
+  const fixingSlots = Math.max(0, count - recommendedBasicLandReserve(colors, totalLandTarget));
   let remainingFixing = fixingSlots;
 
   for (const suggestion of recommendDualLands(allCards, colors, fixingSlots, format)) {
     if (remainingFixing <= 0) break;
     const already = existingByOracle.get(suggestion.card.oracleId) ?? 0;
     const available = Math.max(0, maxCopiesForCard(suggestion.card, format) - already);
+
+    // Greedy cap: don't add a dual if it would push BOTH of its colors past
+    // their target (i.e. it's useless for source coverage).
+    let ci: ManaColor[] = [];
+    try { ci = JSON.parse(suggestion.card.colorIdentityJson) as ManaColor[]; } catch { /* ignore */ }
+    const wouldHelp = ci.some((c) => (currentSources[c] ?? 0) < (targetMap[c] ?? 0));
+    if (!wouldHelp) continue;
+
     const qty = Math.min(remainingFixing, suggestion.quantity, available);
     if (qty <= 0) continue;
     entries.push({ card: suggestion.card, quantity: qty, board: "main" });
     remainingFixing -= qty;
+    // Update current sources for each color the dual produces.
+    for (const c of ci) {
+      if (c in currentSources) currentSources[c] = (currentSources[c] ?? 0) + qty;
+    }
   }
 
+  // ── Step 2: basics via deficit-aware greedy loop ───────────────────────
   const usedFixing = fixingSlots - remainingFixing;
-  const remaining = count - usedFixing;
-  if (remaining > 0) entries.push(...pickBasicLands(allCards, colors, remaining));
+  const basicSlotsAvailable = count - usedFixing;
+
+  const basicCounts: Record<string, number> = {};
+  for (const t of colorTargets) basicCounts[t.color] = 0;
+
+  let slotsLeft = basicSlotsAvailable;
+
+  // First pass: fill deficits up to target, respecting maxBasics cap.
+  while (slotsLeft > 0) {
+    // Find the color with the largest positive deficit that still has basic headroom.
+    let bestColor: ManaColor | null = null;
+    let bestDeficit = 0;
+    for (const t of colorTargets) {
+      const deficit = (targetMap[t.color] ?? 0) - (currentSources[t.color] ?? 0);
+      const basicsUsed = basicCounts[t.color] ?? 0;
+      const basicsAllowed = maxBasicsMap[t.color] ?? 999;
+      if (deficit > bestDeficit && basicsUsed < basicsAllowed) {
+        bestDeficit = deficit;
+        bestColor = t.color as ManaColor;
+      }
+    }
+    if (!bestColor) break; // all deficits satisfied (or capped), move to overflow pass
+    basicCounts[bestColor] = (basicCounts[bestColor] ?? 0) + 1;
+    currentSources[bestColor] = (currentSources[bestColor] ?? 0) + 1;
+    slotsLeft--;
+  }
+
+  // Second pass (overflow): remaining basic slots go to main/secondary colors only.
+  // IMPORTANT: only consider colors that classifyColorRoles found pip demand for
+  // (i.e. colors present in colorTargets).  Colors that slipped into effectiveColors
+  // via color-identity merging but have ZERO pips must never receive basic lands.
+  if (slotsLeft > 0) {
+    // Use a string-level set so ManaColor and Color types compare correctly.
+    const knownColorStrings = new Set<string>(colorTargets.map((t) => String(t.color)));
+    const mainColors = colorTargets
+      .filter((t) => t.role === "main" || t.role === "secondary")
+      .map((t) => t.color as ManaColor);
+    // fallback: only pip-bearing colors, never zero-pip stragglers
+    const fallbackColors = mainColors.length > 0
+      ? mainColors
+      : colors.filter((c) => knownColorStrings.has(c));
+    while (slotsLeft > 0 && fallbackColors.length > 0) {
+      let bestColor: ManaColor = fallbackColors[0];
+      let bestVal = Infinity;
+      for (const c of fallbackColors) {
+        const v = basicCounts[c] ?? 0;
+        if (v < bestVal) { bestVal = v; bestColor = c; }
+      }
+      basicCounts[bestColor] = (basicCounts[bestColor] ?? 0) + 1;
+      slotsLeft--;
+    }
+  }
+
+  // Convert basicCounts map → DeckEntry list.
+  const basicOut = new Map<string, DeckEntry>();
+  for (const [colorStr, qty] of Object.entries(basicCounts)) {
+    if (qty <= 0) continue;
+    const color = colorStr as ManaColor;
+    if (!(color in BASIC_BY_COLOR)) continue;
+    const name = BASIC_BY_COLOR[color];
+    const land = allCards
+      .filter((c) => c.name === name && c.typeLine.includes("Basic"))
+      .sort((a, b) => (a.priceUsd ?? 0) - (b.priceUsd ?? 0))[0]
+      ?? resolveBasicLand(allCards, name);
+    const existing = basicOut.get(land.oracleId);
+    if (existing) existing.quantity += qty;
+    else basicOut.set(land.oracleId, { card: land, quantity: qty, board: "main" });
+  }
+  entries.push(...basicOut.values());
+
   return entries;
 }
 
@@ -906,15 +1096,112 @@ function pickBasicLandsAdditive(
   existing: DeckEntry[]
 ): DeckEntry[] {
   if (count <= 0) return [];
-  // Distribute basics weighted toward colors least represented among existing lands.
-  const haveByColor: Record<string, number> = { W: 0, U: 0, B: 0, R: 0, G: 0 };
+
+  // Derive color role targets from the current deck so that the land-floor
+  // enforcement never over-populates splash colors the same way the old
+  // symmetric equaliser did.
+  const nonlandsForTargets = existing.filter((e) => !e.card.typeLine.includes("Land"));
+  const colorRecs = recommendColorSources(nonlandsForTargets, count);
+  const roleTargets = classifyColorRoles(colorRecs, nonlandsForTargets, 60); // 60-card proxy; ratio is what matters
+
+  // Build current-sources map from ALL existing lands (basic + nonbasic).
+  const currentSources: Record<string, number> = {};
+  for (const c of colors) currentSources[c] = 0;
   for (const e of existing) {
     if (!e.card.typeLine.includes("Land")) continue;
     try {
       const ci = JSON.parse(e.card.colorIdentityJson) as ManaColor[];
-      for (const c of ci) haveByColor[c] = (haveByColor[c] ?? 0) + e.quantity;
+      for (const c of ci) {
+        if (c in currentSources) currentSources[c] = (currentSources[c] ?? 0) + e.quantity;
+      }
     } catch { /* ignore */ }
   }
+
+  // If we have role data, use deficit-aware greedy selection with splash caps.
+  if (roleTargets.length > 0) {
+    const targetMap: Record<string, number> = {};
+    const maxBasicsMap: Record<string, number> = {};
+    for (const t of roleTargets) {
+      targetMap[t.color] = t.targetSources;
+      maxBasicsMap[t.color] = t.maxBasics;
+    }
+    // Count existing basics per color (not just land sources) to enforce maxBasics cap.
+    const existingBasicsByColor: Record<string, number> = {};
+    for (const c of colors) existingBasicsByColor[c] = 0;
+    for (const e of existing) {
+      if (!e.card.typeLine.includes("Land")) continue;
+      if (!BASIC_LAND_NAMES.has(e.card.name)) continue;
+      try {
+        const ci = JSON.parse(e.card.colorIdentityJson) as ManaColor[];
+        for (const c of ci) {
+          if (c in existingBasicsByColor)
+            existingBasicsByColor[c] = (existingBasicsByColor[c] ?? 0) + e.quantity;
+        }
+      } catch { /* ignore */ }
+    }
+
+    const basicCounts: Record<string, number> = {};
+    for (const c of colors) basicCounts[c] = 0;
+    let slotsLeft = count;
+
+    // First pass: honour deficits, capped by maxBasics.
+    while (slotsLeft > 0) {
+      let bestColor: ManaColor | null = null;
+      let bestDeficit = 0;
+      for (const c of colors) {
+        const deficit = (targetMap[c] ?? 0) - (currentSources[c] ?? 0);
+        const basicsUsed = (existingBasicsByColor[c] ?? 0) + (basicCounts[c] ?? 0);
+        const basicsAllowed = maxBasicsMap[c] ?? 999;
+        if (deficit > bestDeficit && basicsUsed < basicsAllowed) {
+          bestDeficit = deficit;
+          bestColor = c;
+        }
+      }
+      if (!bestColor) break;
+      basicCounts[bestColor] = (basicCounts[bestColor] ?? 0) + 1;
+      currentSources[bestColor] = (currentSources[bestColor] ?? 0) + 1;
+      slotsLeft--;
+    }
+
+    // Second pass (overflow): round-robin across non-splash colors only.
+    if (slotsLeft > 0) {
+      const mainColors = roleTargets
+        .filter((t) => t.role !== "splash")
+        .map((t) => t.color as ManaColor)
+        .filter((c) => colors.includes(c));
+      const fallbackColors = mainColors.length > 0 ? mainColors : colors;
+      while (slotsLeft > 0 && fallbackColors.length > 0) {
+        let bestColor: ManaColor = fallbackColors[0];
+        let bestVal = Infinity;
+        for (const c of fallbackColors) {
+          const v = basicCounts[c] ?? 0;
+          if (v < bestVal) { bestVal = v; bestColor = c; }
+        }
+        basicCounts[bestColor] = (basicCounts[bestColor] ?? 0) + 1;
+        slotsLeft--;
+      }
+    }
+
+    const out = new Map<string, DeckEntry>();
+    for (const [colorStr, qty] of Object.entries(basicCounts)) {
+      if (qty <= 0) continue;
+      const color = colorStr as ManaColor;
+      if (!(color in BASIC_BY_COLOR)) continue;
+      const name = BASIC_BY_COLOR[color];
+      const land = allCards
+        .filter((c) => c.name === name && c.typeLine.includes("Basic"))
+        .sort((a, b) => (a.priceUsd ?? 0) - (b.priceUsd ?? 0))[0]
+        ?? resolveBasicLand(allCards, name);
+      const ex = out.get(land.oracleId);
+      if (ex) ex.quantity += qty;
+      else out.set(land.oracleId, { card: land, quantity: qty, board: "main" });
+    }
+    return [...out.values()];
+  }
+
+  // Fallback (no role data — colorless or mono-color): original symmetric equaliser.
+  const haveByColor: Record<string, number> = { W: 0, U: 0, B: 0, R: 0, G: 0 };
+  for (const [c, v] of Object.entries(currentSources)) haveByColor[c] = v;
   return pickBasicLandsBalanced(allCards, colors, count, haveByColor);
 }
 

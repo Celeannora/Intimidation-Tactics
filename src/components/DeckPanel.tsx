@@ -157,6 +157,10 @@ export function DeckPanel({ onCardClick }: { onCardClick?: (card: DeckEntry["car
   const [importText, setImportText] = useState("");
   const [importBusy, setImportBusy] = useState(false);
   const [importStatus, setImportStatus] = useState<string | null>(null);
+  // When multiple decklists are detected we pause and ask for confirmation.
+  // Stores the `replace` flag from the original button click so the confirmed
+  // blend honours the user's intent (Add vs Replace).
+  const [pendingBlendReplace, setPendingBlendReplace] = useState<boolean | null>(null);
   const [cutsModal, setCutsModal] = useState<{ card: DeckEntry["card"]; result: SuggestCutsResult } | null>(null);
 
   const formatRules = getFormatRules("standard");
@@ -179,13 +183,12 @@ export function DeckPanel({ onCardClick }: { onCardClick?: (card: DeckEntry["car
     }
   };
 
-  const runImport = async (replace: boolean) => {
-    if (!importText.trim()) {
-      setImportStatus("Paste a decklist first.");
-      return;
-    }
+  /** Executes the actual card-adding logic. Called directly for normal imports
+   *  and after user confirms blending for multi-deck pastes. */
+  const doImport = async (replace: boolean) => {
     setImportBusy(true);
     setImportStatus(null);
+    setPendingBlendReplace(null);
     try {
       const parsed = parseDecklistText(importText);
       const result = await resolveDeckEntries([...parsed.mainboard, ...parsed.sideboard]);
@@ -211,6 +214,30 @@ export function DeckPanel({ onCardClick }: { onCardClick?: (card: DeckEntry["car
     } finally {
       setImportBusy(false);
     }
+  };
+
+  const runImport = async (replace: boolean) => {
+    if (!importText.trim()) {
+      setImportStatus("Paste a decklist first.");
+      return;
+    }
+    // Pre-parse to detect multiple decklists before doing any async DB work.
+    const parsed = parseDecklistText(importText);
+    if (parsed.multipleDecksDetected) {
+      // Soft confirmation: show a banner and let the user decide whether to
+      // blend the decks together or cancel.  The mana-base engine now handles
+      // large combined seeds correctly (zero-pip overflow fix), so blending is
+      // safe — we just want an explicit confirmation rather than a silent merge.
+      const totalCards = parsed.mainboard.reduce((s, e) => s + e.quantity, 0);
+      setPendingBlendReplace(replace);
+      setImportStatus(
+        `⚠️ Looks like multiple decklists (~${totalCards} cards total). ` +
+        `Blending them will combine all cards into one pool and let the generator ` +
+        `optimize the best 60-card build from the union. Hit "Blend & Import" to proceed.`
+      );
+      return;
+    }
+    await doImport(replace);
   };
 
   const boardEntries = entries
@@ -444,35 +471,57 @@ export function DeckPanel({ onCardClick }: { onCardClick?: (card: DeckEntry["car
                 {importStatus}
               </div>
             )}
-            <div className="mt-3 flex justify-end gap-2">
-              <button
-                onClick={async () => {
-                  try {
-                    const text = await navigator.clipboard?.readText();
-                    if (text) setImportText(text);
-                  } catch {
-                    setImportStatus("Clipboard read denied — paste manually.");
-                  }
-                }}
-                disabled={importBusy}
-                className="rounded border border-zinc-700 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
-              >
-                Paste from clipboard
-              </button>
-              <button
-                onClick={() => runImport(false)}
-                disabled={importBusy}
-                className="rounded border border-teal-700 bg-teal-600/10 px-3 py-1.5 text-xs text-teal-200 hover:bg-teal-600/20 disabled:opacity-50"
-              >
-                {importBusy ? "Importing…" : "Add to deck"}
-              </button>
-              <button
-                onClick={() => runImport(true)}
-                disabled={importBusy}
-                className="rounded border border-red-800 bg-red-950/30 px-3 py-1.5 text-xs text-red-200 hover:bg-red-900/40 disabled:opacity-50"
-              >
-                {importBusy ? "Importing…" : "Replace deck"}
-              </button>
+            <div className="mt-3 flex justify-end gap-2 flex-wrap">
+              {/* Blend confirmation row — shown only after multi-deck detection */}
+              {pendingBlendReplace !== null ? (
+                <>
+                  <button
+                    onClick={() => { setPendingBlendReplace(null); setImportStatus(null); }}
+                    disabled={importBusy}
+                    className="rounded border border-zinc-700 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => doImport(pendingBlendReplace)}
+                    disabled={importBusy}
+                    className="rounded border border-violet-700 bg-violet-600/20 px-3 py-1.5 text-xs text-violet-200 hover:bg-violet-600/30 disabled:opacity-50"
+                  >
+                    {importBusy ? "Blending…" : `Blend & Import (${pendingBlendReplace ? "replace" : "add"})`}
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    onClick={async () => {
+                      try {
+                        const text = await navigator.clipboard?.readText();
+                        if (text) setImportText(text);
+                      } catch {
+                        setImportStatus("Clipboard read denied — paste manually.");
+                      }
+                    }}
+                    disabled={importBusy}
+                    className="rounded border border-zinc-700 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 disabled:opacity-50"
+                  >
+                    Paste from clipboard
+                  </button>
+                  <button
+                    onClick={() => runImport(false)}
+                    disabled={importBusy}
+                    className="rounded border border-teal-700 bg-teal-600/10 px-3 py-1.5 text-xs text-teal-200 hover:bg-teal-600/20 disabled:opacity-50"
+                  >
+                    {importBusy ? "Importing…" : "Add to deck"}
+                  </button>
+                  <button
+                    onClick={() => runImport(true)}
+                    disabled={importBusy}
+                    className="rounded border border-red-800 bg-red-950/30 px-3 py-1.5 text-xs text-red-200 hover:bg-red-900/40 disabled:opacity-50"
+                  >
+                    {importBusy ? "Importing…" : "Replace deck"}
+                  </button>
+                </>
+              )}
             </div>
           </div>
         </div>

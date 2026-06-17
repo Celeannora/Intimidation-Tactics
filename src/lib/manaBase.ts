@@ -242,6 +242,122 @@ export function recommendColorSources(
   });
 }
 
+// ─── Color role classification ───────────────────────────────────────────────
+
+export type ColorRole = "main" | "secondary" | "splash";
+
+export interface ColorRoleTarget {
+  color: Color;
+  role: ColorRole;
+  /**
+   * How many effective sources (lands + nonland fixers) this color should
+   * have in the finished deck.  Derived from Karsten tables for main/secondary
+   * and from Limited splash guidelines for splashes.
+   */
+  targetSources: number;
+  /**
+   * Hard cap on how many *basic* lands of this color to add.  Splashes are
+   * typically capped at 1–2 basics; main colors have no cap.
+   */
+  maxBasics: number;
+  /** Number of distinct nonland cards that require this color. */
+  cardCount: number;
+}
+
+/**
+ * Classify each active color in the deck into main / secondary / splash and
+ * derive per-color source targets that `pickManaBaseLands` will pursue.
+ *
+ * Classification heuristics (tuned for 60-card Constructed defaults; the
+ * `deckSize` scaling ratio adjusts absolute targets for Limited / Commander):
+ *
+ * - A color is a **splash** when ≤3 distinct cards use it AND it contributes
+ *   <12 % of total weighted pips (or when it has only 1–2 cards regardless of
+ *   pip share).  Splash target = 3 + (splashCardCount - 1) * 1, capped at 6.
+ *   Max basics for a splash = 2.
+ *
+ * - A color with moderate presence (4–7 cards, 12–30 % pip share) is
+ *   **secondary**.  Karsten target is used but relaxed by 1–2 relative to main.
+ *
+ * - Everything else is a **main** color.  Full Karsten target is used.
+ *
+ * Targets are then scaled by `deckSize / 60` so Limited and Commander decks
+ * naturally converge to the right numbers (e.g. ~8-9 sources per main color
+ * in a 40-card draft deck).
+ *
+ * @param colorSourceRecs  Output of {@link recommendColorSources}.
+ * @param nonlandEntries   The nonland portion of the deck (used to count
+ *                         distinct cards per color).
+ * @param deckSize         Total cards in deck (including lands), default 60.
+ */
+export function classifyColorRoles(
+  colorSourceRecs: ColorSourceRecommendation[],
+  nonlandEntries: DeckEntry[],
+  deckSize: number = 60
+): ColorRoleTarget[] {
+  if (colorSourceRecs.length === 0) return [];
+
+  // Count how many distinct nonland cards use each color (at least 0.25 pips).
+  const cardCountByColor: Partial<Record<Color, number>> = {};
+  for (const entry of nonlandEntries) {
+    const pips = parsePips(entry.card.manaCost);
+    const COLORS: Color[] = ["W", "U", "B", "R", "G"];
+    for (const c of COLORS) {
+      if (pips[c] >= 0.25) {
+        cardCountByColor[c] = (cardCountByColor[c] ?? 0) + 1;
+      }
+    }
+  }
+
+  const sizeRatio = Math.max(0.1, deckSize / 60);
+
+  return colorSourceRecs.map(rec => {
+    const cardCount = cardCountByColor[rec.color] ?? 0;
+    const pipRatio = rec.ratio; // 0–1 share of all colored pips
+
+    // ── Determine role ──────────────────────────────────────────────────────
+    let role: ColorRole;
+    if (cardCount <= 2 || (cardCount <= 3 && pipRatio < 0.12)) {
+      role = "splash";
+    } else if (cardCount <= 7 && pipRatio < 0.30) {
+      role = "secondary";
+    } else {
+      role = "main";
+    }
+
+    // ── Derive target sources ───────────────────────────────────────────────
+    let targetSources: number;
+    let maxBasics: number;
+
+    if (role === "splash") {
+      // Draftsim rule: 3 sources for 1 card, 4–5 for 2, 6 for 3+
+      // CardGameBase: at least X+1 sources for X splash cards.
+      const splashCards = Math.max(1, cardCount);
+      targetSources = Math.min(6, splashCards + 2); // 3 for 1 card, 4 for 2, 5 for 3, 6 for 4+
+      // Scale down for smaller deck sizes (40-card Limited ~wants 2–3 splash sources)
+      targetSources = Math.max(2, Math.round(targetSources * sizeRatio));
+      maxBasics = 2; // never more than 2 off-color basics for a splash
+    } else if (role === "secondary") {
+      // Relax Karsten by 1–2; still use karstenSourcesNeeded as the floor
+      const karstenBase = rec.recommendedSources;
+      targetSources = Math.max(Math.round(karstenBase * sizeRatio) - 1, 6);
+      maxBasics = 999; // no hard cap
+    } else {
+      // Full Karsten target, scaled
+      targetSources = Math.max(Math.round(rec.recommendedSources * sizeRatio), 8);
+      maxBasics = 999;
+    }
+
+    return {
+      color: rec.color,
+      role,
+      targetSources,
+      maxBasics,
+      cardCount,
+    };
+  });
+}
+
 // ─── Dual land recommendation ─────────────────────────────────────────────────
 
 export type DualLandTier = 1 | 2 | 3;

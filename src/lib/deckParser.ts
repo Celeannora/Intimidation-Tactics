@@ -13,6 +13,17 @@ export interface ParsedDeck {
   mainboard: ParsedDeckEntry[];
   sideboard: ParsedDeckEntry[];
   unmatched: string[];
+  /**
+   * True when the input text appears to contain more than one separate
+   * decklist (e.g. the user pasted three 60-card lists into the same
+   * textarea).  Callers should show a warning and ask the user to confirm
+   * before committing the import.
+   *
+   * Detection heuristics (any one triggers this flag):
+   *   • More than one "Deck" / "// Deck" section header found
+   *   • Total card-copy count across mainboard > 100
+   */
+  multipleDecksDetected: boolean;
 }
 
 export interface ResolvedDeckEntry {
@@ -33,10 +44,14 @@ export function parseDecklistText(raw: string): ParsedDeck {
   const sideboard: ParsedDeckEntry[] = [];
   const unmatched: string[] = [];
   let board: "main" | "side" = "main";
+  // Count how many times we see a "Deck" / "// Deck" header — more than one
+  // strongly suggests the user pasted multiple separate decklists.
+  let deckHeaderCount = 0;
 
   for (const rawLine of lines) {
     const section = parseSectionHeader(rawLine);
     if (section) {
+      if (section === "main") deckHeaderCount++;
       board = section;
       continue;
     }
@@ -45,7 +60,7 @@ export function parseDecklistText(raw: string): ParsedDeck {
     if (!line) continue;
 
     const lower = line.toLowerCase();
-    if (lower === "deck" || lower === "mainboard") { board = "main"; continue; }
+    if (lower === "deck" || lower === "mainboard") { deckHeaderCount++; board = "main"; continue; }
     if (lower === "sideboard" || lower === "side") { board = "side"; continue; }
     if (line.startsWith("//") || line.startsWith("#")) continue;
 
@@ -56,7 +71,13 @@ export function parseDecklistText(raw: string): ParsedDeck {
     else sideboard.push(entry);
   }
 
-  return { mainboard, sideboard, unmatched };
+  // Detect multiple-deck paste:
+  //   • >1 explicit "Deck" section header, OR
+  //   • mainboard total card copies > 100 (no single legal deck exceeds that)
+  const mainboardTotal = mainboard.reduce((s, e) => s + e.quantity, 0);
+  const multipleDecksDetected = deckHeaderCount > 1 || mainboardTotal > 100;
+
+  return { mainboard, sideboard, unmatched, multipleDecksDetected };
 }
 
 function parseSectionHeader(line: string): "main" | "side" | null {
