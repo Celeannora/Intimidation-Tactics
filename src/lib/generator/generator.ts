@@ -841,7 +841,7 @@ function scaleRoleTarget(target: RoleTarget, mainboardSize: number): RoleTarget 
   };
 }
 
-function enforceLandFloor(
+export function enforceLandFloor(
   entries: DeckEntry[],
   landFloor: number,
   colors: ManaColor[],

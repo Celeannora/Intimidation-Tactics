@@ -15,7 +15,9 @@ import type {
   GenerateResult,
   GenerationDiagnostic,
 } from "../generator/types";
+import { enforceLandFloor } from "../generator/generator";
 import { recommendLandCount } from "../manaBase";
+import type { ManaColor } from "../types";
 import { resolveLines } from "./resolver";
 import type { AIProvider, AIChatMessage as ChatMessage } from "./provider";
 
@@ -616,28 +618,14 @@ function buildResultFromAIResponse(
   const lockedSpineIds = useAIPicksAsFinal
     ? new Set([...(options.seedEntries ?? []), ...lockedAIPreferences].map((e) => e.card.oracleId))
     : undefined;
+  // CRITICAL: trimMainboardToSize prefers cutting lands over nonlands (lands sort
+  // first for removal). After trimming, restore the land floor with enforceLandFloor.
+  // The offline generator already runs this internally, but the post-trim step above
+  // can undo it — so we run it again here.
   entries = trimMainboardToSize(entries, targetMainboardSize, lockedSpineIds);
-
-  // Post-trim land-floor diagnostic. The Phase 2 fix in generator.ts should prevent
-  // this from firing in normal use. If it still triggers, it means the locked AI/seed
-  // spine crowded out the mana base even after the pre-trim shedding step — most likely
-  // because all nonlands were locked and left fewer slots than the recommended land count.
-  {
-    const mainEntries = entries.filter((e) => e.board === "main");
-    const mainLandCount = mainEntries
-      .filter((e) => e.card.typeLine.includes("Land"))
-      .reduce((s, e) => s + e.quantity, 0);
-    const mainNonlands = mainEntries.filter((e) => !e.card.typeLine.includes("Land"));
-    const targetLands = recommendLandCount(mainNonlands).recommended;
-    if (mainLandCount < targetLands - 2) {
-      reasoning.push(
-        `WARNING: final deck has only ${mainLandCount} land${mainLandCount === 1 ? "" : "s"} ` +
-        `(recommended ${targetLands}). This means too many nonland cards were locked as seeds, ` +
-        `leaving insufficient room for a full mana base. ` +
-        `Reduce the number of seed/locked cards and regenerate.`
-      );
-    }
-  }
+  const mainColors = (options.colors.length > 0 ? options.colors : ["W", "U", "B", "R", "G"]) as ManaColor[];
+  const targetLands = recommendLandCount(entries.filter((e) => e.board === "main" && !e.card.typeLine.includes("Land"))).recommended;
+  enforceLandFloor(entries, targetLands, mainColors, allCards, lockedSpineIds ?? new Set(), targetMainboardSize, reasoning);
 
   const finalValidation = validateAIProposal({
     resolvedEntries: aiEntries,
@@ -958,12 +946,13 @@ function trimMainboardToSize(entries: DeckEntry[], targetSize: number, lockedIds
   let total = next.filter((e) => e.board === "main").reduce((sum, entry) => sum + entry.quantity, 0);
   if (total <= targetSize) return next;
 
+  // NEVER trim lands first — sort nonlands ahead of lands for removal.
   const removable = next
     .filter((entry) => entry.board === "main" && !(lockedIds?.has(entry.card.oracleId)))
     .sort((a, b) => {
       const landA = a.card.typeLine.includes("Land") ? 1 : 0;
       const landB = b.card.typeLine.includes("Land") ? 1 : 0;
-      if (landA !== landB) return landA - landB;
+      if (landA !== landB) return landB - landA;
       return b.card.cmc - a.card.cmc;
     });
 
