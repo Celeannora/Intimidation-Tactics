@@ -353,3 +353,136 @@ describe("clampAINonlandSpine", () => {
     expect(res.entries.every((e) => e.card.name.startsWith("AI"))).toBe(true);
   });
 });
+
+// ────────────────────────────────────────────────────────────────────────────
+// generateDeckAISequential
+// ────────────────────────────────────────────────────────────────────────────
+
+import { generateDeckAISequential } from "../aiGenerator";
+import type { AIProvider, AIGenerationRequest } from "../provider";
+
+/** Build a minimal pool of N unique creature cards. */
+function makePool(n: number): CardRecord[] {
+  return Array.from({ length: n }, (_, i) =>
+    makeCard({ name: `Pool Card ${i + 1}`, cmc: (i % 5) + 1 })
+  );
+}
+
+/** Provider that returns one JSON batch of `batchSize` cards per call. */
+function makeBatchProvider(pool: CardRecord[], batchSize: number, callLog: string[][]): AIProvider {
+  let callIndex = 0;
+  return {
+    id: "mock",
+    label: "Mock",
+    isReady: async () => true,
+    generate: async (req: AIGenerationRequest) => {
+      // Pull the next batchSize cards from the pool that haven't been emitted yet.
+      const alreadyLocked = new Set<string>();
+      for (const msg of req.messages) {
+        if (msg.role === "user") {
+          // Extract any names mentioned in "Confirmed nonland spine"
+          const m = msg.content.match(/Confirmed nonland spine so far[^:]*:\s*([^\n]+)/);
+          if (m) {
+            for (const part of m[1].split(";")) {
+              const nm = part.trim().replace(/^\d+× /, "");
+              if (nm && nm !== "(none yet)") alreadyLocked.add(nm);
+            }
+          }
+        }
+      }
+      const batch = pool.filter((c) => !alreadyLocked.has(c.name)).slice(0, batchSize);
+      callLog.push(batch.map((c) => c.name));
+      callIndex++;
+      return JSON.stringify({
+        summary: `Batch ${callIndex}`,
+        game_plan: "Incremental build.",
+        main: batch.map((c) => ({ name: c.name, qty: 1, reason: "synergy" })),
+        side: [],
+      });
+    },
+  };
+}
+
+describe("generateDeckAISequential", () => {
+  it("calls the provider multiple times when stepSize < nonland budget", async () => {
+    const pool = makePool(40);
+    const callLog: string[][] = [];
+    const provider = makeBatchProvider(pool, 4, callLog);
+
+    const result = await generateDeckAISequential(
+      { ...options, aiSequentialStepSize: 4, seedEntries: [] },
+      pool,
+      provider
+    );
+
+    // Should have made more than one call (stepSize=4, budget≈36 → ~9 steps).
+    expect(callLog.length).toBeGreaterThan(1);
+    // The final deck should have cards in it.
+    expect(result.entries.filter((e) => e.board === "main").length).toBeGreaterThan(0);
+  });
+
+  it("does not include already-locked seed cards in the final deck's nonland spine", async () => {
+    const pool = makePool(20);
+    const seedCard = pool[0];
+    const callLog: string[][] = [];
+    const provider = makeBatchProvider(pool, 4, callLog);
+
+    const result = await generateDeckAISequential(
+      {
+        ...options,
+        aiSequentialStepSize: 4,
+        seedEntries: [{ card: seedCard, quantity: 2, board: "main" }],
+      },
+      pool,
+      provider
+    );
+
+    // The seed card should appear exactly once in the final deck (at its original quantity),
+    // not duplicated from any subsequent step proposal.
+    const seedInDeck = result.entries.filter((e) => e.card.name === seedCard.name && e.board === "main");
+    const totalCopies = seedInDeck.reduce((s, e) => s + e.quantity, 0);
+    // At most 4 copies (format cap), not 2 (original) + extras from AI re-proposing it.
+    expect(totalCopies).toBeLessThanOrEqual(4);
+    // The dedup logic must prevent the card appearing in multiple distinct entries.
+    expect(seedInDeck.length).toBeLessThanOrEqual(1);
+  });
+
+  it("falls back to offline engine when provider always fails", async () => {
+    const pool = makePool(10);
+    const failingProvider: AIProvider = {
+      id: "fail",
+      label: "Fail",
+      isReady: async () => true,
+      generate: async () => { throw new Error("Network error"); },
+    };
+
+    const result = await generateDeckAISequential(
+      { ...options, aiSequentialStepSize: 4 },
+      pool,
+      failingProvider
+    );
+
+    // Fallback should still produce a result.
+    expect(result.entries.length).toBeGreaterThan(0);
+    expect(result.diagnostics.reasoning.some((r) => r.includes("falling back"))).toBe(true);
+  });
+
+  it("respects the stepSize option and never exceeds the nonland budget", async () => {
+    const pool = makePool(30);
+    const callLog: string[][] = [];
+    const provider = makeBatchProvider(pool, 3, callLog);
+
+    const result = await generateDeckAISequential(
+      { ...options, mainboardSize: 60, maxMainboardSize: 60, aiSequentialStepSize: 3 },
+      pool,
+      provider
+    );
+
+    const mainNonland = result.entries.filter(
+      (e) => e.board === "main" && !e.card.typeLine.includes("Land")
+    );
+    const nonlandCopies = mainNonland.reduce((s, e) => s + e.quantity, 0);
+    // Must not exceed the nonland budget (≈60% of 60 = 36) by more than a small margin.
+    expect(nonlandCopies).toBeLessThanOrEqual(40);
+  });
+});

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { db } from "../lib/db";
 import { useDeckStore, useMainboardEntries } from "../store/deckStore";
 import { generateDecks } from "../lib/generator/generator";
-import { generateDeckAI, refineDeckAI, buildAIPrompts, salvageDeckJSON, DEFAULT_AI_TEMPERATURE, DEFAULT_DIGEST_LIMIT, type AIChatTranscript } from "../lib/ai/aiGenerator";
+import { generateDeckAI, generateDeckAISequential, refineDeckAI, buildAIPrompts, salvageDeckJSON, DEFAULT_AI_TEMPERATURE, DEFAULT_DIGEST_LIMIT, type AIChatTranscript } from "../lib/ai/aiGenerator";
 import { loadAISettings } from "../lib/ai/provider";
 import { makeProvider } from "../lib/ai/factory";
 import { COMMON_TRIBES, buildSynergyProfile, inferPrimaryAxes, normalizeTribe } from "../lib/generator/synergyModel";
@@ -136,6 +136,8 @@ export function GeneratorPanel() {
   const [temperature, setTemperature] = useState<number>(DEFAULT_AI_TEMPERATURE);
   const [digestLimit, setDigestLimit] = useState<number>(DEFAULT_DIGEST_LIMIT);
   const [aiIterations, setAiIterations] = useState<number>(1);
+  const [aiSequentialMode, setAiSequentialMode] = useState<boolean>(false);
+  const [aiSequentialStepSize, setAiSequentialStepSize] = useState<number>(4);
   const [userContext, setUserContext] = useState<string>("");
 
   const [streamedText, setStreamedText] = useState<string>("");
@@ -350,6 +352,7 @@ export function GeneratorPanel() {
       optimizationIterations: iterations,
       aiIterations,
       aiPicksAsFinal: engine === "ai" && (lockAIPicks || currentDeckMode === "redefine"),
+      aiSequentialStepSize: engine === "ai" && aiSequentialMode ? aiSequentialStepSize : undefined,
       userContext: userContext.trim() || undefined,
       generateSideboard: getFormatRules(format).sideboardSize == null ? false : generateSideboard,
     };
@@ -425,6 +428,7 @@ export function GeneratorPanel() {
         optimizationIterations: iterations,
         aiIterations,
         aiPicksAsFinal: engine === "ai" && (lockAIPicks || currentDeckMode === "redefine"),
+        aiSequentialStepSize: engine === "ai" && aiSequentialMode ? aiSequentialStepSize : undefined,
         userContext: userContext.trim() || undefined,
         generateSideboard: getFormatRules(format).sideboardSize == null ? false : generateSideboard,
       };
@@ -443,17 +447,23 @@ export function GeneratorPanel() {
           return;
         }
         // AI mode produces a single result; ignore variants count.
-        const aiResult = await generateDeckAI(opts, allCards, provider, {
+        // When sequential seed-chain mode is enabled (and seeds are present)
+        // we use the incremental builder instead of the one-shot path.
+        const useSequential = aiSequentialMode && (opts.seedEntries ?? []).length > 0;
+        const aiCallConfig = {
           temperature,
           digestLimit,
           signal: abortController.signal,
-          onToken: (chunk) => setStreamedText((s) => s + chunk),
-          onRaw: (r) => setRawResponse(r),
-          onPassStart: (pass, total) => {
+          onToken: (chunk: string) => setStreamedText((s) => s + chunk),
+          onRaw: (r: string) => setRawResponse(r),
+          onPassStart: (pass: number, total: number) => {
             setCurrentPass({ pass, total });
             setStreamedText("");
           },
-        });
+        };
+        const aiResult = useSequential
+          ? await generateDeckAISequential(opts, allCards, provider, aiCallConfig)
+          : await generateDeckAI(opts, allCards, provider, aiCallConfig);
         produced = [aiResult];
         if (aiResult.transcript) setAiTranscript(aiResult.transcript);
         lastOptionsRef.current = opts;
@@ -955,11 +965,48 @@ export function GeneratorPanel() {
                 value={aiIterations}
                 onChange={(e) => setAiIterations(clampInteger(Number(e.target.value), 1, 4, 1))}
                 className="w-full rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-xs"
+                disabled={aiSequentialMode}
               />
               <p className="mt-1 text-[11px] leading-snug text-zinc-600">
                 1 = single shot. 2–4 = AI proposes, sees its score + weakest cards, then proposes swaps. Best-scoring pass is kept.
+                {aiSequentialMode && " (disabled in sequential mode)"}
               </p>
             </div>
+          </div>
+          {/* Sequential seed-chain mode */}
+          <div className="rounded-md border border-zinc-800 bg-zinc-900/40 p-2">
+            <label className="flex items-start gap-2 text-xs">
+              <input
+                type="checkbox"
+                checked={aiSequentialMode}
+                onChange={(e) => setAiSequentialMode(e.target.checked)}
+                className="mt-0.5 accent-teal-500"
+              />
+              <span>
+                <span className="font-medium text-zinc-200">Sequential seed-chain</span>
+                <span className="mt-0.5 block text-[11px] leading-snug text-zinc-500">
+                  Requires seed cards. Instead of one-shot generation, the AI builds the deck
+                  incrementally — each step it sees the current locked spine, proposes the next
+                  batch of additions, and those become seeds for the next step. Continues until
+                  the nonland budget is filled.
+                </span>
+              </span>
+            </label>
+            {aiSequentialMode && (
+              <div className="mt-2">
+                <label className="mb-1 block text-[11px] text-zinc-500">Cards added per step</label>
+                <input
+                  type="number" min={2} max={10} step={1}
+                  value={aiSequentialStepSize}
+                  onChange={(e) => setAiSequentialStepSize(clampInteger(Number(e.target.value), 2, 10, 4))}
+                  className="w-full rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-xs"
+                />
+                <p className="mt-1 text-[11px] leading-snug text-zinc-600">
+                  Smaller = more steps, finer-grained synergy reasoning, slower. Larger = fewer
+                  steps, faster, less granular. Recommended: 3–5.
+                </p>
+              </div>
+            )}
           </div>
           <div>
             <label className="mb-1 block text-[11px] text-zinc-500">User context / instructions</label>

@@ -113,6 +113,15 @@ export interface GenerateOptions {
   colorPieStrength?: number;
   /** AI engine only: treat AI's nonland picks as locked build-around entries (guaranteed in final deck) instead of soft preferences. When true the AI has full rebuilding authority over nonland selection. */
   aiPicksAsFinal?: boolean;
+  /**
+   * AI engine only (requires seedEntries): instead of a single one-shot generation,
+   * run a sequential improvement chain. Each step the AI sees the current partial
+   * deck (already-locked cards) plus a re-scored candidate pool, proposes the next
+   * batch of additions, and those become seeds for the next step — continuing until
+   * the nonland budget is satisfied. Value = number of cards added per step (2–10).
+   * Set to 0 / undefined to disable (default one-shot behaviour).
+   */
+  aiSequentialStepSize?: number;
 }
 
 

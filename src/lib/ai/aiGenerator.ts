@@ -383,6 +383,224 @@ export async function generateDeckAI(
   return best;
 }
 
+// ────────────────────────────────────────────────────────────────────────────
+// Sequential seed-chain generation
+// ────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Sequential seed-chain AI generation.
+ *
+ * When the user provides a seed set and selects sequential mode the deck is
+ * built incrementally rather than in one shot:
+ *
+ *  Step 0  – The AI sees the full scored candidate pool + the initial seed
+ *            cards and proposes the next `stepSize` nonland additions.
+ *  Step N  – The newly confirmed cards are merged into `seedEntries`, the pool
+ *            is re-scored against the growing deck, and the AI proposes the
+ *            next batch.  This repeats until the nonland budget is satisfied.
+ *
+ * After every step the accepted picks are run through the offline pipeline
+ * (same as the normal AI path) so mana-base coverage and role gaps are visible
+ * to the LLM in the subsequent refinement prompt.
+ *
+ * The final step passes the completed nonland spine back through the normal
+ * buildResultFromAIResponse → offline pipeline exactly as generateDeckAI does,
+ * so the returned GenerateResult is identical in shape.
+ */
+export async function generateDeckAISequential(
+  options: GenerateOptions,
+  allCards: CardRecord[],
+  provider: AIProvider,
+  config: AIGenerateConfig = {}
+): Promise<GenerateResult & { transcript?: AIChatTranscript }> {
+  const stepSize = Math.max(2, Math.min(10, options.aiSequentialStepSize ?? 4));
+  const targetMainboardSize = normalizedMainboardSize(options);
+  const formatRules = getFormatRules(options.format);
+  const digestLimit = config.digestLimit ?? DEFAULT_DIGEST_LIMIT;
+  const temperature = config.temperature ?? DEFAULT_AI_TEMPERATURE;
+
+  // Nonland budget: 60 % of the mainboard (midpoint of the 55–65 % heuristic).
+  const nonlandBudget = Math.round(targetMainboardSize * 0.60);
+
+  // Running seed list — starts with the user's explicit seeds and grows each step.
+  let currentSeeds: DeckEntry[] = [...(options.seedEntries ?? [])];
+
+  const reasoning: string[] = [
+    `Engine: AI sequential seed-chain (${provider.label})`,
+    `Format: ${formatRules.label}`,
+    `Deck size target: ${targetMainboardSize} mainboard cards`,
+    `Nonland budget: ${nonlandBudget} | Step size: ${stepSize}`,
+    `Initial seeds: ${currentSeeds.length} card(s)`,
+  ];
+
+  const messages: ChatMessage[] = [];
+  let stepIndex = 0;
+  let lastRawJSON: string | undefined;
+
+  const seedNonlandCopies = () =>
+    currentSeeds
+      .filter((e) => e.board !== "side" && !e.card.typeLine.includes("Land"))
+      .reduce((s, e) => s + e.quantity, 0);
+
+  while (seedNonlandCopies() < nonlandBudget) {
+    const remaining = nonlandBudget - seedNonlandCopies();
+    const thisStepTarget = Math.min(stepSize, remaining);
+    stepIndex++;
+    const totalSteps = Math.ceil(nonlandBudget / stepSize);
+    const passLabel = `Step ${stepIndex}/${totalSteps}`;
+    reasoning.push(`— ${passLabel} (locked ${seedNonlandCopies()}/${nonlandBudget} nonland, adding up to ${thisStepTarget}) —`);
+    config.onPassStart?.(stepIndex, totalSteps);
+
+    // Build a fresh prompt with the updated (growing) seed list.
+    const stepOptions: GenerateOptions = { ...options, seedEntries: currentSeeds };
+    const { system, user } = buildAIPrompts(stepOptions, allCards, digestLimit);
+
+    if (stepIndex === 1) {
+      messages.push({ role: "system", content: system });
+      messages.push({
+        role: "user",
+        content: [
+          user,
+          ``,
+          `SEQUENTIAL BUILD MODE — you are building this deck incrementally.`,
+          `This is step ${stepIndex} of ~${totalSteps}.`,
+          `Currently locked in the deck: ${seedNonlandCopies()} nonland copies (listed above as YOUR DECK).`,
+          `For THIS step, propose EXACTLY ${thisStepTarget} new nonland copies (not already in the deck) that best synergise with the current spine.`,
+          `Return only those ${thisStepTarget} cards in main[]. Omit all already-locked cards from main[] — they are confirmed and do not need re-listing.`,
+          `Do NOT fill out a complete deck list. Only propose the next batch.`,
+          `Return the same strict JSON shape (summary, game_plan, main, side) — no prose, no fences.`,
+        ].filter(Boolean).join("\n"),
+      });
+    } else {
+      const spineLines = currentSeeds
+        .filter((e) => e.board !== "side" && !e.card.typeLine.includes("Land"))
+        .map((e) => `${e.quantity}× ${e.card.name}`)
+        .join("; ");
+      messages.push({
+        role: "user",
+        content: [
+          `Step ${stepIndex} of ~${totalSteps}.`,
+          `Confirmed nonland spine so far (${seedNonlandCopies()} copies): ${spineLines || "(none yet)"}.`,
+          `Re-scored candidate pool for this step:`,
+          ``,
+          user,
+          ``,
+          `SEQUENTIAL BUILD — propose EXACTLY ${thisStepTarget} NEW nonland copies not already in the confirmed spine.`,
+          `Return only those ${thisStepTarget} cards in main[]. Do NOT re-list already-confirmed cards.`,
+          `Return the same strict JSON shape (summary, game_plan, main, side) — no prose, no fences.`,
+        ].filter(Boolean).join("\n"),
+      });
+    }
+
+    let raw: string;
+    try {
+      const req = { messages: [...messages], temperature, maxTokens: DEFAULT_AI_MAX_TOKENS, signal: config.signal, timeoutMs: config.timeoutMs };
+      if (provider.generateStream && config.onToken) {
+        raw = await provider.generateStream(req, config.onToken);
+      } else {
+        raw = await provider.generate(req);
+      }
+    } catch (e) {
+      reasoning.push(`${passLabel}: AI call failed (${e instanceof Error ? e.message : String(e)}); aborting chain.`);
+      break;
+    }
+
+    lastRawJSON = stripCodeFences(raw);
+    messages.push({ role: "assistant", content: lastRawJSON });
+
+    let parsed: { summary?: string; game_plan?: string; main?: { name?: string; qty?: number; quantity?: number; reason?: string }[]; side?: { name?: string; qty?: number; quantity?: number; reason?: string }[] };
+    try {
+      parsed = JSON.parse(lastRawJSON);
+    } catch {
+      const salvaged = salvageDeckJSON(lastRawJSON);
+      parsed = { main: salvaged.main, side: salvaged.side, summary: salvaged.summary, game_plan: salvaged.game_plan };
+    }
+
+    const proposedLines = (parsed.main ?? [])
+      .map((m) => ({
+        name: m.name ?? "",
+        quantity: Math.max(1, Math.floor(Number(m.qty ?? m.quantity ?? 1))),
+        board: "main" as const,
+      }))
+      .filter((l) => l.name);
+
+    if (proposedLines.length === 0) {
+      reasoning.push(`${passLabel}: AI returned no new cards; stopping chain early.`);
+      break;
+    }
+
+    const { resolved, unresolved } = resolveLines(proposedLines, allCards);
+    if (unresolved.length > 0) {
+      reasoning.push(`${passLabel}: dropped ${unresolved.length} unresolved name(s): ${unresolved.slice(0, 4).map((u) => u.name).join(", ")}`);
+    }
+
+    const lockedIds = new Set(currentSeeds.map((e) => e.card.oracleId));
+    const newEntries: DeckEntry[] = [];
+    for (const r of resolved) {
+      if (lockedIds.has(r.card.oracleId)) {
+        reasoning.push(`${passLabel}: skipped already-locked card ${r.card.name}.`);
+        continue;
+      }
+      const cap = maxCopiesForCard(r.card, options.format);
+      newEntries.push({ card: r.card, quantity: Math.min(cap, r.quantity), board: "main" });
+      lockedIds.add(r.card.oracleId);
+    }
+
+    if (newEntries.length === 0) {
+      reasoning.push(`${passLabel}: all proposed cards already locked; stopping chain.`);
+      break;
+    }
+
+    reasoning.push(`${passLabel}: accepted ${newEntries.length} new card(s): ${newEntries.map((e) => `${e.quantity}× ${e.card.name}`).join(", ")}`);
+    currentSeeds = [...currentSeeds, ...newEntries];
+
+    if (seedNonlandCopies() >= nonlandBudget) break;
+  }
+
+  reasoning.push(`— Sequential chain complete: ${seedNonlandCopies()} nonland copies locked. Running final offline pipeline. —`);
+  config.onPassStart?.(stepIndex + 1, stepIndex + 1);
+
+  if (lastRawJSON === undefined) {
+    reasoning.push("Sequential chain produced no cards; falling back to offline engine.");
+    const fallback = generateOffline(options, allCards);
+    fallback.diagnostics.reasoning = [...reasoning, "—", ...fallback.diagnostics.reasoning];
+    return fallback;
+  }
+
+  const fullSpineNonland = currentSeeds.filter(
+    (e) => e.board !== "side" && !e.card.typeLine.includes("Land")
+  );
+  const syntheticJSON = JSON.stringify({
+    summary: `Sequential seed-chain build (${stepIndex} step${stepIndex === 1 ? "" : "s"}, ${seedNonlandCopies()} nonland cards locked).`,
+    game_plan: `Deck built incrementally step-by-step; each step re-scored the pool against the growing synergy spine.`,
+    main: fullSpineNonland.map((e) => ({ name: e.card.name, qty: e.quantity, reason: "Locked by sequential seed chain." })),
+    side: [],
+  });
+
+  const finalPassReasoning: string[] = [...reasoning];
+  const finalOptions: GenerateOptions = {
+    ...options,
+    seedEntries: currentSeeds,
+    aiPicksAsFinal: true,
+  };
+  const result = buildResultFromAIResponse(finalOptions, allCards, syntheticJSON, finalPassReasoning, targetMainboardSize);
+
+  if (!result) {
+    reasoning.push("Final pipeline pass failed; falling back to offline engine.");
+    const fallback = generateOffline(options, allCards);
+    fallback.diagnostics.reasoning = [...reasoning, "—", ...fallback.diagnostics.reasoning];
+    return fallback;
+  }
+
+  result.diagnostics.reasoning = finalPassReasoning;
+
+  const finalMessages: ChatMessage[] = [...messages];
+  finalMessages.push({ role: "assistant", content: syntheticJSON });
+  (result as GenerateResult & { transcript?: AIChatTranscript }).transcript = { messages: finalMessages };
+  return result;
+}
+
+
 /**
  * Chat-based refinement: take an existing transcript + the user's free-form
  * feedback, send it to the LLM, and rebuild the deck (using the new picks as
