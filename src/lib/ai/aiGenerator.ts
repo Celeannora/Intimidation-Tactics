@@ -413,7 +413,26 @@ export async function generateDeckAISequential(
   provider: AIProvider,
   config: AIGenerateConfig = {}
 ): Promise<GenerateResult & { transcript?: AIChatTranscript }> {
-  const stepSize = Math.max(2, Math.min(10, options.aiSequentialStepSize ?? 4));
+  // Resolve the step-size schedule from the option value.
+  // A single number becomes a 1-element array; the last element repeats for any
+  // steps beyond the schedule length.
+  const rawStepSizes = options.aiSequentialStepSize;
+  const stepSchedule: number[] = (
+    Array.isArray(rawStepSizes)
+      ? rawStepSizes.map((n) => Math.max(1, Math.min(20, Math.round(n))))
+      : [Math.max(2, Math.min(10, (rawStepSizes as number | undefined) ?? 4))]
+  ).filter((n) => n > 0);
+  if (stepSchedule.length === 0) stepSchedule.push(4);
+
+  /** Return the configured step size for a given 1-based step index. */
+  const stepSizeAt = (step: number): number =>
+    stepSchedule[Math.min(step - 1, stepSchedule.length - 1)];
+
+  const scheduleLabel =
+    stepSchedule.length === 1
+      ? `uniform ${stepSchedule[0]}`
+      : `[${stepSchedule.join(", ")}] (last repeats)`;
+
   const targetMainboardSize = normalizedMainboardSize(options);
   const formatRules = getFormatRules(options.format);
   const digestLimit = config.digestLimit ?? DEFAULT_DIGEST_LIMIT;
@@ -429,7 +448,7 @@ export async function generateDeckAISequential(
     `Engine: AI sequential seed-chain (${provider.label})`,
     `Format: ${formatRules.label}`,
     `Deck size target: ${targetMainboardSize} mainboard cards`,
-    `Nonland budget: ${nonlandBudget} | Step size: ${stepSize}`,
+    `Nonland budget: ${nonlandBudget} | Step schedule: ${scheduleLabel}`,
     `Initial seeds: ${currentSeeds.length} card(s)`,
   ];
 
@@ -444,11 +463,14 @@ export async function generateDeckAISequential(
 
   while (seedNonlandCopies() < nonlandBudget) {
     const remaining = nonlandBudget - seedNonlandCopies();
-    const thisStepTarget = Math.min(stepSize, remaining);
     stepIndex++;
-    const totalSteps = Math.ceil(nonlandBudget / stepSize);
+    const thisStepSize = stepSizeAt(stepIndex);
+    const thisStepTarget = Math.min(thisStepSize, remaining);
+    // Estimate total steps using average of the schedule for the label (best-effort).
+    const avgStepSize = stepSchedule.reduce((a, b) => a + b, 0) / stepSchedule.length;
+    const totalSteps = Math.ceil(nonlandBudget / avgStepSize);
     const passLabel = `Step ${stepIndex}/${totalSteps}`;
-    reasoning.push(`— ${passLabel} (locked ${seedNonlandCopies()}/${nonlandBudget} nonland, adding up to ${thisStepTarget}) —`);
+    reasoning.push(`— ${passLabel} (locked ${seedNonlandCopies()}/${nonlandBudget} nonland, adding up to ${thisStepTarget} [schedule size: ${thisStepSize}]) —`);
     config.onPassStart?.(stepIndex, totalSteps);
 
     // Build a fresh prompt with the updated (growing) seed list.

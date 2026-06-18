@@ -118,10 +118,17 @@ export interface GenerateOptions {
    * run a sequential improvement chain. Each step the AI sees the current partial
    * deck (already-locked cards) plus a re-scored candidate pool, proposes the next
    * batch of additions, and those become seeds for the next step — continuing until
-   * the nonland budget is satisfied. Value = number of cards added per step (2–10).
+   * the nonland budget is satisfied.
+   *
+   * Accepts either:
+   *   - A single number  — uniform step size for every pass (2–10). E.g. `4`.
+   *   - An array of numbers — per-step schedule. Step N uses index N-1; the last
+   *     entry repeats for any remaining steps. E.g. `[3, 5, 2]` means step 1 adds
+   *     3 cards, step 2 adds 5, all subsequent steps add 2.
+   *
    * Set to 0 / undefined to disable (default one-shot behaviour).
    */
-  aiSequentialStepSize?: number;
+  aiSequentialStepSize?: number | number[];
 }
 
 

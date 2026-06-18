@@ -137,7 +137,17 @@ export function GeneratorPanel() {
   const [digestLimit, setDigestLimit] = useState<number>(DEFAULT_DIGEST_LIMIT);
   const [aiIterations, setAiIterations] = useState<number>(1);
   const [aiSequentialMode, setAiSequentialMode] = useState<boolean>(false);
-  const [aiSequentialStepSize, setAiSequentialStepSize] = useState<number>(4);
+  // Raw text entered by user, e.g. "3, 5, 2" or "4"
+  const [aiSequentialScheduleRaw, setAiSequentialScheduleRaw] = useState<string>("4");
+
+  /** Parse the raw schedule string into a validated number[]. Returns [4] on empty/invalid. */
+  const parseStepSchedule = (raw: string): number[] => {
+    const parts = raw.split(/[,\s]+/).map((s) => parseInt(s, 10)).filter((n) => Number.isFinite(n) && n >= 1 && n <= 20);
+    return parts.length > 0 ? parts : [4];
+  };
+  const aiStepSchedule = parseStepSchedule(aiSequentialScheduleRaw);
+  // For the options object: single number if schedule has one entry, else the full array
+  const aiSequentialStepSize: number | number[] = aiStepSchedule.length === 1 ? aiStepSchedule[0] : aiStepSchedule;
   const [userContext, setUserContext] = useState<string>("");
 
   const [streamedText, setStreamedText] = useState<string>("");
@@ -993,18 +1003,55 @@ export function GeneratorPanel() {
               </span>
             </label>
             {aiSequentialMode && (
-              <div className="mt-2">
-                <label className="mb-1 block text-[11px] text-zinc-500">Cards added per step</label>
-                <input
-                  type="number" min={2} max={10} step={1}
-                  value={aiSequentialStepSize}
-                  onChange={(e) => setAiSequentialStepSize(clampInteger(Number(e.target.value), 2, 10, 4))}
-                  className="w-full rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-xs"
-                />
-                <p className="mt-1 text-[11px] leading-snug text-zinc-600">
-                  Smaller = more steps, finer-grained synergy reasoning, slower. Larger = fewer
-                  steps, faster, less granular. Recommended: 3–5.
-                </p>
+              <div className="mt-2 space-y-2">
+                <div>
+                  <label className="mb-1 block text-[11px] text-zinc-500">
+                    Cards per step — schedule
+                  </label>
+                  <input
+                    type="text"
+                    value={aiSequentialScheduleRaw}
+                    onChange={(e) => setAiSequentialScheduleRaw(e.target.value)}
+                    placeholder="e.g. 3, 5, 2  or just  4"
+                    className="w-full rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-xs font-mono"
+                  />
+                  <p className="mt-1 text-[11px] leading-snug text-zinc-600">
+                    Single number = uniform steps. Comma-separated list = per-step schedule;
+                    the last value repeats for any remaining steps. Each value 1–20.
+                  </p>
+                </div>
+                {/* Live preview of the resolved schedule */}
+                <div className="rounded border border-zinc-800 bg-zinc-950 px-2 py-1.5">
+                  <p className="mb-1 text-[10px] font-medium uppercase tracking-wider text-zinc-600">Step preview</p>
+                  <div className="flex flex-wrap gap-1">
+                    {(() => {
+                      const nonlandBudget = Math.round(60 * 0.60); // 36 for a 60-card deck
+                      const steps: { step: number; size: number; cumulative: number }[] = [];
+                      let cum = 0;
+                      let s = 0;
+                      while (cum < nonlandBudget && s < 20) {
+                        s++;
+                        const size = aiStepSchedule[Math.min(s - 1, aiStepSchedule.length - 1)];
+                        const actual = Math.min(size, nonlandBudget - cum);
+                        cum += actual;
+                        steps.push({ step: s, size: actual, cumulative: cum });
+                      }
+                      return steps.map(({ step, size, cumulative }) => (
+                        <span
+                          key={step}
+                          className="inline-flex items-center gap-0.5 rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] text-zinc-300"
+                        >
+                          <span className="text-zinc-500">S{step}</span>
+                          <span className="font-medium text-teal-400">+{size}</span>
+                          <span className="text-zinc-600">→{cumulative}</span>
+                        </span>
+                      ));
+                    })()}
+                  </div>
+                  <p className="mt-1 text-[10px] text-zinc-600">
+                    S = step · +N = cards added · →N = cumulative nonland locked
+                  </p>
+                </div>
               </div>
             )}
           </div>

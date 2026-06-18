@@ -485,4 +485,94 @@ describe("generateDeckAISequential", () => {
     // Must not exceed the nonland budget (≈60% of 60 = 36) by more than a small margin.
     expect(nonlandCopies).toBeLessThanOrEqual(40);
   });
+
+  // ── Array schedule tests ─────────────────────────────────────────────────
+
+  it("array schedule: uses per-step sizes and logs schedule label", async () => {
+    const pool = makePool(40);
+    const callLog: string[][] = [];
+    // Schedule [2, 5, 3]: step 1 adds 2, step 2 adds 5, step 3+ adds 3 (last repeats).
+    const provider = makeBatchProvider(pool, 5, callLog);
+
+    const result = await generateDeckAISequential(
+      { ...options, aiSequentialStepSize: [2, 5, 3] },
+      pool,
+      provider
+    );
+
+    // Should complete (nonland budget filled).
+    expect(result.entries.filter((e) => e.board === "main").length).toBeGreaterThan(0);
+    // Reasoning log must contain the schedule label.
+    expect(
+      result.diagnostics.reasoning.some((r) => r.includes("[2, 5, 3] (last repeats)"))
+    ).toBe(true);
+    // More than one provider call (budget > first step size of 2).
+    expect(callLog.length).toBeGreaterThan(1);
+  });
+
+  it("array schedule: single-element array behaves identically to scalar", async () => {
+    const pool = makePool(30);
+    const callLogArray: string[][] = [];
+    const callLogScalar: string[][] = [];
+
+    const resultArray = await generateDeckAISequential(
+      { ...options, aiSequentialStepSize: [4] },
+      pool,
+      makeBatchProvider(pool, 4, callLogArray)
+    );
+    const resultScalar = await generateDeckAISequential(
+      { ...options, aiSequentialStepSize: 4 },
+      pool,
+      makeBatchProvider(pool, 4, callLogScalar)
+    );
+
+    // Same number of provider calls — identical step behaviour.
+    expect(callLogArray.length).toBe(callLogScalar.length);
+    // Both complete with main cards.
+    expect(resultArray.entries.filter((e) => e.board === "main").length).toBeGreaterThan(0);
+    expect(resultScalar.entries.filter((e) => e.board === "main").length).toBeGreaterThan(0);
+    // Single-element array should log the uniform label (no "last repeats").
+    expect(
+      resultArray.diagnostics.reasoning.some((r) => r.includes("uniform 4"))
+    ).toBe(true);
+  });
+
+  it("array schedule: last element repeats beyond schedule length", async () => {
+    const pool = makePool(40);
+    const callLog: string[][] = [];
+    // Schedule [10, 2]: step 1 gets 10, all subsequent steps get 2.
+    // With budget ≈ 36: step 1 locks 10, steps 2-N add 2 each → needs 13+ calls total.
+    const provider = makeBatchProvider(pool, 10, callLog);
+
+    const result = await generateDeckAISequential(
+      { ...options, aiSequentialStepSize: [10, 2] },
+      pool,
+      provider
+    );
+
+    // We expect more than 2 calls because the schedule only has 2 entries
+    // but step 2 only locks 2 cards per pass — many more passes needed.
+    expect(callLog.length).toBeGreaterThan(2);
+    // Reasoning confirms the schedule.
+    expect(
+      result.diagnostics.reasoning.some((r) => r.includes("[10, 2] (last repeats)"))
+    ).toBe(true);
+  });
+
+  it("array schedule: empty array falls back to default step size 4", async () => {
+    const pool = makePool(30);
+    const callLog: string[][] = [];
+    // Casting needed to test the defensive fallback path.
+    const provider = makeBatchProvider(pool, 4, callLog);
+
+    const result = await generateDeckAISequential(
+      { ...options, aiSequentialStepSize: [] as unknown as number[] },
+      pool,
+      provider
+    );
+
+    // Should still produce a valid deck (defensive default of 4 kicks in).
+    expect(result.entries.filter((e) => e.board === "main").length).toBeGreaterThan(0);
+    expect(callLog.length).toBeGreaterThan(0);
+  });
 });
