@@ -14,12 +14,18 @@ import type {
   GenerateOptions,
   GenerateResult,
   GenerationDiagnostic,
+  MythicViabilityReport,
+  SynergyViolation,
 } from "../generator/types";
 import { enforceLandFloor } from "../generator/generator";
 import { recommendLandCount } from "../manaBase";
 import type { ManaColor } from "../types";
 import { resolveLines } from "./resolver";
 import type { AIProvider, AIChatMessage as ChatMessage } from "./provider";
+// ── sonar.md metrics (Task B) ─────────────────────────────────────────────────
+import { computeMythicViability } from "../mythicViability";
+import { validateSynergyPairs } from "../generator/synergyConstraints";
+import { computeTempoScore, computeCardAdvantageScore } from "../scoreEngine";
 
 
 export const DEFAULT_DIGEST_LIMIT = 220;
@@ -367,10 +373,10 @@ export async function generateDeckAI(
   }
 
   if (!best) {
-    reasoning.push("All AI passes failed; falling back to offline engine.");
-    const fallback = generateOffline(options, allCards);
-    fallback.diagnostics.reasoning = [...reasoning, "—", ...fallback.diagnostics.reasoning];
-    return fallback;
+    throw new Error(
+      `AI generation failed — all passes errored. ` +
+      reasoning.slice(-4).join(" | ")
+    );
   }
 
   best.diagnostics.reasoning = [...reasoning, "— Best iteration retained —", ...best.diagnostics.reasoning];
@@ -582,16 +588,20 @@ export async function generateDeckAISequential(
   reasoning.push(`— Sequential chain complete: ${seedNonlandCopies()} nonland copies locked. Running final offline pipeline. —`);
   config.onPassStart?.(stepIndex + 1, stepIndex + 1);
 
-  if (lastRawJSON === undefined) {
-    reasoning.push("Sequential chain produced no cards; falling back to offline engine.");
-    const fallback = generateOffline(options, allCards);
-    fallback.diagnostics.reasoning = [...reasoning, "—", ...fallback.diagnostics.reasoning];
-    return fallback;
-  }
-
   const fullSpineNonland = currentSeeds.filter(
     (e) => e.board !== "side" && !e.card.typeLine.includes("Land")
   );
+
+  // Guard: fail only if we have literally no nonland cards to build from.
+  // NOTE: do NOT guard on lastRawJSON — it stays undefined when the initial
+  // seeds already satisfy the nonland budget (while loop never runs), which is
+  // a valid and expected path, not a failure.
+  if (fullSpineNonland.length === 0) {
+    throw new Error(
+      `AI sequential generation failed — seeds had no nonland cards and no AI steps produced any. ` +
+      reasoning.slice(-4).join(" | ")
+    );
+  }
   const syntheticJSON = JSON.stringify({
     summary: `Sequential seed-chain build (${stepIndex} step${stepIndex === 1 ? "" : "s"}, ${seedNonlandCopies()} nonland cards locked).`,
     game_plan: `Deck built incrementally step-by-step; each step re-scored the pool against the growing synergy spine.`,
@@ -608,10 +618,10 @@ export async function generateDeckAISequential(
   const result = buildResultFromAIResponse(finalOptions, allCards, syntheticJSON, finalPassReasoning, targetMainboardSize);
 
   if (!result) {
-    reasoning.push("Final pipeline pass failed; falling back to offline engine.");
-    const fallback = generateOffline(options, allCards);
-    fallback.diagnostics.reasoning = [...reasoning, "—", ...fallback.diagnostics.reasoning];
-    return fallback;
+    throw new Error(
+      `AI sequential generation failed — final pipeline pass produced no result. ` +
+      reasoning.slice(-4).join(" | ")
+    );
   }
 
   result.diagnostics.reasoning = finalPassReasoning;
@@ -682,13 +692,81 @@ function buildRefinementPrompt(prev: GenerateResult, targetMainboardSize: number
     .slice(0, 8)
     .map((s) => `${s.quantity}× ${s.name} (per-copy ${s.perCopyScore.toFixed(1)})`)
     .join("; ");
+
+  // ── per-dimension diagnostics from sonar.md metrics ──────────────────────
+  const diagnostics: string[] = [];
+  const mv = prev.mythicViability;
+  if (mv) {
+    const { pillars, score } = mv;
+    if (pillars.consistency < 55)
+      diagnostics.push(`Consistency pillar is LOW (${pillars.consistency.toFixed(0)}/100) — fix curve shape and mana coverage.`);
+    if (pillars.redundancy < 50)
+      diagnostics.push(`Redundancy pillar is LOW (${pillars.redundancy.toFixed(0)}/100) — add more 4-of copies of key spells.`);
+    if (pillars.metaPositioning < 50)
+      diagnostics.push(`Meta-positioning pillar is LOW (${pillars.metaPositioning.toFixed(0)}/100) — the archetype role profile is mismatched; align threats/interaction to archetype.`);
+    if (score < 55)
+      diagnostics.push(`Overall mythic-viability score is ${score.toFixed(0)} — aim above 55 before this deck is tournament-relevant.`);
+  }
+  if (typeof prev.tempoScore === "number" && prev.tempoScore < 40)
+    diagnostics.push(`Tempo score is LOW (${prev.tempoScore.toFixed(0)}/100) — add early interaction or cheaper threats.`);
+  if (typeof prev.cardAdvantageScore === "number" && prev.cardAdvantageScore < 40)
+    diagnostics.push(`Card-advantage score is LOW (${prev.cardAdvantageScore.toFixed(0)}/100) — add draw spells or two-for-one effects.`);
+  if (prev.synergyViolations && prev.synergyViolations.length > 0) {
+    for (const v of prev.synergyViolations.slice(0, 4)) {
+      diagnostics.push(`Synergy violation [${v.constraintId}]: ${v.description} (${v.sourceCount}/${v.requiredSources} sources)`);
+    }
+  }
+
+  const diagBlock = diagnostics.length > 0
+    ? `Specific weaknesses to address: ${diagnostics.join(" | ")}`
+    : "";
+
   return [
     `That deck scored ${prev.diagnostics.deckScore.toFixed(1)} (mana coverage ${(prev.diagnostics.manaBaseCoverage * 100).toFixed(0)}%, curve dev ${prev.diagnostics.curveDeviation.toFixed(2)}).`,
     `The lowest per-copy contributors were: ${lowest || "(none)"}.`,
+    diagBlock,
     `Propose an improved nonland core for a ${targetMainboardSize}-card mainboard using ONLY cards from the original pool (do not invent cards; do not include mainboard lands).`,
     "Swap weak cards for higher-scoring alternatives that strengthen the deck's primary axes, improve interaction, or fix the curve / mana base.",
     "Return the same strict JSON shape (summary, game_plan, main, side) — no prose, no fences.",
-  ].join(" ");
+  ].filter(Boolean).join(" ");
+}
+
+/**
+ * Automated refinement loop: repeatedly call the AI with diagnostic-aware
+ * prompts until either the deck reaches mythic viability (score ≥ 55 with no
+ * synergy violations) or the maximum iteration count is reached.
+ *
+ * Returns the best result seen across all iterations.
+ */
+export async function runRefinementLoop(
+  options: GenerateOptions,
+  allCards: CardRecord[],
+  provider: AIProvider,
+  initialResult: GenerateResult & { transcript?: AIChatTranscript },
+  maxIterations = 3,
+  config: AIGenerateConfig = {}
+): Promise<GenerateResult & { transcript?: AIChatTranscript }> {
+  let current = initialResult;
+  let transcript: AIChatTranscript = (current as GenerateResult & { transcript?: AIChatTranscript }).transcript ?? { messages: [] };
+
+  for (let i = 0; i < maxIterations; i++) {
+    const mv = current.mythicViability;
+    const violations = current.synergyViolations ?? [];
+    // Early-exit: deck is good enough
+    if (mv && mv.score >= 55 && violations.length === 0) break;
+
+    const prompt = buildRefinementPrompt(current, normalizedMainboardSize(options));
+    try {
+      const refined = await refineDeckAI(options, allCards, provider, transcript, prompt, config);
+      transcript = refined.transcript;
+      current = refined;
+    } catch {
+      // If the AI call fails mid-loop, keep the last good result
+      break;
+    }
+  }
+
+  return current;
 }
 
 function isLocalProvider(providerId: string): boolean {
@@ -913,6 +991,27 @@ function buildResultFromAIResponse(
     ];
   }
 
+  // ── sonar.md metrics: compute per the offline pipeline pattern ───────────
+  const mainEntries = entries.filter((e) => e.board === "main");
+  const mythicViability: MythicViabilityReport = computeMythicViability(mainEntries, options.archetype);
+  const tempoScore: number = computeTempoScore(mainEntries, options.archetype);
+  const cardAdvantageScore: number = computeCardAdvantageScore(mainEntries);
+  const synergyViolations: SynergyViolation[] = validateSynergyPairs(entries, options.archetype);
+
+  if (synergyViolations.length > 0) {
+    reasoning.push(
+      ...synergyViolations.map((v) =>
+        `Synergy constraint [${v.severity}] ${v.constraintId}: ${v.description} (${v.sourceCount}/${v.requiredSources} sources)`
+      )
+    );
+  }
+  reasoning.push(
+    `Mythic viability: score=${mythicViability.score.toFixed(0)} (${mythicViability.label}) | ` +
+    `WR≈${(mythicViability.winRateEstimate * 100).toFixed(1)}% | ` +
+    `consistency=${mythicViability.pillars.consistency.toFixed(0)} redundancy=${mythicViability.pillars.redundancy.toFixed(0)} meta=${mythicViability.pillars.metaPositioning.toFixed(0)}`
+  );
+  reasoning.push(`Tempo score: ${tempoScore.toFixed(0)} | Card advantage score: ${cardAdvantageScore.toFixed(0)}`);
+
   return {
     entries,
     archetype: options.archetype,
@@ -926,6 +1025,10 @@ function buildResultFromAIResponse(
     scoreBreakdown,
     aiSummary: parsed.summary?.trim() || undefined,
     aiGamePlan: parsed.game_plan?.trim() || undefined,
+    mythicViability,
+    tempoScore,
+    cardAdvantageScore,
+    synergyViolations,
   };
 }
 
@@ -1038,7 +1141,16 @@ export function clampAINonlandSpine(
     return { entries: aiNonlandEntries, originalCopies, maxCopies, trimmedCopies: 0, landBudget };
   }
   const next = aiNonlandEntries.map((e) => ({ ...e }));
-  const order = [...next].sort((a, b) => b.card.cmc - a.card.cmc);
+  // Sort order: higher CMC first (trim expensive cards before cheap ones).
+  // Among equal-CMC cards, sort singletons (qty=1) before multi-copies so we
+  // eliminate a 1-of before silently reducing a 2-of that the AI explicitly
+  // requested — this preserves AI multi-copy intent (e.g. 2× Lyra stays 2×
+  // as long as any same-CMC singleton can absorb the trim instead).
+  const order = [...next].sort((a, b) => {
+    const cmcDiff = b.card.cmc - a.card.cmc;
+    if (cmcDiff !== 0) return cmcDiff;
+    return a.quantity - b.quantity; // 1-ofs before 2-ofs at same CMC
+  });
   let toTrim = originalCopies - maxCopies;
   for (const entry of order) {
     if (toTrim <= 0) break;

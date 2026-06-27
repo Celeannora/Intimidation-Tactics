@@ -111,6 +111,8 @@ export const THEME_IDS = [
   "stax",
   "discard",
   "storm",
+  /** Delirium: requires 4+ card types in graveyard; cards get bonus or alternate abilities. */
+  "delirium",
 ] as const;
 
 export type ThemeId = (typeof THEME_IDS)[number];
@@ -142,6 +144,7 @@ export const THEMES: ThemeInfo[] = [
   { id: "stax", label: "Stax / Prison", description: "Deploys asymmetric lock pieces preventing opponent actions." },
   { id: "discard", label: "Discard / Madness", description: "Forces discard; rewards madness/hellbent synergies." },
   { id: "storm", label: "Storm / Spells-Chain", description: "Chains many spells in a single turn for storm payoffs." },
+  { id: "delirium", label: "Delirium", description: "Requires 4+ card types in graveyard to unlock powerful alternate abilities on threats and payoffs." },
 ];
 
 export const THEME_ID_TO_LABEL: Record<ThemeId, string> = Object.fromEntries(

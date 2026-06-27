@@ -1,30 +1,57 @@
 import type { CardRecord } from "../types";
 
 /**
+ * Normalize a card name for comparison: lowercase + map common Unicode
+ * variants to their ASCII equivalents. LLMs frequently emit curly/smart
+ * apostrophes, en-dashes, non-breaking spaces, etc. that differ from the
+ * straight ASCII characters used in Scryfall card names. Applying this to
+ * BOTH sides of every comparison makes matching robust against encoding drift.
+ */
+function normalizeCardName(name: string): string {
+  return name
+    .trim()
+    // Curly/smart apostrophes and other apostrophe-like codepoints → straight '
+    .replace(/[\u2018\u2019\u02BC\u02B9\u0060\u00B4]/g, "'")
+    // Curly double quotes → straight "
+    .replace(/[\u201C\u201D]/g, '"')
+    // En-dash and em-dash → hyphen
+    .replace(/[\u2013\u2014]/g, "-")
+    // Non-breaking and other exotic spaces → regular space
+    .replace(/[\u00A0\u202F\u2009\u2007]/g, " ")
+    // Collapse multiple spaces
+    .replace(/\s+/g, " ")
+    .toLowerCase();
+}
+
+/**
  * Best-effort case-insensitive name resolver. Tries exact, then prefix match,
  * then fuzzy substring. Returns null if nothing plausible found.
+ *
+ * Both the query and the card DB name are run through normalizeCardName so
+ * that Unicode apostrophe/quote/dash variants from LLM output match the
+ * straight-ASCII characters used in Scryfall data.
  */
 export function resolveCardName(name: string, allCards: CardRecord[]): CardRecord | null {
-  const norm = name.trim().toLowerCase();
+  const norm = normalizeCardName(name);
   if (!norm) return null;
 
-  // Exact (case-insensitive)
-  const exact = allCards.find((c) => c.name.toLowerCase() === norm);
+  // Exact (case-insensitive, Unicode-normalized)
+  const exact = allCards.find((c) => normalizeCardName(c.name) === norm);
   if (exact) return exact;
 
   // DFC: try matching the front face of "Front // Back"
   const front = norm.split(/\s*\/\/\s*/)[0];
   if (front && front !== norm) {
-    const f = allCards.find((c) => c.name.toLowerCase().startsWith(front));
+    const f = allCards.find((c) => normalizeCardName(c.name).startsWith(front));
     if (f) return f;
   }
 
   // Prefix
-  const pref = allCards.find((c) => c.name.toLowerCase().startsWith(norm));
+  const pref = allCards.find((c) => normalizeCardName(c.name).startsWith(norm));
   if (pref) return pref;
 
   // Substring (last resort)
-  const sub = allCards.find((c) => c.name.toLowerCase().includes(norm));
+  const sub = allCards.find((c) => normalizeCardName(c.name).includes(norm));
   return sub ?? null;
 }
 

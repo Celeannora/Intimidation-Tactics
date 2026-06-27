@@ -1,6 +1,8 @@
 import type { DeckEntry } from "../legality";
 import type { CardRecord } from "../types";
+import type { Archetype } from "../archetype";
 import type { GenerateOptions, GenerateResult } from "./types";
+import { assignRoles, isThreat } from "../roles";
 
 /**
  * Explicit stage contract for the offline generator.
@@ -80,4 +82,60 @@ export function assertOfflineStageOrder(stageIds: readonly OfflineGeneratorStage
   if (actual !== expected) {
     throw new Error(`Offline generator stages must run in order: ${expected}. Received: ${actual}`);
   }
+}
+
+// ── Rule of Nine enforcement (sonar.md Part 2) ──────────────────────────────
+
+type RoleSlotKey = "threats" | "removal" | "boardWipes" | "counterspells" | "cardDraw" | "ramp";
+
+const CRITICAL_SLOTS: Record<Archetype, RoleSlotKey[]> = {
+  Aggro:    ["threats", "removal"],
+  Midrange: ["threats", "removal", "cardDraw"],
+  Control:  ["removal", "boardWipes", "counterspells", "cardDraw"],
+  Tempo:    ["threats", "counterspells"],
+  Combo:    ["cardDraw", "ramp"],
+  Ramp:     ["ramp", "cardDraw"],
+  Prison:   ["removal", "boardWipes", "counterspells"],
+  Unknown:  ["threats", "removal"],
+};
+
+const MIN_CRITICAL_COPIES = 9; // "Rule of 9" — 9 cards across a role = ~3 unique spells × 3 copies each
+
+/**
+ * Enforce the Rule of Nine: any critical role slot for the archetype should
+ * have ≥ MIN_CRITICAL_COPIES total card copies in the mainboard.
+ *
+ * Returns an array of warning strings for each slot that falls short.
+ * Does NOT mutate the deck — warnings are advisory for the generator/UI.
+ */
+export function enforceRuleOfNine(entries: DeckEntry[], archetype: Archetype): string[] {
+  const criticalSlots = CRITICAL_SLOTS[archetype] ?? CRITICAL_SLOTS.Unknown;
+  const warnings: string[] = [];
+
+  const mainboard = entries.filter((e) => e.board === "main" && !e.card.typeLine.includes("Land"));
+
+  const slotCounts: Record<RoleSlotKey, number> = {
+    threats: 0, removal: 0, boardWipes: 0, counterspells: 0, cardDraw: 0, ramp: 0,
+  };
+
+  for (const entry of mainboard) {
+    const roles = assignRoles(entry.card);
+    if (isThreat(roles)) slotCounts["threats"] += entry.quantity;
+    if (roles.includes("Removal")) slotCounts["removal"] += entry.quantity;
+    if (roles.includes("BoardWipe")) slotCounts["boardWipes"] += entry.quantity;
+    if (roles.includes("Counterspell")) slotCounts["counterspells"] += entry.quantity;
+    if (roles.includes("CardDraw")) slotCounts["cardDraw"] += entry.quantity;
+    if (roles.includes("Ramp")) slotCounts["ramp"] += entry.quantity;
+  }
+
+  for (const slot of criticalSlots) {
+    const count = slotCounts[slot];
+    if (count < MIN_CRITICAL_COPIES) {
+      warnings.push(
+        `Rule of Nine: ${slot} slot has only ${count} card${count !== 1 ? "s" : ""} — recommended ≥ ${MIN_CRITICAL_COPIES} for reliable access (${archetype}).`,
+      );
+    }
+  }
+
+  return warnings;
 }

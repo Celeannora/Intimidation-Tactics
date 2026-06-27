@@ -31,6 +31,10 @@ const TABLE: Record<AffinityKey, Record<ManaColor, number>> = {
   BoardWipe:      { W: 1.40, U: 0.95, B: 1.10, R: 1.00, G: 0.55 },
   GraveyardHate:  { W: 1.15, U: 0.85, B: 0.95, R: 0.85, G: 1.20 },
 
+  // Synergy roles
+  Enabler:        { W: 0.90, U: 1.10, B: 1.05, R: 0.95, G: 1.10 },
+  Payoff:         { W: 1.00, U: 1.10, B: 1.15, R: 1.00, G: 1.05 },
+
   // Support
   CardDraw:       { W: 0.65, U: 1.40, B: 1.15, R: 0.70, G: 0.85 },
   Tutor:          { W: 0.80, U: 1.05, B: 1.35, R: 0.50, G: 0.70 },

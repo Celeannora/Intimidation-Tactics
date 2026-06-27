@@ -268,12 +268,26 @@ export function DeckPanel({ onCardClick }: { onCardClick?: (card: DeckEntry["car
   const inlineViolations = validation.violations.slice(0, 3);
 
   const decklistText = () => {
+    // Use front-face name only (strips " // BackFace") so the output is valid for
+    // Arena, MTGO, and any third-party tool that doesn't accept full DFC names.
+    const frontFace = (name: string) => name.split(" // ")[0];
     const main = entries.filter((e) => e.board === "main");
     const side = entries.filter((e) => e.board === "side");
-    let text = main.map((e) => `${e.quantity} ${e.card.name}`).join("\n");
-    if (side.length)
-      text += "\n\n// Sideboard\n" + side.map((e) => `${e.quantity} ${e.card.name}`).join("\n");
-    return text;
+    const lines: string[] = [];
+    // Prepend Arena-compatible About/Name block when deck has a meaningful name.
+    const trimmedName = deckName?.trim();
+    if (trimmedName && trimmedName !== "New Deck") {
+      lines.push("About");
+      lines.push(`Name ${trimmedName}`);
+      lines.push("");
+    }
+    lines.push("Deck");
+    lines.push(...main.map((e) => `${e.quantity} ${frontFace(e.card.name)}`));
+    if (side.length) {
+      lines.push("", "Sideboard");
+      lines.push(...side.map((e) => `${e.quantity} ${frontFace(e.card.name)}`));
+    }
+    return lines.join("\n");
   };
 
   const exportDecklist = () => {

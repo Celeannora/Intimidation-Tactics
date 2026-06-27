@@ -31,7 +31,10 @@ import type {
   GenerateMultiResult,
   GenerationDiagnostic,
 } from "./types";
-import { assertOfflineStageOrder } from "./pipeline";
+import { assertOfflineStageOrder, enforceRuleOfNine } from "./pipeline";
+import { validateSynergyPairs } from "./synergyConstraints";
+import { computeMythicViability } from "../mythicViability";
+import { computeTempoScore, computeCardAdvantageScore } from "../scoreEngine";
 
 type RoleSlot = "threats" | "removal" | "boardWipes" | "counterspells" | "cardDraw" | "ramp";
 
@@ -278,16 +281,45 @@ function generateOne(
   // cache hit rate is high during AI generation flows.
   const seedCardsForGraph = seedEntries.map((e) => e.card);
   const seedGraph = seedCardsForGraph.length >= 2 ? buildSeedSynergyGraph(seedCardsForGraph) : null;
+
+  // Seed policy: log the resolved contract for this generation run.
+  // The actual locked/fuzz behaviour is controlled by seedEntries + seedFuzzSwaps above;
+  // seedPolicy is currently an advisory/display contract surfaced in diagnostics.
+  const resolvedSeedPolicy = options.seedPolicy ?? (seedEntries.length > 0 ? "locked-core" : undefined);
+  if (resolvedSeedPolicy) reasoning.push(`Seed policy: ${resolvedSeedPolicy}`);
+
+  // ── Graph-confirmed axes: require ≥2 DISTINCT seed cards per axis ─────────
+  // Previously this used edgeCount >= 1, which allowed a single pair of cards
+  // to promote an axis to the top of the scoring priority list via multiple edge
+  // types (source-to-payoff + shared-axis = 2 edges but only 2 cards).  That
+  // caused one-off fringe cards to dominate deck identity in sequential builds.
+  // Now we use axisSeedCardCounts (distinct card count) as the gate: an axis
+  // is only "graph-confirmed" when it is explicitly present in the profiles of
+  // at least 2 distinct seed cards.
   const graphConfirmedAxes: MechanicAxis[] = seedGraph?.connectedAxes
-    .filter((a) => a.edgeCount >= 1)
+    .filter((a) => (seedGraph.axisSeedCardCounts[a.axis] ?? 0) >= 2)
     .map((a) => a.axis)
     .slice(0, 3) ?? [];
+
+  // Log any axes that were present in the graph but suppressed due to single-card support.
+  const suppressedByCardCount: MechanicAxis[] = seedGraph?.connectedAxes
+    .filter((a) => (seedGraph.axisSeedCardCounts[a.axis] ?? 0) < 2)
+    .map((a) => a.axis) ?? [];
+  if (suppressedByCardCount.length > 0) {
+    reasoning.push(
+      `Seed axis filter: [${suppressedByCardCount.join(", ")}] had single-card support only — not promoted to primary axes (prevents one-off overfit)`
+    );
+  }
 
   const deckAxes = deriveDeckAxes(options, [...seedProfiles, ...focusProfiles], graphConfirmedAxes);
   if (deckAxes.length > 0) reasoning.push(`Mechanical axes: ${deckAxes.join(", ")}`);
   if (seedGraph && graphConfirmedAxes.length > 0) {
     reasoning.push(
-      `Seed graph: ${graphConfirmedAxes.length} confirmed axis/axes (${graphConfirmedAxes.join(", ")}) from ${seedGraph.edges.length} synergy link(s) at density ${Math.round(seedGraph.density * 100)}%`
+      `Seed graph: ${graphConfirmedAxes.length} multi-card confirmed axis/axes (${graphConfirmedAxes.join(", ")}) from ${seedGraph.edges.length} synergy link(s) at density ${Math.round(seedGraph.density * 100)}%`
+    );
+  } else if (seedGraph && seedGraph.edges.length > 0) {
+    reasoning.push(
+      `Seed graph: ${seedGraph.edges.length} synergy link(s) at density ${Math.round(seedGraph.density * 100)}% — all axes single-card support only, using role/archetype axes instead`
     );
   }
   if (options.metaTargets?.length) {
@@ -572,6 +604,33 @@ function generateOne(
 
   const finalScore = deckScore(finalEntries, effectiveOptions, targetAvgCmc);
   const scoreBreakdown = buildScoreBreakdown(finalEntries, effectiveOptions, targetAvgCmc);
+
+  // ── New sonar.md metrics ─────────────────────────────────────────────────
+  const mythicViability = computeMythicViability(
+    finalEntries.filter((e) => e.board === "main"),
+    options.archetype,
+  );
+  const tempoScore = computeTempoScore(
+    finalEntries.filter((e) => e.board === "main"),
+    options.archetype,
+  );
+  const cardAdvantageScore = computeCardAdvantageScore(
+    finalEntries.filter((e) => e.board === "main"),
+  );
+  const synergyViolations = validateSynergyPairs(finalEntries, options.archetype);
+  const ruleOfNineWarnings = enforceRuleOfNine(finalEntries, options.archetype);
+
+  if (ruleOfNineWarnings.length > 0) {
+    reasoning.push(...ruleOfNineWarnings);
+  }
+  if (synergyViolations.length > 0) {
+    reasoning.push(
+      ...synergyViolations.map((v) =>
+        `Synergy constraint [${v.severity}] ${v.constraintId}: ${v.description} (${v.sourceCount}/${v.requiredSources} sources)`
+      ),
+    );
+  }
+
   const diagnostics: GenerationDiagnostic = {
     reasoning,
     deckScore: finalScore.total,
@@ -591,6 +650,10 @@ function generateOne(
     focusedCards,
     cardReasons,
     scoreBreakdown,
+    mythicViability,
+    tempoScore,
+    cardAdvantageScore,
+    synergyViolations,
   };
 }
 

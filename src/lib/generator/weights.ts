@@ -10,6 +10,8 @@ import { colorAffinity } from "./colorWeights";
 import {
   getCardConfig,
   getDeckConfig,
+  KEYWORD_VALUE_MATRIX,
+  type MTGKeyword,
 } from "../config/scoringConfig";
 import { computeMetaPerformance } from "../meta/metaScoring";
 import {
@@ -637,3 +639,56 @@ export function quickRank(card: CardRecord, archetype: Archetype): number {
 
 /** Pip parser re-export so the optimizer can use it for color-source counting. */
 export { parsePips };
+
+// ── Keyword value matrix (sonar.md Part 6) ──────────────────────────────────
+
+const ORACLE_KEYWORD_MAP: Array<{ keyword: MTGKeyword; pattern: RegExp }> = [
+  { keyword: "flying",         pattern: /\bflying\b/i },
+  { keyword: "menace",         pattern: /\bmenace\b/i },
+  { keyword: "trample",        pattern: /\btrample\b/i },
+  { keyword: "haste",          pattern: /\bhaste\b/i },
+  { keyword: "lifelink",       pattern: /\blifelink\b/i },
+  { keyword: "deathtouch",     pattern: /\bdeathtouch\b/i },
+  { keyword: "vigilance",      pattern: /\bvigilance\b/i },
+  { keyword: "flash",          pattern: /\bflash\b/i },
+  { keyword: "reach",          pattern: /\breach\b/i },
+  { keyword: "first_strike",   pattern: /\bfirst strike\b/i },
+  { keyword: "double_strike",  pattern: /\bdouble strike\b/i },
+  { keyword: "hexproof",       pattern: /\bhexproof\b/i },
+  { keyword: "indestructible", pattern: /\bindestructible\b/i },
+  { keyword: "ward",           pattern: /\bward\b/i },
+  { keyword: "surveil",        pattern: /\bsurveil\b/i },
+  { keyword: "mill",           pattern: /\bmill\b/i },
+  { keyword: "self_mill",      pattern: /put .* from .* library .* graveyard|mill .* own library/i },
+  { keyword: "token_gen",      pattern: /create .* token/i },
+  { keyword: "sacrifice",      pattern: /\bsacrifice\b/i },
+];
+
+/**
+ * Apply per-archetype keyword multipliers to a base card score.
+ * For each keyword the card has, looks up its archetype-specific multiplier
+ * and scales the base score by the product of all applicable multipliers.
+ *
+ * Returns the adjusted score (always ≥ baseScore, as all multipliers ≥ 0.7).
+ */
+export function applyKeywordValueMatrix(
+  baseScore: number,
+  card: CardRecord,
+  archetype: Archetype,
+): number {
+  const archetypeMatrix = KEYWORD_VALUE_MATRIX[archetype];
+  if (!archetypeMatrix) return baseScore;
+
+  const haystack = [card.oracleText ?? "", card.keywordsJson ?? "", card.typeLine ?? ""].join(" ");
+  let multiplier = 1.0;
+
+  for (const { keyword, pattern } of ORACLE_KEYWORD_MAP) {
+    if (!pattern.test(haystack)) continue;
+    const kw = archetypeMatrix[keyword];
+    if (kw != null) multiplier *= kw;
+  }
+
+  // Clamp: never reduce score below 70% of base (prevent matrix from nuking viable cards)
+  multiplier = Math.max(0.7, multiplier);
+  return baseScore * multiplier;
+}

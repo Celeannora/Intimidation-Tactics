@@ -49,6 +49,12 @@ export function parseDecklistText(raw: string): ParsedDeck {
   let deckHeaderCount = 0;
 
   for (const rawLine of lines) {
+    // Skip Arena "About" section headers and "Name ..." deck-title lines so that
+    // re-importing an exported Arena decklist doesn't produce unmatched entries.
+    const lowerRaw = rawLine.toLowerCase();
+    if (lowerRaw === "about") continue;
+    if (lowerRaw.startsWith("name ")) continue;
+
     const section = parseSectionHeader(rawLine);
     if (section) {
       if (section === "main") deckHeaderCount++;
@@ -93,13 +99,20 @@ function parseSectionHeader(line: string): "main" | "side" | null {
 }
 
 function stripInlineComment(line: string): string {
+  // Lines that start with // are full-line comments (or section headers — handled upstream).
   if (line.startsWith("//") || line.startsWith("#")) return "";
 
-  // Treat ` // note` as a comment but preserve split-card names like `Fire // Ice`.
-  const slashComment = line.search(/\s\/\/\s+(?:note|notes|comment|sideboard|side|maybe|cut|remove|vs\b|against\b|for\b|anti\b|aggro\b|control\b|midrange\b|ramp\b|combo\b|graveyard\b|removal\b|counter\b|draw\b|threat\b|land\b|fixing\b|hand\b|discard\b|tech\b|flex\b|board\b)/i);
-  const hashComment = line.search(/\s#\s*/);
-  const cutAt = [slashComment, hashComment].filter((idx) => idx >= 0).sort((a, b) => a - b)[0];
-  return cutAt == null ? line : line.slice(0, cutAt);
+  // Strip # comments (e.g. "4 Duress # hand disruption") — # never appears in card names.
+  const hashComment = line.search(/\s#\s/);
+  if (hashComment >= 0) return line.slice(0, hashComment);
+
+  // Do NOT attempt to strip " // text" here because:
+  //   • Split/double-faced cards contain " // " as part of their name ("Fire // Ice").
+  //   • Any keyword-based allowlist will always have gaps.
+  // Instead we return the full line and let fuzzyMatchCard / cardNameCandidates try the
+  // front-face alone when the full name doesn't resolve (e.g. "Duress // hand disruption"
+  // → tries "Duress // hand disruption" (fail) → "Duress" (success)).
+  return line;
 }
 
 function parseArenaLine(line: string): ParsedDeckEntry | null {

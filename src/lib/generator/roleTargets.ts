@@ -10,6 +10,10 @@ export interface RoleTarget {
   lands: number;
   /** Soft cap on average mana value of nonland cards. Picks above this are penalized. */
   maxAvgCmc: number;
+  /** Target count of Enabler-role cards (sonar.md Part 4: synergy pair constraints). */
+  enablers: number;
+  /** Target count of Payoff-role cards (sonar.md Part 4: synergy pair constraints). */
+  payoffs: number;
 }
 
 /**
@@ -17,14 +21,15 @@ export interface RoleTarget {
  * non-land slot total is roughly 36–40 (so lands fill the rest of 60).
  */
 export const ROLE_TARGETS: Record<Archetype, RoleTarget> = {
-  Aggro:     { threats: 24, removal: 8,  boardWipes: 0, counterspells: 0, cardDraw: 2, ramp: 0,  lands: 22, maxAvgCmc: 2.2 },
-  Midrange:  { threats: 18, removal: 12, boardWipes: 2, counterspells: 2, cardDraw: 5, ramp: 2,  lands: 24, maxAvgCmc: 3.1 },
-  Control:   { threats: 5,  removal: 14, boardWipes: 4, counterspells: 10, cardDraw: 8, ramp: 0,  lands: 26, maxAvgCmc: 3.4 },
-  Tempo:     { threats: 16, removal: 8,  boardWipes: 0, counterspells: 8, cardDraw: 4, ramp: 0,  lands: 22, maxAvgCmc: 2.4 },
-  Combo:     { threats: 8,  removal: 6,  boardWipes: 0, counterspells: 6, cardDraw: 8, ramp: 4,  lands: 24, maxAvgCmc: 3.0 },
-  Ramp:      { threats: 10, removal: 6,  boardWipes: 3, counterspells: 0, cardDraw: 6, ramp: 12, lands: 26, maxAvgCmc: 3.7 },
-  Prison:    { threats: 6,  removal: 10, boardWipes: 4, counterspells: 4, cardDraw: 8, ramp: 2,  lands: 24, maxAvgCmc: 3.2 },
-  Unknown:   { threats: 18, removal: 10, boardWipes: 2, counterspells: 3, cardDraw: 5, ramp: 2,  lands: 24, maxAvgCmc: 2.9 },
+  //                                                                                      enablers payoffs
+  Aggro:     { threats: 24, removal: 8,  boardWipes: 0, counterspells: 0,  cardDraw: 2, ramp: 0,  lands: 22, maxAvgCmc: 2.2, enablers: 0,  payoffs: 0  },
+  Midrange:  { threats: 18, removal: 12, boardWipes: 2, counterspells: 2,  cardDraw: 5, ramp: 2,  lands: 24, maxAvgCmc: 3.1, enablers: 4,  payoffs: 4  },
+  Control:   { threats: 5,  removal: 14, boardWipes: 4, counterspells: 10, cardDraw: 8, ramp: 0,  lands: 26, maxAvgCmc: 3.4, enablers: 2,  payoffs: 2  },
+  Tempo:     { threats: 16, removal: 8,  boardWipes: 0, counterspells: 8,  cardDraw: 4, ramp: 0,  lands: 22, maxAvgCmc: 2.4, enablers: 2,  payoffs: 2  },
+  Combo:     { threats: 8,  removal: 6,  boardWipes: 0, counterspells: 6,  cardDraw: 8, ramp: 4,  lands: 24, maxAvgCmc: 3.0, enablers: 8,  payoffs: 6  },
+  Ramp:      { threats: 10, removal: 6,  boardWipes: 3, counterspells: 0,  cardDraw: 6, ramp: 12, lands: 26, maxAvgCmc: 3.7, enablers: 2,  payoffs: 2  },
+  Prison:    { threats: 6,  removal: 10, boardWipes: 4, counterspells: 4,  cardDraw: 8, ramp: 2,  lands: 24, maxAvgCmc: 3.2, enablers: 0,  payoffs: 0  },
+  Unknown:   { threats: 18, removal: 10, boardWipes: 2, counterspells: 3,  cardDraw: 5, ramp: 2,  lands: 24, maxAvgCmc: 2.9, enablers: 2,  payoffs: 2  },
 };
 
 const ROLE_KEYS: Array<keyof Omit<RoleTarget, "maxAvgCmc">> = [
@@ -35,6 +40,8 @@ const ROLE_KEYS: Array<keyof Omit<RoleTarget, "maxAvgCmc">> = [
   "cardDraw",
   "ramp",
   "lands",
+  "enablers",
+  "payoffs",
 ];
 
 /**

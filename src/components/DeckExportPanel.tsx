@@ -1,27 +1,17 @@
 import { useEffect, useState } from "react";
-import { exportArena, exportCSV, exportJSON, exportMTGO, exportShareableLink } from "../lib/deckExporter";
+import { exportArena, exportCSV, exportJSON, exportMTGO, exportShareableLink, generateDeckName } from "../lib/deckExporter";
 import type { ExportDeck } from "../lib/deckExporter";
 
 interface Props {
   deck: ExportDeck;
 }
 
-/** Derive a reasonable fallback name from deck entries when the stored name is blank. */
+/** Derive a display name: use stored name if set, otherwise auto-generate from deck contents. */
 function autoName(deck: ExportDeck): string {
-  if (deck.name && deck.name.trim()) return deck.name.trim();
-  // Gather color identity from mainboard cards
-  const main = deck.mainboard;
-  const colorSymbols = new Set<string>();
-  for (const { card } of main) {
-    const ci: string[] = card.colorIdentityJson ? JSON.parse(card.colorIdentityJson) : [];
-    for (const c of ci) colorSymbols.add(c);
+  if (deck.name && deck.name.trim() && deck.name.trim() !== "New Deck" && deck.name.trim() !== "Imported Deck") {
+    return deck.name.trim();
   }
-  const colors = ["W", "U", "B", "R", "G"].filter((c) => colorSymbols.has(c)).join("") || "C";
-  // Rough archetype hint from creature ratio
-  const creatures = main.filter(({ card }) => card.typeLine?.includes("Creature")).reduce((s, e) => s + e.quantity, 0);
-  const total = main.reduce((s, e) => s + e.quantity, 0);
-  const hint = total === 0 ? "Deck" : creatures / total >= 0.5 ? "Aggro" : "Control";
-  return `${colors} ${hint}`;
+  return generateDeckName(deck);
 }
 
 export function DeckExportPanel({ deck }: Props) {

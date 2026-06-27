@@ -91,6 +91,50 @@ Suggested first-pass thresholds:
 
 ---
 
+## Single-Card Axis Overfit Scenarios
+
+These scenarios specifically test the fix for the root cause identified in the 2026-06 audit: a single fringe card with multiple edge types (`edgeCount >= 2`) was incorrectly promoted to a required axis, overriding the user's actual game plan. All tests below now require `axisSeedCardCounts >= 2` for an axis to be treated as confirmed.
+
+| ID | Setup | Fringe Input | Expected Behavior | Failure Signal |
+|----|-------|--------------|-------------------|----------------|
+| O1 | 4 Rakdos sacrifice seeds + 1 unrelated enchantment with aura text | Enchantment with "enchant creature" / "when enchanted creature dies" text | Deck identity stays sacrifice; enchantment axis should NOT appear in `graphConfirmedAxes`; final deck should not include aura payoffs | `enchantress` or `voltron` axis in `primaryAxes`; deck pivots toward aura theme |
+| O2 | 4 Izzet spellslinger seeds + 1 outlier equipment creature | Equipment creature with "prowess" + "equip" keyword | Deck identity stays spellslinger; neither `voltron` nor `artifacts` axis promoted to required; outlier appears at most as flavor seed | `voltron` or `artifacts` in `requiredAxes`; LLM told to build an equipment-matters deck |
+| O3 | 4 Selesnya tokens seeds + 1 graveyard payoff legend | Legend with sacrifice-and-recur text | Deck identity stays tokens +anthem; `graveyard` / `sacrifice` do NOT dominate `buildInstruction`; legend may be included as value but shouldn't redefine plan | `graveyard` axis labeled "required" when only one seed touches it; instruction says "build a graveyard deck" |
+| O4 | 1 card only (single-seed edge case) | Any single card | `graphConfirmedAxes` is empty (no axis can meet the 2-card threshold with only 1 seed); instruction falls back to "no confirmed axis" path — LLM told to prioritize broad role value | Any confirmed axis listed when seed count = 1 |
+
+### O-Series Pass/Fail
+
+- **PASS:** `seedGraph.axisSeedCardCounts[axis] < 2` for all axes touched only by the outlier card.
+- **PASS:** `graphConfirmedAxes` does not include axes touched by < 2 distinct seed cards.
+- **PASS:** `buildInstruction` text does not direct the LLM to build around a single fringe card's mechanic.
+- **PASS:** Final deck score for on-plan cards exceeds score of the outlier's mechanic's payoffs.
+- **FAIL:** Any axis in `graphConfirmedAxes` or `requiredAxes` where `axisSeedCardCounts < 2`.
+
+---
+
+## Seed Policy Per-Mode Behavior Scenarios
+
+These scenarios test that the `SeedPolicy` value derived from `currentDeckMode` in GeneratorPanel is passed correctly through `GenerateOptions` and produces the appropriate generator behavior.
+
+| ID | `currentDeckMode` | Expected `seedPolicy` | Entry type used | Expected optimizer behavior |
+|----|-------------------|-----------------------|-----------------|---------------------------|
+| P1 | `lockExact` | `"locked-core"` | `seedEntries` (full deck incl. quantities) | All seed cards appear at exactly their input quantities; optimizer only gap-fills lands and missing roles; no seed dropped or reduced |
+| P2 | `buildAround` | `"locked-core"` | `focusEntries` (nonland only) | All nonland seeds guaranteed to appear; quantities may be adjusted by optimizer; no seed card dropped entirely |
+| P3 | `tuneCore` | `"strong-preference"` | `focusEntries` (qty −1 per card) | All nonland seeds present; optimizer may free one copy slot per 2×+ card for upgrades; seed axes treated as secondary (not overriding) priority |
+| P4 | `suggestion` | `"inspiration"` | `preferEntries` (nonland only) | Seeds get score bonus; optimizer may drop weakest seeds for better-scoring alternatives; axes used as soft guidance only |
+| P5 | `off` | `undefined` | None | Optimizer runs with no seed constraint; deck is built purely from archetype/format scoring |
+| P6 | `redefine` (AI only) | `undefined` | None | AI builds from scratch; `seedPolicy` field absent from opts; no seed entries passed |
+
+### P-Series Pass/Fail
+
+- **PASS P1/P2:** Every seed card oracle ID present in final `result.entries` at correct quantity.
+- **PASS P3:** Every seed card present; at least one 2×+ seed card has one fewer copy vs. input (within optimizer tolerance).
+- **PASS P4:** At least 60% of seed cards present in final deck; no crash or type error; reasoning log shows prefer-bonus applied.
+- **PASS P5/P6:** `opts.seedPolicy === undefined`; `opts.seedEntries`, `focusEntries`, and `preferEntries` all undefined; deck generated without seed constraint.
+- **FAIL:** Mismatched `seedPolicy` value (e.g., `buildAround` producing `"inspiration"` behavior); type error from missing import; `seedPolicy` key absent from `opts` when mode is `lockExact`.
+
+---
+
 ## Known Failure Modes To Watch
 
 1. **Seed over-locking:** Weak/off-plan seeds remain in the final deck because the system treats them as mandatory instead of intent evidence.
@@ -99,6 +143,8 @@ Suggested first-pass thresholds:
 4. **Ambiguity overconfidence:** Four generic cards produce a false narrow archetype with high confidence.
 5. **LLM hallucination:** LLM names cards outside the pool or chooses lands despite instructions.
 6. **Mana/curve collapse:** Deck follows the plan but cannot cast spells reliably or has an uncompetitive curve.
+7. **Single-card axis promotion:** One fringe card with multiple edge types inflates `edgeCount` above the old threshold, incorrectly promoting its axis to `requiredAxes` or `graphConfirmedAxes`. **Fixed** in June 2026 refactor — now uses `axisSeedCardCounts >= 2` threshold.
+8. **seedPolicy not forwarded:** `currentDeckMode` set to `lockExact` but `seedPolicy` missing from `opts` — generator falls back to unconstrained behavior despite user intent.
 
 ---
 

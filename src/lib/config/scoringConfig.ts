@@ -1,3 +1,5 @@
+import type { Archetype } from "../archetype";
+
 /**
  * scoringConfig.ts — Centralized scoring configuration
  *
@@ -273,3 +275,103 @@ export function getPenaltyConfig(format?: string, environment?: string): Penalty
 export function getMetaConfig(format?: string, environment?: string): MetaConfig {
   return getScoringProfile(format, environment).meta;
 }
+// ── Keyword value matrix (sonar.md Part 6) ─────────────────────────────────────
+
+/**
+ * MTG keywords that have differential value across archetypes.
+ * Used by applyKeywordValueMatrix in generator/weights.ts.
+ */
+export type MTGKeyword =
+  | "flying" | "menace" | "trample" | "haste" | "lifelink"
+  | "deathtouch" | "vigilance" | "flash" | "reach" | "first_strike"
+  | "double_strike" | "hexproof" | "indestructible" | "ward"
+  | "surveil" | "mill" | "self_mill" | "token_gen" | "sacrifice";
+export type KeywordValueMatrix = Partial<Record<Archetype, Partial<Record<MTGKeyword, number>>>>;
+
+/**
+ * Per-archetype keyword multipliers.
+ * Values >1.0 = higher value in this archetype, <1.0 = lower value.
+ * 1.0 = neutral (same as default weighting).
+ */
+export const KEYWORD_VALUE_MATRIX: KeywordValueMatrix = {
+  Aggro: {
+    haste: 1.5,      // gets value immediately; critical for aggro
+    trample: 1.4,    // forces through damage
+    menace: 1.3,     // hard to double-block small bodies
+    flying: 1.2,     // evasion enables racing
+    lifelink: 0.8,   // less relevant when racing
+    ward: 0.8,       // usually too slow to matter
+    vigilance: 0.9,
+    deathtouch: 1.1,
+    first_strike: 1.2,
+    double_strike: 1.4,
+  },
+  Midrange: {
+    flying: 1.3,     // evasion on bigger bodies closes games
+    lifelink: 1.3,   // stabilizes after trading
+    deathtouch: 1.2, // excellent on midrange bodies
+    vigilance: 1.2,  // attack AND block
+    ward: 1.2,       // protects key threats
+    trample: 1.2,
+    hexproof: 1.3,
+    indestructible: 1.3,
+    haste: 1.1,
+    token_gen: 1.3,
+  },
+  Control: {
+    flying: 1.5,     // finishers need evasion to close
+    flash: 1.5,      // key for draw-go play
+    hexproof: 1.4,   // protect your finisher
+    ward: 1.4,       // tax the opponent's removal
+    lifelink: 1.3,   // stabilize while controlling
+    indestructible: 1.3,
+    vigilance: 1.1,
+    haste: 0.7,      // irrelevant for control finishers
+    menace: 0.8,
+    trample: 0.9,
+    mill: 1.2,       // alternate win condition
+  },
+  Tempo: {
+    flying: 1.4,     // evasive threats that stick
+    flash: 1.5,      // play on opponent's turn
+    haste: 1.3,      // tempo swing
+    menace: 1.2,
+    first_strike: 1.2,
+    hexproof: 1.3,   // protects your threat investment
+    lifelink: 1.0,
+    token_gen: 1.1,
+    deathtouch: 1.1,
+  },
+  Combo: {
+    haste: 1.3,      // combo pieces that attack same turn
+    surveil: 1.4,    // filter for combo pieces
+    self_mill: 1.4,  // fill graveyard for combo
+    flash: 1.2,
+    flying: 1.0,
+    sacrifice: 1.3,  // aristocrats combos
+    token_gen: 1.2,
+    mill: 1.1,
+  },
+  Ramp: {
+    flying: 1.4,     // big finishers need evasion
+    trample: 1.5,    // force through damage with big bodies
+    haste: 1.3,      // immediately relevant when cast big
+    indestructible: 1.3, // protect expensive investments
+    lifelink: 1.2,   // stabilize while ramping
+    ward: 1.2,
+    hexproof: 1.2,
+    vigilance: 1.1,
+  },
+  Prison: {
+    flash: 1.3,      // instant-speed lock pieces
+    flying: 1.1,
+    lifelink: 1.2,   // stabilize while locking
+    ward: 1.3,       // protect lock pieces
+    indestructible: 1.4, // lock pieces that can't be removed
+    hexproof: 1.3,
+    vigilance: 1.1,
+    haste: 0.7,
+    menace: 0.8,
+    trample: 0.8,
+  },
+};

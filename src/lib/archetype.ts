@@ -72,6 +72,12 @@ export interface ArchetypeDetectionResult {
   themes: DetectedTheme[];
   /** Human-readable detection signals. */
   signals: string[];
+  /**
+   * Per-macro fitness score (0–14 scale, same as internal `score()` function).
+   * Lets callers see how competitive each archetype is for this deck composition.
+   * Useful for building confidence breakdowns in the UI and for seed analysis.
+   */
+  archetypeScores: Partial<Record<Archetype, number>>;
 }
 
 export interface RoleComposition {
@@ -236,6 +242,17 @@ export function detectThemes(entries: DeckEntry[]): DetectedTheme[] {
   const storm = get("storm");
   add("storm", storm.sources >= 4 || storm.payoffs >= 2, (storm.sources + storm.payoffs) / 8);
 
+  // Delirium: payoff cards with delirium/escape/delve keyword text signal + graveyard enablers
+  const deliriumPayoffs = entries.filter(e => {
+    const t = (e.card.oracleText ?? "").toLowerCase();
+    return t.includes("delirium") || t.includes("escape—") || t.includes("threshold");
+  }).reduce((s, e) => s + e.quantity, 0);
+  const deliriumEnablers = (graveyard.sources + get("mill").sources);
+  add("delirium",
+    deliriumPayoffs >= 4 && deliriumEnablers >= 4,
+    (deliriumPayoffs + deliriumEnablers) / 16,
+  );
+
   return detected.sort((a, b) => b.score - a.score);
 }
 
@@ -267,24 +284,30 @@ export function detectArchetype(entries: DeckEntry[]): ArchetypeDetectionResult 
     signals.push(`Theme: ${t.id} (${Math.round(t.score * 100)}%)`);
   }
 
+  // Compute per-macro scores upfront (used for archetypeScores in result).
+  const archetypeScores: Partial<Record<Archetype, number>> = {};
+  for (const arch of SCORED_MACROS) {
+    archetypeScores[arch] = score(comp, arch);
+  }
+
   // Strong macro overrides driven by unambiguous structural signals.
-  if (themeIds.has("stax") || comp.boardWipes >= 4 && themeIds.has("stax")) {
-    return finalize("Prison", 0.7, themes, signals);
+  if (themeIds.has("stax") || (comp.boardWipes >= 4 && themeIds.has("stax"))) {
+    return finalize("Prison", 0.7, themes, signals, archetypeScores);
   }
   if (comp.ramp >= 10 && avgCmc >= 3.0) {
-    return finalize("Ramp", 0.75, themes, signals);
+    return finalize("Ramp", 0.75, themes, signals, archetypeScores);
   }
 
   // Score-based detection across all macros.
   let bestArchetype: Archetype = "Unknown";
   let bestScore = 0;
   for (const arch of SCORED_MACROS) {
-    const s = score(comp, arch);
+    const s = archetypeScores[arch] ?? 0;
     if (s > bestScore) { bestScore = s; bestArchetype = arch; }
   }
 
   const confidence = Math.min(bestScore / 14, 1);
-  return finalize(bestArchetype, confidence, themes, signals);
+  return finalize(bestArchetype, confidence, themes, signals, archetypeScores);
 }
 
 function finalize(
@@ -292,6 +315,7 @@ function finalize(
   confidence: number,
   themes: DetectedTheme[],
   signals: string[],
+  archetypeScores: Partial<Record<Archetype, number>> = {},
 ): ArchetypeDetectionResult {
-  return { archetype: macro, macro, confidence, themes, signals };
+  return { archetype: macro, macro, confidence, themes, signals, archetypeScores };
 }

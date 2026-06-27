@@ -181,6 +181,57 @@ function computeCastabilityPenalty(
   return Math.min(cfg.maxPenalty, cfg.maxPenalty * t * t);
 }
 
+// ── Deck-level tempo & card-advantage metrics (sonar.md Part 3) ──────────────
+
+/**
+ * Tempo score for the deck: ratio of low-CMC threats and interaction pieces
+ * normalized to 0-100. Higher = faster, more threatening turn-by-turn pressure.
+ *
+ * Formula: (∑ qty of nonland cards with CMC ≤ 2 that are threats or removal) / nonlandTotal × 100
+ */
+export function computeTempoScore(entries: DeckEntry[], archetype: Archetype): number {
+  const nonlands = entries.filter((e) => !e.card.typeLine.includes("Land"));
+  const nonlandTotal = nonlands.reduce((s, e) => s + e.quantity, 0);
+  if (nonlandTotal === 0) return 0;
+
+  let tempoQty = 0;
+  for (const entry of nonlands) {
+    if (entry.card.cmc > 2) continue;
+    const text = (entry.card.oracleText ?? "").toLowerCase();
+    const tl = entry.card.typeLine;
+    const isThreatCard = tl.includes("Creature") && entry.card.power != null;
+    const isInteraction = /destroy target|exile target|counter target|deals \d+ damage|loses \d+ life/i.test(text);
+    if (isThreatCard || isInteraction) tempoQty += entry.quantity;
+  }
+
+  const rawRatio = tempoQty / nonlandTotal;
+  // Archetype-aware normalization: aggro/tempo archetypes score higher for same ratio
+  const archetypeBonus = (archetype === "Aggro" || archetype === "Tempo") ? 15 : 0;
+  return Math.round(Math.min(100, rawRatio * 100 + archetypeBonus));
+}
+
+/**
+ * Card-advantage score for the deck: density of card-draw, cantrip, and
+ * two-for-one effects normalized to 0-100.
+ *
+ * Formula: (∑ qty of nonland cards with draw/loot/token generation oracle text) / nonlandTotal × 100
+ */
+export function computeCardAdvantageScore(entries: DeckEntry[]): number {
+  const nonlands = entries.filter((e) => !e.card.typeLine.includes("Land"));
+  const nonlandTotal = nonlands.reduce((s, e) => s + e.quantity, 0);
+  if (nonlandTotal === 0) return 0;
+
+  const CARD_ADV_PATTERN = /draw (?:a|x|\d+) card|you may draw|investigate|create .* clue|scry \d|surveil \d|loot|rummage|impulse|whenever .* enters .* battlefield.*draw|whenever .* dies.*draw|two-for-one|replace .* draw/i;
+
+  let advQty = 0;
+  for (const entry of nonlands) {
+    const text = entry.card.oracleText ?? "";
+    if (CARD_ADV_PATTERN.test(text)) advQty += entry.quantity;
+  }
+
+  return Math.round(Math.min(100, (advQty / nonlandTotal) * 100));
+}
+
 /**
  * Score multiple candidates against a deck, returning sorted results.
  */

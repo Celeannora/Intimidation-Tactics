@@ -1,0 +1,218 @@
+[
+  {
+    "label": "Esper Midrange",
+    "archetype": "Midrange",
+    "tier": 1,
+    "entries": [
+      { "quantity": 4, "card": { "name": "Raffine, Scheming Seer",  "typeLine": "Legendary Creature — Sphinx Demon",  "cmc": 3, "colorIdentity": ["W","U","B"] } },
+      { "quantity": 4, "card": { "name": "Sheoldred, the Apocalypse", "typeLine": "Legendary Creature — Phyrexian Praetor", "cmc": 4, "colorIdentity": ["B"] } },
+      { "quantity": 4, "card": { "name": "Wedding Announcement",     "typeLine": "Enchantment",                          "cmc": 3, "colorIdentity": ["W"] } },
+      { "quantity": 4, "card": { "name": "Rona's Vortex",            "typeLine": "Instant",                              "cmc": 1, "colorIdentity": ["U","B"] } },
+      { "quantity": 4, "card": { "name": "Cut Down",                 "typeLine": "Instant",                              "cmc": 1, "colorIdentity": ["B"] } },
+      { "quantity": 3, "card": { "name": "The Wandering Emperor",    "typeLine": "Legendary Planeswalker — Emperor",     "cmc": 4, "colorIdentity": ["W"] } },
+      { "quantity": 4, "card": { "name": "Fading Hope",              "typeLine": "Instant",                              "cmc": 1, "colorIdentity": ["U"] } },
+      { "quantity": 2, "card": { "name": "Kaito Shizuki",            "typeLine": "Legendary Planeswalker — Kaito",       "cmc": 3, "colorIdentity": ["U","B"] } },
+      { "quantity": 3, "card": { "name": "Dominaria's Judgment",     "typeLine": "Instant",                              "cmc": 4, "colorIdentity": ["W"] } },
+      { "quantity": 4, "card": { "name": "Plaza of Heroes",          "typeLine": "Land",                                 "cmc": 0, "colorIdentity": [] } },
+      { "quantity": 4, "card": { "name": "Raffine's Tower",          "typeLine": "Land",                                 "cmc": 0, "colorIdentity": [] } },
+      { "quantity": 4, "card": { "name": "Spara's Headquarters",     "typeLine": "Land",                                 "cmc": 0, "colorIdentity": [] } },
+      { "quantity": 4, "card": { "name": "Shattered Sanctum",        "typeLine": "Land",                                 "cmc": 0, "colorIdentity": [] } },
+      { "quantity": 3, "card": { "name": "Underground River",        "typeLine": "Land",                                 "cmc": 0, "colorIdentity": [] } },
+      { "quantity": 4, "card": { "name": "Caves of Koilos",          "typeLine": "Land",                                 "cmc": 0, "colorIdentity": [] } },
+      { "quantity": 3, "card": { "name": "Plains",                   "typeLine": "Basic Land — Plains",                  "cmc": 0, "colorIdentity": [] } }
+    ],
+    "roles": { "threats": 14, "removal": 9, "boardWipes": 0, "counterspells": 0, "cardDraw": 4, "ramp": 0, "lands": 22 }
+  },
+  {
+    "label": "Mono-Red Aggro",
+    "archetype": "Aggro",
+    "tier": 1,
+    "entries": [
+      { "quantity": 4, "card": { "name": "Kumano Faces Kakkazan",   "typeLine": "Enchantment — Saga",            "cmc": 1, "colorIdentity": ["R"] } },
+      { "quantity": 4, "card": { "name": "Monastery Swiftspear",    "typeLine": "Creature — Human Monk",         "cmc": 1, "colorIdentity": ["R"] } },
+      { "quantity": 4, "card": { "name": "Bloodthirsty Adversary",  "typeLine": "Creature — Vampire",            "cmc": 2, "colorIdentity": ["R"] } },
+      { "quantity": 4, "card": { "name": "Play with Fire",          "typeLine": "Instant",                       "cmc": 1, "colorIdentity": ["R"] } },
+      { "quantity": 4, "card": { "name": "Lightning Strike",        "typeLine": "Instant",                       "cmc": 2, "colorIdentity": ["R"] } },
+      { "quantity": 4, "card": { "name": "Viashino Lashclaw",       "typeLine": "Creature — Viashino Warrior",   "cmc": 2, "colorIdentity": ["R"] } },
+      { "quantity": 4, "card": { "name": "Experimental Synthesizer", "typeLine": "Artifact",                     "cmc": 2, "colorIdentity": ["R"] } },
+      { "quantity": 4, "card": { "name": "Feldon, Ronom Excavator", "typeLine": "Legendary Creature — Human",    "cmc": 2, "colorIdentity": ["R"] } },
+      { "quantity": 4, "card": { "name": "Phoenix Chick",           "typeLine": "Creature — Phoenix",            "cmc": 1, "colorIdentity": ["R"] } },
+      { "quantity": 4, "card": { "name": "Reckless Impulse",        "typeLine": "Sorcery",                       "cmc": 2, "colorIdentity": ["R"] } },
+      { "quantity": 20, "card": { "name": "Mountain",               "typeLine": "Basic Land — Mountain",         "cmc": 0, "colorIdentity": [] } }
+    ],
+    "roles": { "threats": 20, "removal": 8, "boardWipes": 0, "counterspells": 0, "cardDraw": 4, "ramp": 0, "lands": 20 }
+  },
+  {
+    "label": "Azorius Soldiers",
+    "archetype": "Aggro",
+    "tier": 1,
+    "entries": [
+      { "quantity": 4, "card": { "name": "Valiant Veteran",         "typeLine": "Creature — Dwarf Soldier",      "cmc": 1, "colorIdentity": ["W"] } },
+      { "quantity": 4, "card": { "name": "Recruitment Officer",     "typeLine": "Creature — Human Soldier",      "cmc": 1, "colorIdentity": ["W"] } },
+      { "quantity": 4, "card": { "name": "Harbin, Vanguard Aviator", "typeLine": "Legendary Creature — Human Soldier", "cmc": 2, "colorIdentity": ["W","U"] } },
+      { "quantity": 4, "card": { "name": "Thalia, Guardian of Thraben", "typeLine": "Legendary Creature — Human Soldier", "cmc": 2, "colorIdentity": ["W"] } },
+      { "quantity": 4, "card": { "name": "Siege Veteran",           "typeLine": "Creature — Human Soldier",      "cmc": 2, "colorIdentity": ["W"] } },
+      { "quantity": 4, "card": { "name": "Dennick, Pious Apprentice", "typeLine": "Legendary Creature — Human Soldier", "cmc": 2, "colorIdentity": ["W","U"] } },
+      { "quantity": 3, "card": { "name": "Skystrike Officer",       "typeLine": "Creature — Human Soldier",      "cmc": 3, "colorIdentity": ["U"] } },
+      { "quantity": 3, "card": { "name": "Make Your Mark",          "typeLine": "Instant",                       "cmc": 2, "colorIdentity": ["W","U"] } },
+      { "quantity": 2, "card": { "name": "Lay Down Arms",           "typeLine": "Instant",                       "cmc": 1, "colorIdentity": ["W"] } },
+      { "quantity": 4, "card": { "name": "Eiganjo, Seat of the Empire", "typeLine": "Legendary Land",            "cmc": 0, "colorIdentity": [] } },
+      { "quantity": 4, "card": { "name": "Otawara, Soaring City",   "typeLine": "Legendary Land",                "cmc": 0, "colorIdentity": [] } },
+      { "quantity": 4, "card": { "name": "Deserted Beach",          "typeLine": "Land",                          "cmc": 0, "colorIdentity": [] } },
+      { "quantity": 4, "card": { "name": "Shipwreck Marsh",         "typeLine": "Land",                          "cmc": 0, "colorIdentity": [] } },
+      { "quantity": 4, "card": { "name": "Plains",                  "typeLine": "Basic Land — Plains",           "cmc": 0, "colorIdentity": [] } },
+      { "quantity": 2, "card": { "name": "Island",                  "typeLine": "Basic Land — Island",           "cmc": 0, "colorIdentity": [] } }
+    ],
+    "roles": { "threats": 22, "removal": 2, "boardWipes": 0, "counterspells": 0, "cardDraw": 3, "ramp": 0, "lands": 22 }
+  },
+  {
+    "label": "Grixis Midrange",
+    "archetype": "Midrange",
+    "tier": 1,
+    "entries": [
+      { "quantity": 4, "card": { "name": "Fable of the Mirror-Breaker", "typeLine": "Enchantment — Saga",        "cmc": 3, "colorIdentity": ["R"] } },
+      { "quantity": 4, "card": { "name": "Sheoldred, the Apocalypse",   "typeLine": "Legendary Creature — Phyrexian Praetor", "cmc": 4, "colorIdentity": ["B"] } },
+      { "quantity": 4, "card": { "name": "Bloodtithe Harvester",        "typeLine": "Creature — Vampire",        "cmc": 2, "colorIdentity": ["B","R"] } },
+      { "quantity": 4, "card": { "name": "Make Disappear",              "typeLine": "Instant",                   "cmc": 2, "colorIdentity": ["U"] } },
+      { "quantity": 4, "card": { "name": "Voltage Surge",               "typeLine": "Instant",                   "cmc": 1, "colorIdentity": ["R"] } },
+      { "quantity": 4, "card": { "name": "Rona's Vortex",               "typeLine": "Instant",                   "cmc": 1, "colorIdentity": ["U","B"] } },
+      { "quantity": 2, "card": { "name": "Invoke Despair",              "typeLine": "Sorcery",                   "cmc": 5, "colorIdentity": ["B"] } },
+      { "quantity": 2, "card": { "name": "Corpse Appraiser",            "typeLine": "Creature — Vampire",        "cmc": 3, "colorIdentity": ["U","B"] } },
+      { "quantity": 2, "card": { "name": "Cut Down",                    "typeLine": "Instant",                   "cmc": 1, "colorIdentity": ["B"] } },
+      { "quantity": 4, "card": { "name": "Sulfurous Springs",           "typeLine": "Land",                      "cmc": 0, "colorIdentity": [] } },
+      { "quantity": 4, "card": { "name": "Stormcarved Coast",           "typeLine": "Land",                      "cmc": 0, "colorIdentity": [] } },
+      { "quantity": 4, "card": { "name": "Haunted Ridge",               "typeLine": "Land",                      "cmc": 0, "colorIdentity": [] } },
+      { "quantity": 4, "card": { "name": "Shivan Reef",                 "typeLine": "Land",                      "cmc": 0, "colorIdentity": [] } },
+      { "quantity": 4, "card": { "name": "Swamp",                       "typeLine": "Basic Land — Swamp",        "cmc": 0, "colorIdentity": [] } },
+      { "quantity": 4, "card": { "name": "Island",                      "typeLine": "Basic Land — Island",       "cmc": 0, "colorIdentity": [] } }
+    ],
+    "roles": { "threats": 12, "removal": 10, "boardWipes": 0, "counterspells": 4, "cardDraw": 4, "ramp": 0, "lands": 24 }
+  },
+  {
+    "label": "Azorius Soldiers Control",
+    "archetype": "Control",
+    "tier": 1,
+    "entries": [
+      { "quantity": 4, "card": { "name": "The Wandering Emperor",    "typeLine": "Legendary Planeswalker — Emperor", "cmc": 4, "colorIdentity": ["W"] } },
+      { "quantity": 4, "card": { "name": "Make Disappear",           "typeLine": "Instant",                          "cmc": 2, "colorIdentity": ["U"] } },
+      { "quantity": 4, "card": { "name": "Counterspell",             "typeLine": "Instant",                          "cmc": 2, "colorIdentity": ["U"] } },
+      { "quantity": 4, "card": { "name": "Memory Deluge",            "typeLine": "Instant",                          "cmc": 4, "colorIdentity": ["U"] } },
+      { "quantity": 4, "card": { "name": "Farewell",                 "typeLine": "Sorcery",                          "cmc": 6, "colorIdentity": ["W"] } },
+      { "quantity": 4, "card": { "name": "Lay Down Arms",            "typeLine": "Instant",                          "cmc": 1, "colorIdentity": ["W"] } },
+      { "quantity": 4, "card": { "name": "Atraxa, Grand Unifier",    "typeLine": "Legendary Creature — Phyrexian",  "cmc": 7, "colorIdentity": ["W","U","B","G"] } },
+      { "quantity": 2, "card": { "name": "The Celestus",             "typeLine": "Artifact",                         "cmc": 3, "colorIdentity": [] } },
+      { "quantity": 2, "card": { "name": "Elspeth Resplendent",      "typeLine": "Legendary Planeswalker — Elspeth", "cmc": 5, "colorIdentity": ["W"] } },
+      { "quantity": 4, "card": { "name": "Deserted Beach",           "typeLine": "Land",                             "cmc": 0, "colorIdentity": [] } },
+      { "quantity": 4, "card": { "name": "Eiganjo, Seat of the Empire", "typeLine": "Legendary Land",               "cmc": 0, "colorIdentity": [] } },
+      { "quantity": 4, "card": { "name": "Otawara, Soaring City",    "typeLine": "Legendary Land",                   "cmc": 0, "colorIdentity": [] } },
+      { "quantity": 4, "card": { "name": "Plains",                   "typeLine": "Basic Land — Plains",              "cmc": 0, "colorIdentity": [] } },
+      { "quantity": 4, "card": { "name": "Island",                   "typeLine": "Basic Land — Island",              "cmc": 0, "colorIdentity": [] } },
+      { "quantity": 4, "card": { "name": "Adarkar Wastes",           "typeLine": "Land",                             "cmc": 0, "colorIdentity": [] } }
+    ],
+    "roles": { "threats": 6, "removal": 8, "boardWipes": 4, "counterspells": 8, "cardDraw": 4, "ramp": 2, "lands": 24 }
+  },
+  {
+    "label": "Green Stompy Ramp",
+    "archetype": "Ramp",
+    "tier": 2,
+    "entries": [
+      { "quantity": 4, "card": { "name": "Llanowar Elves",           "typeLine": "Creature — Elf Druid",       "cmc": 1, "colorIdentity": ["G"] } },
+      { "quantity": 4, "card": { "name": "Elvish Mystic",            "typeLine": "Creature — Elf Druid",       "cmc": 1, "colorIdentity": ["G"] } },
+      { "quantity": 3, "card": { "name": "Rampant Growth",           "typeLine": "Sorcery",                    "cmc": 2, "colorIdentity": ["G"] } },
+      { "quantity": 4, "card": { "name": "Cavalier of Thorns",       "typeLine": "Creature — Elemental Knight", "cmc": 5, "colorIdentity": ["G"] } },
+      { "quantity": 2, "card": { "name": "Titan of Industry",        "typeLine": "Creature — Giant",           "cmc": 7, "colorIdentity": ["G"] } },
+      { "quantity": 3, "card": { "name": "Karn's Sylex",             "typeLine": "Legendary Artifact",         "cmc": 3, "colorIdentity": [] } },
+      { "quantity": 3, "card": { "name": "Yavimaya, Cradle of Growth", "typeLine": "Legendary Land",           "cmc": 0, "colorIdentity": [] } },
+      { "quantity": 3, "card": { "name": "Boseiju, Who Endures",     "typeLine": "Legendary Land",             "cmc": 0, "colorIdentity": [] } },
+      { "quantity": 4, "card": { "name": "Arachnogenesis",           "typeLine": "Instant",                    "cmc": 3, "colorIdentity": ["G"] } },
+      { "quantity": 4, "card": { "name": "Blossoming Defense",       "typeLine": "Instant",                    "cmc": 1, "colorIdentity": ["G"] } },
+      { "quantity": 22, "card": { "name": "Forest",                  "typeLine": "Basic Land — Forest",        "cmc": 0, "colorIdentity": [] } }
+    ],
+    "roles": { "threats": 9, "removal": 0, "boardWipes": 3, "counterspells": 0, "cardDraw": 0, "ramp": 7, "lands": 29 }
+  },
+  {
+    "label": "Izzet Spellslinger",
+    "archetype": "Tempo",
+    "tier": 1,
+    "entries": [
+      { "quantity": 4, "card": { "name": "Ledger Shredder",          "typeLine": "Creature — Bird Advisor",    "cmc": 2, "colorIdentity": ["U","R"] } },
+      { "quantity": 4, "card": { "name": "Expressive Iteration",     "typeLine": "Sorcery",                    "cmc": 2, "colorIdentity": ["U","R"] } },
+      { "quantity": 4, "card": { "name": "Arclight Phoenix",         "typeLine": "Creature — Phoenix",         "cmc": 4, "colorIdentity": ["R"] } },
+      { "quantity": 4, "card": { "name": "Consider",                 "typeLine": "Instant",                    "cmc": 1, "colorIdentity": ["U"] } },
+      { "quantity": 4, "card": { "name": "Opt",                      "typeLine": "Instant",                    "cmc": 1, "colorIdentity": ["U"] } },
+      { "quantity": 4, "card": { "name": "Play with Fire",           "typeLine": "Instant",                    "cmc": 1, "colorIdentity": ["R"] } },
+      { "quantity": 4, "card": { "name": "Lightning Strike",         "typeLine": "Instant",                    "cmc": 2, "colorIdentity": ["R"] } },
+      { "quantity": 4, "card": { "name": "Shivan Reef",              "typeLine": "Land",                       "cmc": 0, "colorIdentity": [] } },
+      { "quantity": 4, "card": { "name": "Stormcarved Coast",        "typeLine": "Land",                       "cmc": 0, "colorIdentity": [] } },
+      { "quantity": 4, "card": { "name": "Steam Vents",              "typeLine": "Land",                       "cmc": 0, "colorIdentity": [] } },
+      { "quantity": 4, "card": { "name": "Spirebluff Canal",         "typeLine": "Land",                       "cmc": 0, "colorIdentity": [] } },
+      { "quantity": 2, "card": { "name": "Mountain",                 "typeLine": "Basic Land — Mountain",      "cmc": 0, "colorIdentity": [] } },
+      { "quantity": 2, "card": { "name": "Island",                   "typeLine": "Basic Land — Island",        "cmc": 0, "colorIdentity": [] } }
+    ],
+    "roles": { "threats": 8, "removal": 8, "boardWipes": 0, "counterspells": 0, "cardDraw": 12, "ramp": 0, "lands": 20 }
+  },
+  {
+    "label": "Golgari Mid",
+    "archetype": "Midrange",
+    "tier": 1,
+    "entries": [
+      { "quantity": 4, "card": { "name": "Graveyard Trespasser",     "typeLine": "Creature — Human Werewolf", "cmc": 3, "colorIdentity": ["B"] } },
+      { "quantity": 4, "card": { "name": "Tenacious Underdog",       "typeLine": "Creature — Human Warrior",  "cmc": 2, "colorIdentity": ["B"] } },
+      { "quantity": 4, "card": { "name": "Extraction Specialist",    "typeLine": "Creature — Human",          "cmc": 2, "colorIdentity": ["W"] } },
+      { "quantity": 4, "card": { "name": "Witherbloom Command",      "typeLine": "Sorcery",                   "cmc": 2, "colorIdentity": ["B","G"] } },
+      { "quantity": 4, "card": { "name": "Tear Asunder",             "typeLine": "Instant",                   "cmc": 2, "colorIdentity": ["G"] } },
+      { "quantity": 4, "card": { "name": "Grist, the Hunger Tide",   "typeLine": "Legendary Planeswalker — Grist", "cmc": 3, "colorIdentity": ["B","G"] } },
+      { "quantity": 3, "card": { "name": "Liliana of the Veil",      "typeLine": "Legendary Planeswalker — Liliana", "cmc": 3, "colorIdentity": ["B"] } },
+      { "quantity": 3, "card": { "name": "Invoke Despair",           "typeLine": "Sorcery",                   "cmc": 5, "colorIdentity": ["B"] } },
+      { "quantity": 2, "card": { "name": "The Meathook Massacre",    "typeLine": "Legendary Enchantment",     "cmc": 2, "colorIdentity": ["B"] } },
+      { "quantity": 4, "card": { "name": "Darkbore Pathway",         "typeLine": "Land",                      "cmc": 0, "colorIdentity": [] } },
+      { "quantity": 4, "card": { "name": "Haunted Ridge",            "typeLine": "Land",                      "cmc": 0, "colorIdentity": [] } },
+      { "quantity": 4, "card": { "name": "Boseiju, Who Endures",     "typeLine": "Legendary Land",            "cmc": 0, "colorIdentity": [] } },
+      { "quantity": 4, "card": { "name": "Otawara, Soaring City",    "typeLine": "Legendary Land",            "cmc": 0, "colorIdentity": [] } },
+      { "quantity": 4, "card": { "name": "Swamp",                    "typeLine": "Basic Land — Swamp",        "cmc": 0, "colorIdentity": [] } },
+      { "quantity": 2, "card": { "name": "Forest",                   "typeLine": "Basic Land — Forest",       "cmc": 0, "colorIdentity": [] } }
+    ],
+    "roles": { "threats": 15, "removal": 9, "boardWipes": 2, "counterspells": 0, "cardDraw": 3, "ramp": 0, "lands": 22 }
+  },
+  {
+    "label": "Selesnya Enchantments (Fringe)",
+    "archetype": "Midrange",
+    "tier": 3,
+    "entries": [
+      { "quantity": 4, "card": { "name": "Hallowed Haunting",        "typeLine": "Enchantment",               "cmc": 3, "colorIdentity": ["W"] } },
+      { "quantity": 3, "card": { "name": "Katilda, Dawnhart Martyr", "typeLine": "Legendary Creature — Human Cleric", "cmc": 3, "colorIdentity": ["W"] } },
+      { "quantity": 2, "card": { "name": "Setessan Champion",        "typeLine": "Creature — Human Warrior",  "cmc": 3, "colorIdentity": ["G"] } },
+      { "quantity": 2, "card": { "name": "Skrelv's Hive",            "typeLine": "Enchantment",               "cmc": 2, "colorIdentity": ["W"] } },
+      { "quantity": 4, "card": { "name": "Wedding Announcement",     "typeLine": "Enchantment",               "cmc": 3, "colorIdentity": ["W"] } },
+      { "quantity": 2, "card": { "name": "Jukai Naturalist",         "typeLine": "Creature — Human Monk",     "cmc": 2, "colorIdentity": ["G"] } },
+      { "quantity": 2, "card": { "name": "Court of Ardenvale",       "typeLine": "Enchantment — Court",       "cmc": 3, "colorIdentity": ["W"] } },
+      { "quantity": 2, "card": { "name": "Generous Visitor",         "typeLine": "Creature — Spirit",         "cmc": 1, "colorIdentity": ["G"] } },
+      { "quantity": 2, "card": { "name": "Spirited Companion",       "typeLine": "Creature — Dog",            "cmc": 2, "colorIdentity": ["W"] } },
+      { "quantity": 3, "card": { "name": "Boseiju, Who Endures",     "typeLine": "Legendary Land",            "cmc": 0, "colorIdentity": [] } },
+      { "quantity": 24, "card": { "name": "Plains",                  "typeLine": "Basic Land — Plains",       "cmc": 0, "colorIdentity": [] } }
+    ],
+    "roles": { "threats": 11, "removal": 0, "boardWipes": 0, "counterspells": 0, "cardDraw": 4, "ramp": 2, "lands": 27 }
+  },
+  {
+    "label": "Rakdos Sacrifice",
+    "archetype": "Midrange",
+    "tier": 1,
+    "entries": [
+      { "quantity": 4, "card": { "name": "Cauldron Familiar",        "typeLine": "Creature — Cat",             "cmc": 1, "colorIdentity": ["B"] } },
+      { "quantity": 4, "card": { "name": "Witch's Oven",             "typeLine": "Artifact",                   "cmc": 1, "colorIdentity": [] } },
+      { "quantity": 4, "card": { "name": "Mayhem Devil",             "typeLine": "Creature — Devil",           "cmc": 3, "colorIdentity": ["B","R"] } },
+      { "quantity": 4, "card": { "name": "Godfather",                "typeLine": "Creature — Human Rogue",     "cmc": 2, "colorIdentity": ["B","R"] } },
+      { "quantity": 4, "card": { "name": "Village Rites",            "typeLine": "Instant",                    "cmc": 1, "colorIdentity": ["B"] } },
+      { "quantity": 4, "card": { "name": "Bloodthirsty Adversary",   "typeLine": "Creature — Vampire",         "cmc": 2, "colorIdentity": ["R"] } },
+      { "quantity": 3, "card": { "name": "Ob Nixilis, the Adversary","typeLine": "Legendary Planeswalker — Ob Nixilis", "cmc": 3, "colorIdentity": ["B","R"] } },
+      { "quantity": 3, "card": { "name": "Fable of the Mirror-Breaker", "typeLine": "Enchantment — Saga",     "cmc": 3, "colorIdentity": ["R"] } },
+      { "quantity": 2, "card": { "name": "Korvold, Fae-Cursed King", "typeLine": "Legendary Creature — Dragon Noble", "cmc": 5, "colorIdentity": ["B","R","G"] } },
+      { "quantity": 4, "card": { "name": "Haunted Ridge",            "typeLine": "Land",                       "cmc": 0, "colorIdentity": [] } },
+      { "quantity": 4, "card": { "name": "Sulfurous Springs",        "typeLine": "Land",                       "cmc": 0, "colorIdentity": [] } },
+      { "quantity": 4, "card": { "name": "Blightstep Pathway",       "typeLine": "Land",                       "cmc": 0, "colorIdentity": [] } },
+      { "quantity": 4, "card": { "name": "Swamp",                    "typeLine": "Basic Land — Swamp",         "cmc": 0, "colorIdentity": [] } },
+      { "quantity": 4, "card": { "name": "Mountain",                 "typeLine": "Basic Land — Mountain",      "cmc": 0, "colorIdentity": [] } }
+    ],
+    "roles": { "threats": 16, "removal": 4, "boardWipes": 0, "counterspells": 0, "cardDraw": 7, "ramp": 0, "lands": 20 }
+  }
+]

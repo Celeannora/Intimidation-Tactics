@@ -16,12 +16,15 @@ import type {
   GenerateResult,
   GenerationEngine,
   KeywordFocus,
+  SeedPolicy,
   SpeedProfile,
   SpellRatio,
   TribalSupportMode,
 } from "../lib/generator/types";
 import { AISettingsDrawer } from "./AISettingsDrawer";
+import { MythicViabilityPanel } from "./MythicViabilityPanel";
 import { CONSTRUCTED_FORMATS, getFormatRules, type ConstructedFormat, type PlayEnvironment } from "../lib/formats";
+import { generateDeckName } from "../lib/deckExporter";
 
 const ARCHETYPES: Archetype[] = [
   "Aggro", "Midrange", "Control", "Tempo", "Combo", "Ramp", "Prison",
@@ -95,6 +98,14 @@ const ARCHITECTURE_GROUPS: { title: string; items: { focus: KeywordFocus; descri
   },
 ];
 
+// Unique themes not covered by any ARCHITECTURE_GROUPS keyword focus —
+// these get their own compact chip row below the keyword grid.
+const LINKED_THEME_IDS = new Set<ThemeId>([
+  "lifegain", "mill", "tokens", "sacrifice", "reanimator", "graveyard",
+  "spellslinger", "typal", "enchantress", "artifacts", "counters", "blink", "discard",
+]);
+const UNIQUE_THEMES = THEMES.filter((t) => !LINKED_THEME_IDS.has(t.id));
+
 export function GeneratorPanel() {
   const mainEntries = useMainboardEntries();
   const clearDeck = useDeckStore((s) => s.clearDeck);
@@ -114,13 +125,15 @@ export function GeneratorPanel() {
   const [keywordFocus, setKeywordFocus] = useState<KeywordFocus[]>([]);
   const [tribalTribe, setTribalTribe] = useState("");
   const [tribalMode, setTribalMode] = useState<TribalSupportMode>("recommended");
+  const [liveTribes, setLiveTribes] = useState<string[]>([...COMMON_TRIBES]);
+  const [tribesFromDB, setTribesFromDB] = useState(false);
   const [maxCardPrice, setMaxCardPrice] = useState("");
   const [totalBudget, setTotalBudget] = useState("");
   const [mainboardSize, setMainboardSize] = useState(60);
   const [variants, setVariants] = useState(1);
   const [iterations, setIterations] = useState(200);
   const [generateSideboard, setGenSide] = useState(false);
-  const [currentDeckMode, setCurrentDeckMode] = useState<"off" | "suggestion" | "tuneCore" | "buildAround" | "lockExact" | "redefine">("buildAround");
+  const [currentDeckMode, setCurrentDeckMode] = useState<"off" | "seeds" | "keep">("seeds");
   const [seedFuzzSwaps, setSeedFuzzSwaps] = useState<number>(0);
   // Locked spine: AI's nonland picks (and the quantities the LLM specifies) become
   // a locked deck spine the optimizer may only gap-fill around. Default ON for AI;
@@ -154,6 +167,10 @@ export function GeneratorPanel() {
   const [currentPass, setCurrentPass] = useState<{ pass: number; total: number } | null>(null);
   const [rawResponse, setRawResponse] = useState<string | null>(null);
   const [aiTranscript, setAiTranscript] = useState<AIChatTranscript | null>(null);
+  const [deckDelta, setDeckDelta] = useState<{
+    added: { name: string; qty: number }[];
+    removed: { name: string; qty: number }[];
+  } | null>(null);
   const [chatHistory, setChatHistory] = useState<{ role: "user" | "assistant"; text: string }[]>([]);
   const [chatInput, setChatInput] = useState<string>("");
   const lastOptionsRef = useRef<GenerateOptions | null>(null);
@@ -174,6 +191,26 @@ export function GeneratorPanel() {
     }, 200);
     return () => window.clearInterval(id);
   }, [busy]);
+
+  // Live tribes: when Tribal Support is active, populate the datalist from the DB.
+  useEffect(() => {
+    if (!keywordFocus.includes("Tribal Support")) return;
+    db.cards.toArray().then((cards) => {
+      const types = new Set<string>();
+      for (const card of cards) {
+        if (!card.typeLine.includes("Creature")) continue;
+        const parts = card.typeLine.split(/[—\-]/);
+        if (parts.length < 2) continue;
+        for (const t of parts[1].split(/\s+/).map((s) => s.trim()).filter(Boolean)) {
+          if (t.length >= 2) types.add(t);
+        }
+      }
+      if (types.size > 0) {
+        setLiveTribes([...types].sort());
+        setTribesFromDB(true);
+      }
+    }).catch(() => { /* fallback: keep COMMON_TRIBES */ });
+  }, [keywordFocus]);
 
   const currentDeckSummary = useMemo(() => {
     if (currentDeckMode === "off" || mainEntries.length === 0) return null;
@@ -232,10 +269,19 @@ export function GeneratorPanel() {
       setTribalTribe(detectedTribe);
       setTribalMode("recommended");
     }
+    // Auto-switch to seeds mode if deck has cards and mode was off
+    if (currentDeckMode === "off" && mainNonlands.length > 0) {
+      setCurrentDeckMode("seeds");
+    }
 
     const themeLabels = detectedThemes.map((t) => THEME_ID_TO_LABEL[t]);
+    const focusLabel = detectedFocus.length
+      ? ` · ${detectedFocus.slice(0, 3).join(" / ")}`
+      : "";
+    const colorStr = detectedColors.join("") || "colorless";
+    const tribeStr = detectedTribe ? `, ${detectedTribe} tribal` : "";
     setAnalysisSummary(
-      `Detected ${detectedPrimary}${themeLabels.length ? ` + ${themeLabels.join("/")}` : ""}, ${detectedColors.join("") || "colorless"}, ${detectedSpeed}, ${detectedSpellRatio}${detectedTribe ? `, ${detectedTribe} tribal` : ""}.`
+      `Detected ${detectedPrimary}${themeLabels.length ? ` + ${themeLabels.join("/")}` : ""}, ${colorStr}, ${detectedSpeed}, ${detectedSpellRatio}${tribeStr}${focusLabel}. (${mainNonlands.length} unique nonland cards)`
     );
   };
 
@@ -305,25 +351,29 @@ export function GeneratorPanel() {
     };
   };
 
-  const buildCurrentDeckEntriesForMode = (nonlandMain: typeof mainEntries) => {
+  const buildCurrentDeckEntriesForMode = (nonlandMain: typeof mainEntries): {
+    seedEntries: typeof mainEntries | undefined;
+    focusEntries: typeof mainEntries | undefined;
+    preferEntries: typeof mainEntries | undefined;
+    seedFuzzSwaps: number | undefined;
+  } => {
     switch (currentDeckMode) {
-      case "off":
-        return { seedEntries: undefined, focusEntries: undefined, preferEntries: undefined, seedFuzzSwaps: undefined };
-      case "suggestion":
-        return { seedEntries: undefined, focusEntries: undefined, preferEntries: nonlandMain.length ? nonlandMain : undefined, seedFuzzSwaps: undefined };
-      case "tuneCore":
-        return {
-          seedEntries: undefined,
-          focusEntries: nonlandMain.length ? nonlandMain.map((entry) => ({ ...entry, quantity: Math.max(1, entry.quantity - 1) })) : undefined,
-          preferEntries: undefined,
-          seedFuzzSwaps: undefined,
-        };
-      case "buildAround":
-        return { seedEntries: undefined, focusEntries: nonlandMain.length ? nonlandMain : undefined, preferEntries: undefined, seedFuzzSwaps: undefined };
-      case "lockExact":
+      case "seeds":
+        return { seedEntries: nonlandMain.length ? nonlandMain : undefined, focusEntries: undefined, preferEntries: undefined, seedFuzzSwaps: seedFuzzSwaps > 0 ? seedFuzzSwaps : undefined };
+      case "keep":
         return { seedEntries: mainEntries.length ? mainEntries : undefined, focusEntries: undefined, preferEntries: undefined, seedFuzzSwaps: seedFuzzSwaps > 0 ? seedFuzzSwaps : undefined };
-      case "redefine":
+      case "off":
+      default:
         return { seedEntries: undefined, focusEntries: undefined, preferEntries: undefined, seedFuzzSwaps: undefined };
+    }
+  };
+
+  /** Map the current-deck UI mode to the SeedPolicy contract passed to the generator. */
+  const deriveSeedPolicy = (): SeedPolicy | undefined => {
+    switch (currentDeckMode) {
+      case "seeds": return "locked-core";
+      case "keep":  return "locked-core";
+      default:      return undefined; // "off" — no seed policy
     }
   };
 
@@ -348,6 +398,7 @@ export function GeneratorPanel() {
       themes: effectiveThemes,
       colors: effectiveColors,
       ...currentDeck,
+      seedPolicy: deriveSeedPolicy(),
       speed: effectiveSpeed || undefined,
       spellRatio: effectiveSpellRatio || undefined,
       keywordFocus: effectiveKeywordFocus.length ? effectiveKeywordFocus : undefined,
@@ -361,7 +412,7 @@ export function GeneratorPanel() {
       variants,
       optimizationIterations: iterations,
       aiIterations,
-      aiPicksAsFinal: engine === "ai" && (lockAIPicks || currentDeckMode === "redefine"),
+      aiPicksAsFinal: engine === "ai" && lockAIPicks,
       aiSequentialStepSize: engine === "ai" && aiSequentialMode ? aiSequentialStepSize : undefined,
       userContext: userContext.trim() || undefined,
       generateSideboard: getFormatRules(format).sideboardSize == null ? false : generateSideboard,
@@ -396,6 +447,7 @@ export function GeneratorPanel() {
     setAiTranscript(null);
     setChatHistory([]);
     setChatInput("");
+    setDeckDelta(null);
     try {
       const allCards = await db.cards.toArray();
       if (allCards.length === 0) {
@@ -424,6 +476,7 @@ export function GeneratorPanel() {
         themes: effectiveThemes,
         colors: effectiveColors,
         ...currentDeck,
+        seedPolicy: deriveSeedPolicy(),
         speed: effectiveSpeed || undefined,
         spellRatio: effectiveSpellRatio || undefined,
         keywordFocus: effectiveKeywordFocus.length ? effectiveKeywordFocus : undefined,
@@ -437,7 +490,7 @@ export function GeneratorPanel() {
         variants,
         optimizationIterations: iterations,
         aiIterations,
-        aiPicksAsFinal: engine === "ai" && (lockAIPicks || currentDeckMode === "redefine"),
+        aiPicksAsFinal: engine === "ai" && lockAIPicks,
         aiSequentialStepSize: engine === "ai" && aiSequentialMode ? aiSequentialStepSize : undefined,
         userContext: userContext.trim() || undefined,
         generateSideboard: getFormatRules(format).sideboardSize == null ? false : generateSideboard,
@@ -459,7 +512,15 @@ export function GeneratorPanel() {
         // AI mode produces a single result; ignore variants count.
         // When sequential seed-chain mode is enabled (and seeds are present)
         // we use the incremental builder instead of the one-shot path.
-        const useSequential = aiSequentialMode && (opts.seedEntries ?? []).length > 0;
+        // Only use sequential mode if seeds have NOT already filled the nonland
+        // budget. When seeds meet or exceed the budget the while-loop inside
+        // generateDeckAISequential never runs, so no AI call is ever made and
+        // the output is indistinguishable from a pure offline run. Fall through
+        // to regular generateDeckAI in that case so the AI is always consulted.
+        const nonlandBudget = Math.round(mainboardSize * 0.60);
+        const useSequential = aiSequentialMode
+          && (opts.seedEntries ?? []).length > 0
+          && seedNonlandCount < nonlandBudget;
         const aiCallConfig = {
           temperature,
           digestLimit,
@@ -484,6 +545,10 @@ export function GeneratorPanel() {
       setResults(produced);
       setActiveIdx(0);
       applyToDeck(produced[0]);
+      const seedsForDelta = opts.seedEntries ?? [];
+      if (seedsForDelta.length > 0) {
+        setDeckDelta(computeDeckDelta(seedsForDelta, produced[0].entries));
+      }
     } catch (e) {
       setError(isAbortError(e) ? "AI generation cancelled." : e instanceof Error ? e.message : String(e));
     } finally {
@@ -502,6 +567,8 @@ export function GeneratorPanel() {
     setError(null);
     setStreamedText("");
     setRawResponse(null);
+    setDeckDelta(null);
+    const prevEntries = results[activeIdx]?.entries ?? [];
     setChatHistory((h) => [...h, { role: "user", text: message }]);
     setChatInput("");
     try {
@@ -532,6 +599,9 @@ export function GeneratorPanel() {
       setAiTranscript(refined.transcript);
       setChatHistory((h) => [...h, { role: "assistant", text: `Updated deck (score ${refined.diagnostics.deckScore.toFixed(1)}).${refined.aiSummary ? " " + refined.aiSummary : ""}` }]);
       applyToDeck(refined);
+      if (prevEntries.length > 0) {
+        setDeckDelta(computeDeckDelta(prevEntries, refined.entries));
+      }
     } catch (e) {
       setError(isAbortError(e) ? "AI refinement cancelled." : e instanceof Error ? e.message : String(e));
     } finally {
@@ -549,7 +619,25 @@ export function GeneratorPanel() {
 
   const applyToDeck = (result: GenerateResult) => {
     clearDeck();
-    setDeckName(`${getFormatRules(format).label} ${result.archetype} (${colors.join("") || "C"}) — ${engine}`);
+    // Build a rich deck name from the generated result — tribe, theme, archetype, format.
+    const tmpDeck = {
+      name: "",
+      mainboard: result.entries.filter((e) => e.board === "main").map((e) => ({ quantity: e.quantity, card: e.card })),
+      sideboard: result.entries.filter((e) => e.board === "side").map((e) => ({ quantity: e.quantity, card: e.card })),
+    };
+    // Map top synergy axis → display theme for the name (e.g. "spellslinger" → "Spellslinger")
+    const AXIS_THEME: Record<string, string> = {
+      spellslinger: "Spellslinger", graveyard: "Graveyard", reanimator: "Reanimator",
+      tokens: "Tokens", sacrifice: "Aristocrats", lifegain: "Lifegain",
+      artifacts: "Artifacts", enchantress: "Enchantress", blink: "Blink",
+      counters: "Counters", mill: "Mill", discard: "Discard", ramp: "Ramp",
+      burn: "Burn", landfall: "Landfall", domain: "Domain", etb: "ETB",
+    };
+    const topAxis = result.diagnostics.primaryAxes[0];
+    const theme = topAxis ? AXIS_THEME[topAxis] : undefined;
+    const formatLabel = getFormatRules(format).label;
+    const deckName = generateDeckName(tmpDeck, { archetype: result.archetype, theme, format: formatLabel });
+    setDeckName(deckName);
     for (const entry of result.entries) {
       for (let i = 0; i < entry.quantity; i++) addCard(entry.card, entry.board);
     }
@@ -562,6 +650,13 @@ export function GeneratorPanel() {
   };
 
   const active = results[activeIdx];
+
+  // Seed count for sequential preview
+  const seedNonlandCount = useMemo(() => {
+    if (currentDeckMode === "off") return 0;
+    const nonland = mainEntries.filter((e) => e.board === "main" && !e.card.typeLine.includes("Land"));
+    return nonland.reduce((s, e) => s + e.quantity, 0);
+  }, [currentDeckMode, mainEntries]);
 
   return (
     <div className="space-y-4 text-sm text-zinc-200">
@@ -600,7 +695,7 @@ export function GeneratorPanel() {
           <div>
             <div className="font-medium text-zinc-300">Analyze current deck</div>
             <p className="mt-0.5 text-[11px] leading-snug text-zinc-600">
-              Prefills colors, primary/secondary archetypes, speed, spell ratio, architecture focuses, and tribal settings from the current mainboard.
+              Detects colors, archetype, speed, spell ratio, strategy focuses, and tribal settings. Auto-switches mode to "Use as seeds" if deck has cards.
             </p>
           </div>
           <button
@@ -682,7 +777,6 @@ export function GeneratorPanel() {
         </div>
       </div>
 
-
       {/* Current deck handling */}
       <div className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-3 text-xs space-y-2">
         <label className="block">
@@ -692,29 +786,23 @@ export function GeneratorPanel() {
             onChange={(e) => setCurrentDeckMode(e.target.value as typeof currentDeckMode)}
             className="w-full rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-xs"
           >
-            <option value="off">Off — ignore current deck</option>
-            <option value="suggestion">Suggestion — strongly prefer current cards, may swap</option>
-            <option value="tuneCore">Tune (keep core) — keep each current nonland, free some copy slots</option>
-            <option value="buildAround">Build-around — keep cards, tune quantities</option>
-            <option value="lockExact">Lock exact — keep cards AND quantities</option>
-            {engine === "ai" && <option value="redefine">Redefine (AI from scratch) — AI fully rebuilds the deck</option>}
+            <option value="seeds">Use as seeds — keep these cards, build a complete deck around them</option>
+            <option value="keep">Keep all, tune — every card and quantity stays, optimizer fills gaps and rebuilds lands</option>
+            <option value="off">Off — start fresh, ignore current deck entirely</option>
           </select>
         </label>
         <p className="text-[11px] leading-snug text-zinc-500">
-          {currentDeckMode === "off" && "Generator ignores your current deck entirely."}
-          {currentDeckMode === "suggestion" && "Your nonland cards get a strong score bonus so the optimizer is biased to include them, but it may drop weaker ones for better picks."}
-          {currentDeckMode === "tuneCore" && "Every current nonland is guaranteed to appear, but 2×+ cards may free one copy slot for upgrades."}
-          {currentDeckMode === "buildAround" && "Your nonland cards are guaranteed to appear at up to their current quantities while the generator adds support around them."}
-          {currentDeckMode === "lockExact" && "Your current cards and quantities are pinned. Lands are still rebuilt by the manabase optimizer."}
-          {currentDeckMode === "redefine" && "AI rebuilds the deck from scratch with full authority. Your current deck is ignored; the AI picks every nonland card. Offline pipeline only constructs the mana base around the AI's choices."}
+          {currentDeckMode === "off" && "Start fresh — generator ignores current deck entirely."}
+          {currentDeckMode === "seeds" && "Use as seeds — keep these nonland cards locked, build a complete deck around them. Lands are always rebuilt."}
+          {currentDeckMode === "keep" && "Keep all, tune — every card and quantity stays. Optimizer only fills gaps and rebuilds lands."}
           {currentDeckSummary && (
             <>
-              {" "}<span className="text-zinc-400">({currentDeckMode === "lockExact" ? `${currentDeckSummary.allUnique} unique / ${currentDeckSummary.allTotal} copies` : `${currentDeckSummary.nonlandUnique} unique / ${currentDeckSummary.nonlandTotal} nonland copies`})</span>
+              {" "}<span className="text-zinc-400">({currentDeckMode === "keep" ? `${currentDeckSummary.allUnique} unique / ${currentDeckSummary.allTotal} copies` : `${currentDeckSummary.nonlandUnique} unique / ${currentDeckSummary.nonlandTotal} nonland copies`})</span>
             </>
           )}
           {!currentDeckSummary && currentDeckMode !== "off" && " (deck is empty)"}
         </p>
-        {currentDeckMode === "lockExact" && (
+        {(currentDeckMode === "seeds" || currentDeckMode === "keep") && (
           <div>
             <label className="mb-1 block text-[11px] text-zinc-500">
               Fuzz: allow optimizer to swap up to {seedFuzzSwaps} weak seed cop{seedFuzzSwaps === 1 ? "y" : "ies"}
@@ -762,36 +850,10 @@ export function GeneratorPanel() {
         </div>
       </div>
 
-      {/* Strategy focuses — themes + architecture in one section */}
+      {/* Strategy direction — keyword focuses + unique themes */}
       <div>
-        <div className="mb-1 text-xs font-medium text-zinc-400">Strategy focuses</div>
+        <div className="mb-1 text-xs font-medium text-zinc-400">Strategy direction</div>
         <div className="space-y-2 rounded-lg border border-zinc-800 bg-zinc-950/30 p-2">
-          {/* Synergy-engine themes (broad strokes) */}
-          {THEMES.length > 0 && (
-            <div>
-              <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Synergy engine</div>
-              <div className="flex flex-wrap gap-1">
-                {THEMES.map((t) => {
-                  const on = themes.includes(t.id);
-                  return (
-                    <button
-                      key={t.id}
-                      onClick={() => toggleTheme(t.id)}
-                      aria-pressed={on}
-                      title={t.description}
-                      className={`rounded-full border px-2 py-0.5 text-xs ${
-                        on
-                          ? "border-purple-400 bg-purple-600/20 text-purple-200"
-                          : "border-zinc-700 bg-zinc-900 text-zinc-400 hover:bg-zinc-800"
-                      }`}
-                    >
-                      {t.label}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          )}
           {/* Per-mechanic keyword focuses */}
           {ARCHITECTURE_GROUPS.map((group) => (
             <div key={group.title}>
@@ -817,6 +879,32 @@ export function GeneratorPanel() {
               </div>
             </div>
           ))}
+          {/* Additional themes not covered by keyword focuses above */}
+          {UNIQUE_THEMES.length > 0 && (
+            <div>
+              <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Additional themes</div>
+              <div className="flex flex-wrap gap-1">
+                {UNIQUE_THEMES.map((t) => {
+                  const on = themes.includes(t.id);
+                  return (
+                    <button
+                      key={t.id}
+                      onClick={() => toggleTheme(t.id)}
+                      aria-pressed={on}
+                      title={t.description}
+                      className={`rounded-full border px-2 py-0.5 text-xs ${
+                        on
+                          ? "border-purple-400 bg-purple-600/20 text-purple-200"
+                          : "border-zinc-700 bg-zinc-900 text-zinc-400 hover:bg-zinc-800"
+                      }`}
+                    >
+                      {t.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
         <p className="mt-1 text-[11px] text-zinc-600">
           These are strategy packages, not cosmetic tags: they drive source/payoff axes, card scoring, and per-card explanations.
@@ -835,7 +923,7 @@ export function GeneratorPanel() {
                   placeholder="Human, Vampire, Zombie…"
                 />
                 <datalist id="tribe-options">
-                  {COMMON_TRIBES.map((tribe) => <option key={tribe} value={tribe} />)}
+                  {liveTribes.map((tribe) => <option key={tribe} value={tribe} />)}
                 </datalist>
               </div>
               <div>
@@ -853,6 +941,9 @@ export function GeneratorPanel() {
             <p className="mt-2 text-[11px] leading-snug text-zinc-500">
               <strong className="text-zinc-400">Recommended</strong> boosts the chosen tribe and tribal payoffs while allowing strong staples. <strong className="text-zinc-400">Exclusive</strong> restricts nonland candidates toward tribe cards/references, but keeps essential interaction and support so the deck remains playable.
             </p>
+            {tribesFromDB && (
+              <p className="mt-1 text-[10px] text-zinc-600">Tribe list populated from your card database ({liveTribes.length} types).</p>
+            )}
           </div>
         )}
       </div>
@@ -1023,11 +1114,17 @@ export function GeneratorPanel() {
                 {/* Live preview of the resolved schedule */}
                 <div className="rounded border border-zinc-800 bg-zinc-950 px-2 py-1.5">
                   <p className="mb-1 text-[10px] font-medium uppercase tracking-wider text-zinc-600">Step preview</p>
+                  {seedNonlandCount > 0 && (
+                    <p className="mb-1 text-[10px] text-zinc-500">
+                      {seedNonlandCount} seed cards locked → AI fills {Math.max(0, Math.round(mainboardSize * 0.60) - seedNonlandCount)} remaining nonland slots
+                    </p>
+                  )}
                   <div className="flex flex-wrap gap-1">
                     {(() => {
-                      const nonlandBudget = Math.round(60 * 0.60); // 36 for a 60-card deck
+                      const nonlandBudget = Math.round(mainboardSize * 0.60);
+                      const startCount = Math.min(seedNonlandCount, nonlandBudget);
                       const steps: { step: number; size: number; cumulative: number }[] = [];
-                      let cum = 0;
+                      let cum = startCount;
                       let s = 0;
                       while (cum < nonlandBudget && s < 20) {
                         s++;
@@ -1035,6 +1132,9 @@ export function GeneratorPanel() {
                         const actual = Math.min(size, nonlandBudget - cum);
                         cum += actual;
                         steps.push({ step: s, size: actual, cumulative: cum });
+                      }
+                      if (steps.length === 0) {
+                        return <span className="text-[10px] text-zinc-600">Seeds already fill the nonland budget.</span>;
                       }
                       return steps.map(({ step, size, cumulative }) => (
                         <span
@@ -1140,6 +1240,38 @@ export function GeneratorPanel() {
         </div>
       )}
 
+      {deckDelta && (deckDelta.added.length > 0 || deckDelta.removed.length > 0) && (
+        <details className="rounded-lg border border-zinc-800 bg-zinc-900/40 p-2 text-xs">
+          <summary className="cursor-pointer text-zinc-400 hover:text-zinc-200">
+            Deck delta:
+            {deckDelta.added.length > 0 && <span className="ml-1 text-green-300">+{deckDelta.added.reduce((s, e) => s + e.qty, 0)} added ({deckDelta.added.length} unique)</span>}
+            {deckDelta.removed.length > 0 && <span className="ml-1 text-red-300">−{deckDelta.removed.reduce((s, e) => s + e.qty, 0)} removed ({deckDelta.removed.length} unique)</span>}
+          </summary>
+          <div className="mt-2 space-y-2">
+            {deckDelta.added.length > 0 && (
+              <div>
+                <div className="mb-0.5 text-[10px] font-semibold uppercase tracking-wide text-green-400">Added</div>
+                <div className="flex flex-wrap gap-1">
+                  {deckDelta.added.map((e, i) => (
+                    <span key={i} className="rounded bg-green-950/60 px-1.5 py-0.5 font-mono text-[11px] text-green-300">+{e.qty}× {e.name}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+            {deckDelta.removed.length > 0 && (
+              <div>
+                <div className="mb-0.5 text-[10px] font-semibold uppercase tracking-wide text-red-400">Removed</div>
+                <div className="flex flex-wrap gap-1">
+                  {deckDelta.removed.map((e, i) => (
+                    <span key={i} className="rounded bg-red-950/60 px-1.5 py-0.5 font-mono text-[11px] text-red-300">−{e.qty}× {e.name}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </details>
+      )}
+
       {results.length > 1 && (
         <div className="flex gap-1.5">
           {results.map((r, i) => (
@@ -1175,6 +1307,70 @@ export function GeneratorPanel() {
 
       {active && (
         <div className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-3 text-xs">
+          {/* ── Mythic-viability badge ───────────────────────────────── */}
+          {active.mythicViability && (
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              <span className={[
+                "rounded-full px-3 py-0.5 text-xs font-bold uppercase tracking-wide",
+                active.mythicViability.label === "tier-1"        ? "bg-yellow-500 text-black" :
+                active.mythicViability.label === "mythic-viable" ? "bg-purple-600 text-white" :
+                active.mythicViability.label === "fringe"        ? "bg-blue-600 text-white" :
+                                                                   "bg-zinc-700 text-zinc-300",
+              ].join(" ")}>
+                {active.mythicViability.label === "tier-1"        ? "🏆 Tier 1" :
+                 active.mythicViability.label === "mythic-viable" ? "💎 Mythic Viable" :
+                 active.mythicViability.label === "fringe"        ? "⚡ Fringe" :
+                                                                    "🔧 Not Viable"}
+              </span>
+              <span className="text-xs text-zinc-400">
+                Viability: <strong className="text-zinc-200">{active.mythicViability.score}/100</strong>
+                <span className="ml-1 text-zinc-500">
+                  (~{active.mythicViability.winRateEstimate.toFixed(1)}% WR)
+                </span>
+              </span>
+              {active.tempoScore !== undefined && (
+                <span className="text-xs text-zinc-400">
+                  Tempo: <strong className="text-sky-300">{active.tempoScore}</strong>
+                </span>
+              )}
+              {active.cardAdvantageScore !== undefined && (
+                <span className="text-xs text-zinc-400">
+                  Card Adv: <strong className="text-emerald-300">{active.cardAdvantageScore}</strong>
+                </span>
+              )}
+            </div>
+          )}
+          {/* ── Mythic Viability detailed panel ─────────────────────── */}
+          {active.mythicViability && (
+            <div className="mb-3">
+              <MythicViabilityPanel
+                report={active.mythicViability}
+                tempoScore={active.tempoScore}
+                cardAdvantageScore={active.cardAdvantageScore}
+              />
+            </div>
+          )}
+          {/* ── Synergy violations ──────────────────────────────────── */}
+          {active.synergyViolations && active.synergyViolations.length > 0 && (
+            <div className="mb-3 space-y-1">
+              {active.synergyViolations.map((v, i) => (
+                <div key={i} className={[
+                  "flex items-start gap-1.5 rounded px-2 py-1 text-xs",
+                  v.severity === "error" ? "bg-red-950/60 text-red-300" : "bg-yellow-950/60 text-yellow-300",
+                ].join(" ")}>
+                  <span className="mt-0.5 shrink-0">{v.severity === "error" ? "🚫" : "⚠️"}</span>
+                  <span>
+                    <strong>{v.description}</strong>
+                    {" — "}
+                    {v.sourceCount}/{v.requiredSources} sources
+                    {v.payoffCards.length > 0 && (
+                      <span className="ml-1 text-zinc-400">({v.payoffCards.slice(0, 3).join(", ")})</span>
+                    )}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
           <div className="mb-2 grid grid-cols-2 gap-x-4 gap-y-1 text-zinc-300">
             <div>Score: <strong className="text-teal-300">{active.diagnostics.deckScore.toFixed(1)}</strong></div>
             <div>Cards: {active.totalCards}</div>
@@ -1394,6 +1590,23 @@ export function GeneratorPanel() {
   );
 }
 
+function computeDeckDelta(
+  before: { card: { oracleId: string; name: string; typeLine: string }; quantity: number; board?: string }[],
+  after: { card: { oracleId: string; name: string; typeLine: string }; quantity: number; board?: string }[]
+): { added: { name: string; qty: number }[]; removed: { name: string; qty: number }[] } {
+  const beforeNonland = before.filter((e) => !e.card.typeLine.includes("Land") && e.board !== "side");
+  const afterNonland = after.filter((e) => !e.card.typeLine.includes("Land") && e.board !== "side");
+  const beforeIds = new Map(beforeNonland.map((e) => [e.card.oracleId, e]));
+  const afterIds = new Map(afterNonland.map((e) => [e.card.oracleId, e]));
+  const removed = beforeNonland
+    .filter((e) => !afterIds.has(e.card.oracleId))
+    .map((e) => ({ name: e.card.name, qty: e.quantity }));
+  const added = afterNonland
+    .filter((e) => !beforeIds.has(e.card.oracleId))
+    .map((e) => ({ name: e.card.name, qty: e.quantity }));
+  return { added, removed };
+}
+
 interface AIValidation {
   ok: boolean;
   targetMain: number;
@@ -1502,7 +1715,7 @@ function validateAIResponse(raw: string, result: GenerateResult): AIValidation {
     issues.push(`Requested nonland core total ${requestedMain} is outside expected ${minCore}-${maxCore}.`);
   }
   if (unresolvedNames.length > 0) issues.push(`${unresolvedNames.length} card name(s) not found in pool.`);
-  if (cappedNames.length > 0) issues.push(`${cappedNames.length} card(s) capped to legal quantity.`);
+  if (cappedNames.length > 0) issues.push(`${cappedNames.length} card(s) built at fewer copies than AI requested (see below — may be format cap, CMC trim, or optimizer balance).`);
   const finalMain = result.entries.filter((e) => e.board === "main").reduce((s, e) => s + e.quantity, 0);
   if (finalMain !== result.totalCards) {
     issues.push(`Final mainboard size ${finalMain} ≠ generated total ${result.totalCards}.`);
@@ -1537,16 +1750,45 @@ function isAbortError(e: unknown): boolean {
 
 function detectDeckColors(entries: ReturnType<typeof useMainboardEntries>): ManaColor[] {
   const ordered: ManaColor[] = ["W", "U", "B", "R", "G"];
-  const found = new Set<ManaColor>();
-  for (const entry of entries.filter((e) => e.board === "main")) {
-    try {
-      const identity = JSON.parse(entry.card.colorIdentityJson) as ManaColor[];
-      for (const color of identity) found.add(color);
-    } catch {
-      /* ignore malformed identity */
+  // Two-pass hybrid-aware detection: read the raw manaCost string instead of
+  // colorIdentityJson so hybrid symbols like {W/U} don't bleed extra colors
+  // into a mono/dual deck that can already satisfy the cost with its own colors.
+  const hard = new Set<ManaColor>();
+  const hybridPairs: [ManaColor, ManaColor][] = [];
+
+  for (const entry of entries) {
+    // Skip lands — dual/utility lands must not widen the detected color identity.
+    if (entry.card.typeLine.includes("Land")) continue;
+    const cost = entry.card.manaCost ?? "";
+    const symbols = cost.match(/\{[^}]+\}/g) ?? [];
+    for (const sym of symbols) {
+      const inner = sym.slice(1, -1); // strip { }
+      if ((ordered as string[]).includes(inner)) {
+        // Pure color pip: {W}, {U}, {B}, {R}, {G} → definite requirement
+        hard.add(inner as ManaColor);
+      } else if (inner.includes("/")) {
+        // Hybrid or phyrexian symbol: {W/U}, {G/W}, {W/P}, etc.
+        const parts = inner
+          .split("/")
+          .filter((p): p is ManaColor => (ordered as string[]).includes(p));
+        if (parts.length === 2) hybridPairs.push([parts[0], parts[1]]);
+        else if (parts.length === 1) hard.add(parts[0]); // phyrexian {W/P}
+      }
     }
   }
-  return ordered.filter((color) => found.has(color));
+
+  // Resolve hybrid pairs: if at least one side is already a hard color the
+  // card can be cast in-color → do NOT introduce the other side.
+  // If NEITHER side is a hard color (e.g. an all-hybrid Dimir deck of {U/B}
+  // cards), include both so the archetype still resolves correctly.
+  for (const [a, b] of hybridPairs) {
+    if (!hard.has(a) && !hard.has(b)) {
+      hard.add(a);
+      hard.add(b);
+    }
+  }
+
+  return ordered.filter((c) => hard.has(c));
 }
 
 function detectSpeed(nonlands: ReturnType<typeof useMainboardEntries>): SpeedProfile {
@@ -1610,6 +1852,8 @@ function countMatchingCards(nonlands: ReturnType<typeof useMainboardEntries>, re
 
 function detectKeywordFocus(nonlands: ReturnType<typeof useMainboardEntries>, axes: string[]): KeywordFocus[] {
   const focus = new Set<KeywordFocus>();
+
+  // Axis-based detections: populated by inferPrimaryAxes (threshold already scales for small pools)
   if (axes.includes("tokens")) focus.add("Go-Wide Tokens");
   if (axes.includes("sacrifice")) focus.add("Sacrifice");
   if (axes.includes("graveyard")) focus.add("Graveyard");
@@ -1622,56 +1866,142 @@ function detectKeywordFocus(nonlands: ReturnType<typeof useMainboardEntries>, ax
   if (axes.includes("spellslinger")) focus.add("Spellslinger");
   if (axes.includes("blink") || axes.includes("etb")) focus.add("ETB/Blink");
   if (axes.includes("enchantress")) focus.add("Enchantress");
-  if (axes.includes("tribal") || detectTribe(nonlands)) focus.add("Tribal Support");
+  if (axes.includes("typal") || detectTribe(nonlands)) focus.add("Tribal Support");
+  if (axes.includes("reanimator")) focus.add("Graveyard");
+  if (axes.includes("artifacts")) focus.add("Artifacts");
+  if (axes.includes("burn")) focus.add("Spellslinger");
+  if (axes.includes("landfall") || axes.includes("domain")) focus.add("Ramp");
 
-  // Path B: regex-based checks with minimum card-count thresholds.
-  // These prevent single incidental cards (e.g. one mana rock, one "noncreature" text)
-  // from triggering themes that aren't actually present in the deck.
+  // Regex-based detections: thresholds scale with pool size so small seed sets
+  // (e.g. 5 cards from the Analyze button) produce meaningful strategy focus output.
+  // Full calibration target is ~20 nonlands; for smaller pools the bar is lowered
+  // proportionally, with a minimum of 2 matching unique cards.
+  const deckSize = nonlands.length;
+  const minMatch = (base: number): number =>
+    Math.max(2, Math.round(base * Math.min(1.0, deckSize / 20)));
 
-  // Prowess — remove "noncreature" which is generic MTG templating, not Prowess
-  if (countMatchingCards(nonlands, /\bprowess\b/i) >= 3) focus.add("Prowess");
+  // Prowess — keyword only, not "noncreature" generic MTG templating
+  if (countMatchingCards(nonlands, /\bprowess\b/i) >= minMatch(3)) focus.add("Prowess");
 
   // Flying
-  if (countMatchingCards(nonlands, /\bflying\b/i) >= 4) focus.add("Flying");
+  if (countMatchingCards(nonlands, /\bflying\b/i) >= minMatch(4)) focus.add("Flying");
 
   // Trample / Stompy
-  if (countMatchingCards(nonlands, /\btrample\b/i) >= 4) focus.add("Trample");
+  if (countMatchingCards(nonlands, /\btrample\b/i) >= minMatch(4)) focus.add("Trample");
 
-  // Artifacts — require \bartifact\b word boundary to avoid matching "artifacts" in flavor text
-  if (countMatchingCards(nonlands, /\bartifact\b/i) >= 4) focus.add("Artifacts");
+  // Artifacts — word boundary to avoid flavor text hits
+  if (countMatchingCards(nonlands, /\bartifact\b/i) >= minMatch(4)) focus.add("Artifacts");
 
   // Voltron/Auras
-  if (countMatchingCards(nonlands, /aura|equip|enchanted creature|equipped creature/i) >= 3) focus.add("Voltron/Auras");
+  if (countMatchingCards(nonlands, /aura|equip|enchanted creature|equipped creature/i) >= minMatch(3)) focus.add("Voltron/Auras");
 
   // Draw-Go Control
-  if (countMatchingCards(nonlands, /counter target|flash|instant/i) >= 3 && countRoles(nonlands).counterspells >= 2) {
+  if (countMatchingCards(nonlands, /counter target|flash|instant/i) >= minMatch(3) && countRoles(nonlands).counterspells >= Math.max(1, minMatch(2))) {
     focus.add("Draw-Go Control");
   }
 
   // Flash/Draw-Go
-  if (countMatchingCards(nonlands, /\bflash\b|as though.*flash|instant/i) >= 3 && countRoles(nonlands).counterspells + countRoles(nonlands).removal >= 4) {
+  if (countMatchingCards(nonlands, /\bflash\b|as though.*flash|instant/i) >= minMatch(3) && countRoles(nonlands).counterspells + countRoles(nonlands).removal >= minMatch(4)) {
     focus.add("Flash/Draw-Go");
   }
 
   // Self-Discard/Looting
-  if (countMatchingCards(nonlands, /you may discard|discard a card|draw.*discard|discard.*draw|loot|rummage/i) >= 3) {
+  if (countMatchingCards(nonlands, /you may discard|discard a card|draw.*discard|discard.*draw|loot|rummage/i) >= minMatch(3)) {
     focus.add("Self-Discard/Looting");
   }
 
   // Artifacts/Tokens
-  if (countMatchingCards(nonlands, /treasure token|clue token|food token|map token|artifact token/i) >= 3) {
+  if (countMatchingCards(nonlands, /treasure token|clue token|food token|map token|artifact token/i) >= minMatch(3)) {
     focus.add("Artifacts/Tokens");
   }
 
   // Evasion Tempo
-  if (countMatchingCards(nonlands, /\bflying\b|\bmenace\b|can't be blocked|unblockable/i) >= 3
-      && countRoles(nonlands).counterspells + countRoles(nonlands).removal >= 3) {
+  if (countMatchingCards(nonlands, /\bflying\b|\bmenace\b|can't be blocked|unblockable/i) >= minMatch(3)
+      && countRoles(nonlands).counterspells + countRoles(nonlands).removal >= Math.max(1, minMatch(3))) {
     focus.add("Evasion Tempo");
   }
 
+  // Ramp and Big Mana: scale role-count thresholds for small pools
   const roles = countRoles(nonlands);
-  if (roles.ramp >= 6) focus.add("Ramp");
-  if (roles.ramp >= 8) focus.add("Big Mana");
+  const rampThreshold = deckSize <= 8 ? 1.5 : deckSize <= 15 ? 3 : 6;
+  const bigManaThreshold = deckSize <= 8 ? 2.5 : deckSize <= 15 ? 5 : 8;
+  if (roles.ramp >= rampThreshold) focus.add("Ramp");
+  if (roles.ramp >= bigManaThreshold) focus.add("Big Mana");
+
+  // ── Direct oracle-text fallbacks ──────────────────────────────────────────
+  // These fire independently of inferPrimaryAxes so a strategy focus is
+  // detected even when its axis is crowded out of the top-3 by competing
+  // signals, or when buildSynergyProfile misses a particular oracle text
+  // phrasing. The !focus.has() guards prevent double output.
+
+  // Mill — any card mentioning "mills" as a verb; min 2 unique cards in pool.
+  // At deckSize=4, minMatch(2)=2 so 2/4 mill cards reliably fires.
+  if (!focus.has("Mill") &&
+      countMatchingCards(nonlands, /\bmills?\b/i) >= minMatch(2)) {
+    focus.add("Mill");
+  }
+
+  // Lifegain — lifelink keyword or explicit gain-life text
+  if (!focus.has("Lifegain") &&
+      countMatchingCards(nonlands, /\blifelink\b|(?:you |target player )?gains? \d+ life|gain life equal/i) >= minMatch(3)) {
+    focus.add("Lifegain");
+  }
+
+  // Go-Wide Tokens — any token creation effect
+  if (!focus.has("Go-Wide Tokens") &&
+      countMatchingCards(nonlands, /creates? .{0,30}token|puts? .{0,20}(?:[a2-9]|\d+) .{0,20}token/i) >= minMatch(3)) {
+    focus.add("Go-Wide Tokens");
+  }
+
+  // Sacrifice — sacrifice outlets and/or death-trigger payoffs
+  if (!focus.has("Sacrifice") &&
+      countMatchingCards(nonlands,
+        /sacrifice (?:a|an|another|any number of|target) (?:creature|permanent|artifact)|whenever .{0,50}(?:creature|permanent) .{0,30}dies/i
+      ) >= minMatch(3)) {
+    focus.add("Sacrifice");
+  }
+
+  // +1/+1 Counters — any card with explicit +1/+1 counter text
+  if (!focus.has("+1/+1 Counters") &&
+      countMatchingCards(nonlands, /\+1\/\+1 counter/i) >= minMatch(3)) {
+    focus.add("+1/+1 Counters");
+  }
+
+  // Spellslinger — instant/sorcery cast triggers and magecraft
+  if (!focus.has("Spellslinger") &&
+      countMatchingCards(nonlands, /whenever you cast (?:an instant|a sorcery|a spell)|\bmagecraft\b/i) >= minMatch(3)) {
+    focus.add("Spellslinger");
+  }
+
+  // ETB/Blink — enter-the-battlefield trigger text
+  if (!focus.has("ETB/Blink") &&
+      countMatchingCards(nonlands, /when(?:ever)? .{0,60}enters(?: the battlefield)?/i) >= minMatch(3)) {
+    focus.add("ETB/Blink");
+  }
+
+  // Graveyard — flashback, escape, and direct recursion effects
+  if (!focus.has("Graveyard") &&
+      countMatchingCards(nonlands,
+        /\bflashback\b|\bescape\b|return.{0,30}from (?:your |a )?graveyard|cards? in (?:your|a) graveyard/i
+      ) >= minMatch(3)) {
+    focus.add("Graveyard");
+  }
+
+  // Discard — hand disruption targeting opponents
+  if (!focus.has("Discard") &&
+      countMatchingCards(nonlands,
+        /(?:target (?:player|opponent)|each (?:opponent|player)) discards?/i
+      ) >= minMatch(2)) {
+    focus.add("Discard");
+  }
+
+  // Enchantress — constellation and enchantment-matters triggers
+  if (!focus.has("Enchantress") &&
+      countMatchingCards(nonlands,
+        /\bconstellation\b|whenever (?:you cast|an?) enchantment|enchantments? you control/i
+      ) >= minMatch(2)) {
+    focus.add("Enchantress");
+  }
 
   return prioritizeKeywordFocus([...focus]).slice(0, 6);
 }
@@ -1691,7 +2021,10 @@ function detectTribe(nonlands: ReturnType<typeof useMainboardEntries>): string |
     .filter((entry) => entry.card.typeLine.includes("Creature"))
     .reduce((sum, entry) => sum + entry.quantity, 0);
   const best = [...counts.entries()].sort((a, b) => b[1] - a[1])[0];
-  if (!best || best[1] < 6 || best[1] / Math.max(1, totalCreatures) < 0.35) return null;
+  // Scale the hard floor for small creature pools so a 5-Vampire seed set still
+  // detects as tribal. The 35% share requirement keeps detection honest for larger pools.
+  const tribeFloor = totalCreatures <= 6 ? 2 : totalCreatures <= 10 ? 3 : totalCreatures <= 15 ? 4 : 6;
+  if (!best || best[1] < tribeFloor || best[1] / Math.max(1, totalCreatures) < 0.35) return null;
   return best[0][0].toUpperCase() + best[0].slice(1);
 }
 

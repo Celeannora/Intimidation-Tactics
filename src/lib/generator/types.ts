@@ -9,6 +9,24 @@ export type GenerationEngine = "offline" | "ai";
 export type SpeedProfile = "fast" | "midrange" | "slow";
 export type SpellRatio = "creature-heavy" | "balanced" | "spell-heavy";
 export type TribalSupportMode = "recommended" | "exclusive";
+
+/**
+ * Semantic contract for how the generator treats seedEntries.
+ *
+ * - "locked-core"       Every seed card must appear in the final deck (barring colour-identity or
+ *                       legality violations). The generator only *adds* cards around the locked core.
+ *                       This is the default when seedEntries are provided and represents
+ *                       "I want to use these cards — build around them."
+ *
+ * - "strong-preference" Seeds are very heavily weighted and the generator will try hard to keep them,
+ *                       but may cut a small number that severely break viability (wrong colour after
+ *                       expansion, extreme curve outlier, etc.). Any cut is logged in diagnostics.
+ *
+ * - "inspiration"       Seeds are used as intent evidence for archetype/axis/colour inference only.
+ *                       The generator may freely diverge from the specific cards listed.
+ *                       Use this for "build me something *like* this deck."
+ */
+export type SeedPolicy = "locked-core" | "strong-preference" | "inspiration";
 export type KeywordFocus =
   | "Flying"
   | "Trample"
@@ -72,6 +90,15 @@ export interface GenerateOptions {
   preferEntries?: DeckEntry[];
   /** With lock-exact seeding: allow the optimizer to drop up to N seed copies (lowest-scoring first), letting it swap them for better options. 0 = strict lock. */
   seedFuzzSwaps?: number;
+  /**
+   * How the generator treats seedEntries.
+   * - "locked-core" (default when seeds present): all seed cards must appear; generator only adds around them.
+   * - "strong-preference": seeds are very heavily weighted but the generator may cut a small number that
+   *   badly break viability; any cuts are logged in diagnostics.reasoning.
+   * - "inspiration": seeds are intent evidence only; generator may freely diverge from specific card choices.
+   * Has no effect when seedEntries is empty.
+   */
+  seedPolicy?: SeedPolicy;
 
 
   /** Total deck budget cap (USD). Penalize cards that push deck over this. */
@@ -192,6 +219,74 @@ export interface ScoreBreakdown {
   };
 }
 
+// ── Mythic-viability report ────────────────────────────────────────────────
+
+/** The three structural pillars from sonar.md's mythic-viability research. */
+export interface MythicViabilityPillars {
+  /** 0–100: Karsten mana satisfaction + curve smoothness. */
+  consistency: number;
+  /** 0–100: Rule-of-9 four-of density for key threat/engine slots. */
+  redundancy: number;
+  /** 0–100: Threat/interaction ratio vs archetype-ideal benchmark. */
+  metaPositioning: number;
+}
+
+/**
+ * Composite mythic-viability assessment attached to every GenerateResult.
+ * Derived from the sonar.md 55–61% win-rate research: score ≥55 maps to the
+ * mythic-viable band, ≥75 maps to a tier-1 projection.
+ */
+export interface MythicViabilityReport {
+  /** 0–100 composite score (average of the three pillars). */
+  score: number;
+  /** Estimated win-rate proxy: 0.45 + (score / 100) × 0.2, clamped to [0.45, 0.65]. */
+  winRateEstimate: number;
+  pillars: MythicViabilityPillars;
+  /** Human-readable tier label derived from score. */
+  label: "not-viable" | "fringe" | "mythic-viable" | "tier-1";
+  /** Diagnostic messages explaining each pillar's assessment. */
+  notes: string[];
+}
+
+/**
+ * A constraint that requires a minimum number of source cards to be present
+ * in the deck whenever any payoff card for a given axis is included.
+ * Oracle-text regex patterns are used to identify payoff and source cards.
+ */
+export interface SynergyPairConstraint {
+  /** Unique identifier for the constraint (e.g. "sacrifice-outlets"). */
+  id: string;
+  /** Human-readable description of what the constraint enforces. */
+  description: string;
+  /**
+   * Optional archetype filter: constraint only activates when deck archetype is
+   * one of these. Omit to apply to all archetypes.
+   */
+  archetypes?: Archetype[];
+  /** Regex patterns that match payoff card oracle text / type line. */
+  payoffPatterns: RegExp[];
+  /** Regex patterns that match source card oracle text / type line. */
+  sourcePatterns: RegExp[];
+  /** Minimum total source copies (sum of quantities) required when ≥1 payoff is present. */
+  minSources: number;
+}
+
+/** A constraint violation returned by validateSynergyPairs. */
+export interface SynergyViolation {
+  /** ID of the constraint that was violated. */
+  constraintId: string;
+  /** Human-readable description of the violated constraint. */
+  description: string;
+  /** Names of payoff cards found in the deck (up to 5). */
+  payoffCards: string[];
+  /** Total source copies found in the deck. */
+  sourceCount: number;
+  /** Minimum sources required by the constraint. */
+  requiredSources: number;
+  /** "error" means zero sources — deck is non-functional; "warning" is underweight but functional. */
+  severity: "error" | "warning";
+}
+
 export interface GenerateResult {
   entries: DeckEntry[];
   archetype: Archetype;
@@ -209,6 +304,14 @@ export interface GenerateResult {
   aiSummary?: string;
   /** AI-engine only: free-form early/mid/late game plan (2–4 sentences). */
   aiGamePlan?: string;
+  /** Mythic-viability three-pillar assessment. */
+  mythicViability?: MythicViabilityReport;
+  /** 0–100 tempo score: proactive pressure, flash + instant density. */
+  tempoScore?: number;
+  /** 0–100 card advantage score: draw spells, two-for-ones, cantrips. */
+  cardAdvantageScore?: number;
+  /** Synergy-pair violations produced by validateSynergyPairs. */
+  synergyViolations?: SynergyViolation[];
 }
 
 export interface GenerateMultiResult {

@@ -116,6 +116,13 @@ export interface CardRecord {
 
   searchText: string;
   importedAt: string;
+
+  /**
+   * Secondary oracle-text tags derived at import/pipeline time.
+   * Optional — older DB rows will not have this field.
+   * @see deriveSecondaryTags in roles.ts
+   */
+  secondaryTags?: import("./roles").SecondaryCardTag[];
 }
 
 export interface ImportProgress {

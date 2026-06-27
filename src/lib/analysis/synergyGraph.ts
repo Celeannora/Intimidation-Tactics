@@ -33,6 +33,15 @@ export interface SeedSynergyGraph {
   nodes: SynergyGraphNode[];
   edges: SynergyGraphEdge[];
   connectedAxes: Array<{ axis: MechanicAxis; edgeCount: number; cards: string[] }>;
+  /**
+   * How many *distinct* seed cards directly participate in each axis
+   * (i.e. the axis appears in the card's sourceTags or payoffTags).
+   *
+   * This is the correct signal for "is this a real build-around axis?"
+   * edgeCount can be inflated by multiple edge *types* between the same
+   * two cards, so it is not a reliable proxy for multi-card support.
+   */
+  axisSeedCardCounts: Partial<Record<MechanicAxis, number>>;
   density: number;
   narrative: string;
 }
@@ -139,11 +148,26 @@ export function buildSeedSynergyGraph(seeds: CardRecord[]): SeedSynergyGraph {
     .map(([axis, data]) => ({ axis, edgeCount: data.edgeCount, cards: [...data.cards].sort() }))
     .sort((a, b) => b.edgeCount - a.edgeCount);
 
+  // ── Per-axis distinct seed card counts ─────────────────────────────────────
+  // This is the authoritative signal for "how many distinct seed cards explicitly
+  // participate in this axis?" — used downstream to decide whether an axis is a
+  // true build-around (≥2 distinct cards) or just a single one-off card that
+  // happened to share an axis with one other card.
+  const axisSeedCardCounts: Partial<Record<MechanicAxis, number>> = {};
+  for (const { profile } of profiles) {
+    // Use a per-card set so a card that has the same axis in both source and payoff
+    // is only counted once per card, not twice.
+    const cardAxes = new Set<MechanicAxis>([...profile.sourceTags, ...profile.payoffTags]);
+    for (const axis of cardAxes) {
+      axisSeedCardCounts[axis] = (axisSeedCardCounts[axis] ?? 0) + 1;
+    }
+  }
+
   const possibleDirectedEdges = seeds.length * Math.max(0, seeds.length - 1);
   const density = possibleDirectedEdges > 0 ? round2(edges.length / possibleDirectedEdges) : 0;
   const narrative = buildGraphNarrative(connectedAxes, edges.length, seeds.length);
 
-  const graph: SeedSynergyGraph = { nodes, edges, connectedAxes, density, narrative };
+  const graph: SeedSynergyGraph = { nodes, edges, connectedAxes, axisSeedCardCounts, density, narrative };
   _graphCache.set(key, graph);
   return graph;
 }
@@ -198,9 +222,33 @@ export interface SynergyConstraints {
 }
 
 function buildSynergyConstraints(graph: SeedSynergyGraph): SynergyConstraints {
+  const { axisSeedCardCounts } = graph;
   const sorted = [...graph.connectedAxes].sort((a, b) => b.edgeCount - a.edgeCount);
-  const required = sorted.filter((a) => a.edgeCount >= 2).map((a) => a.axis).slice(0, 3);
-  const supporting = sorted.filter((a) => a.edgeCount === 1).map((a) => a.axis).slice(0, 3);
+
+  // ── Axis classification by distinct seed-card support ────────────────────
+  // An axis is only "required" when ≥2 DISTINCT seed cards explicitly point
+  // toward it.  Using edgeCount here is misleading: a single pair of cards (A, B)
+  // can produce multiple edges for the same axis (source-to-payoff + shared-axis
+  // = 2 edges), making it look like a strongly supported axis when it is really
+  // just one interaction between two cards.
+  const required = sorted
+    .filter((a) => (axisSeedCardCounts[a.axis] ?? 0) >= 2)
+    .map((a) => a.axis)
+    .slice(0, 3);
+
+  // "Supporting" = axis connected in the graph but only via a single seed card.
+  // These are flavour hints — do NOT over-build around them.
+  const supporting = sorted
+    .filter((a) => (axisSeedCardCounts[a.axis] ?? 0) === 1 && a.edgeCount >= 1)
+    .map((a) => a.axis)
+    .slice(0, 3);
+
+  // Axes present on only one seed card with exactly one graph edge —
+  // the weakest possible signal; explicitly labelled so the LLM ignores them.
+  const singleCardOnlyAxes = Object.entries(axisSeedCardCounts)
+    .filter(([, count]) => (count ?? 0) === 1)
+    .map(([axis]) => axis as MechanicAxis)
+    .filter((a) => !required.includes(a) && !supporting.includes(a));
 
   const confirmedLinks = graph.edges
     .filter((e) => e.kind === "source-to-payoff" || e.kind === "mutual-engine")
@@ -208,14 +256,30 @@ function buildSynergyConstraints(graph: SeedSynergyGraph): SynergyConstraints {
     .map((e) => ({ from: e.fromName, to: e.toName, axis: e.axis, kind: e.kind }));
 
   let buildInstruction: string;
-  if (graph.density >= 0.5) {
-    buildInstruction = `High-density seed set (${Math.round(graph.density * 100)}%). Prioritize cards that connect to ≥2 required axes. Penalize off-axis inclusions unless they fill mandatory interaction roles.`;
-  } else if (graph.density >= 0.2) {
-    buildInstruction = `Moderate-density seed set (${Math.round(graph.density * 100)}%). Build around required axes but allow 30-40% supporting/off-axis cards to maintain resilience.`;
+  if (required.length === 0 && singleCardOnlyAxes.length > 0) {
+    // All mechanical axes come from individual cards — high risk of one-off overfit.
+    buildInstruction =
+      `All detected axes are single-card signals only (axes: ${singleCardOnlyAxes.slice(0, 3).join(", ")}). ` +
+      `Do NOT pivot the whole deck around any one of these axes; include only 1–2 cards per axis as flavour. ` +
+      `Prioritise broad role value instead: interaction, card draw, ramp, and on-curve threats come first.`;
+  } else if (required.length > 0 && graph.density >= 0.5) {
+    buildInstruction =
+      `High-density seed set (${Math.round(graph.density * 100)}%). ` +
+      `Prioritise cards that support ≥2 required axes (${required.join(", ")}), each backed by multiple seed cards. ` +
+      `Penalise off-axis inclusions unless they fill mandatory interaction, draw, or ramp roles.`;
+  } else if (required.length > 0 && graph.density >= 0.2) {
+    buildInstruction =
+      `Moderate-density seed set (${Math.round(graph.density * 100)}%). ` +
+      `Build around required axes (${required.join(", ")}) but keep 30–40% of slots for supporting/off-axis role cards to maintain resilience. ` +
+      (supporting.length > 0 ? `Supporting axes (single-card evidence: ${supporting.join(", ")}) are hints only — 1–2 cards each is enough.` : "");
   } else if (required.length > 0) {
-    buildInstruction = `Low-density seed set (${Math.round(graph.density * 100)}%) but ${required.length} confirmed axis/axes exist. Lean into those axes while treating other seed cards as flexible slots.`;
+    buildInstruction =
+      `Low-density seed set (${Math.round(graph.density * 100)}%) but ${required.length} axis/axes confirmed by multiple seed cards (${required.join(", ")}). ` +
+      `Lean into those axes. Treat cards whose axes are supported by only one seed as flexible slots that may be swapped for better role coverage.`;
   } else {
-    buildInstruction = `No confirmed axis pairs detected. Treat seed cards as role-based signals only, not mechanical-axis evidence. Build the most coherent competitive interpretation.`;
+    buildInstruction =
+      `No multi-card axis pairs detected. Treat all seed cards as role-based signals only, not mechanical-axis evidence. ` +
+      `Build the most coherent competitive interpretation based on roles (interaction, threats, draw, ramp) and colour identity.`;
   }
 
   return { requiredAxes: required, supportingAxes: supporting, densityScore: round2(graph.density), confirmedLinks, buildInstruction };

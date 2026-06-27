@@ -77,6 +77,7 @@ export type MechanicAxis =
   | "stax"
   | "discard"
   | "storm"
+  | "delirium"
   // ── Internal-only synergy primitives (not surfaced as themes) ──
   | "draw"
   | "etb"
@@ -93,6 +94,9 @@ const SOURCE_PATTERNS: Record<MechanicAxis, RegExp[]> = {
     /gain life equal/i,
     /create a food token/i,
     /sacrifice.*food.*gain/i,
+    // Gap 2 fix: "you gain twice that much life" / replacement lifegain amplifiers (The Wind Crystal)
+    /you gain (?:twice|double|that much|x) (?:that much |more )?life/i,
+    /if you would gain life.{0,40}instead/i,
   ],
   tokens: [
     /create[sd]? [a2-9\d]/i,
@@ -144,8 +148,14 @@ const SOURCE_PATTERNS: Record<MechanicAxis, RegExp[]> = {
   ],
   mill: [
     /target (?:opponent|player) mills?/i,
-    /each opponent mills?/i,
-    /(?:target (?:opponent|player)|each opponent).{0,80}put[s]? .{0,30}top .{0,40}(?:cards? )?of .{0,30}library .{0,40}graveyard/i,
+    /each (?:opponent|player) mills?/i,
+    /(?:defending|that|those) (?:player|players|opponent|opponents) mills?/i,
+    // "mills N cards" as a generic verb (covers broadcast/template variants not using "target")
+    /\bmills?\s+(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|x|that many|half)/i,
+    /(?:target (?:opponent|player)|each (?:opponent|player)).{0,80}put[s]? .{0,30}top .{0,40}(?:cards? )?of .{0,30}library .{0,40}graveyard/i,
+    // Gap 3 fix: "they mill that many plus/more" (The Water Crystal / mill amplifiers)
+    /they mill that many (?:plus|more|and)/i,
+    /if .{0,20}would mill.{0,40}(?:plus|more|instead)/i,
   ],
   enchantress: [
     /enchant (creature|permanent|player|land)/i,
@@ -210,6 +220,11 @@ const SOURCE_PATTERNS: Record<MechanicAxis, RegExp[]> = {
     /copy (?:that|target) (?:instant or sorcery|spell)/i,
     /for each spell .{0,20}cast this turn/i,
   ],
+  delirium: [
+    /\bdelirium\b/i,
+    /four or more card types? (?:among cards )?in your graveyard/i,
+    /if there are four or more/i,
+  ],
 };
 
 /** Regular expressions that detect PAYOFF cards for each axis. */
@@ -220,6 +235,10 @@ const PAYOFF_PATTERNS: Record<MechanicAxis, RegExp[]> = {
     /whenever (a player |you |)gains? life/i,
     /if you (?:have |)gained life/i,
     /for each (?:1 |one )?life you (?:gained|gain)/i,
+    // Gap 1 fix: "where X is the amount of life you gained this turn" (Hope Estheim)
+    /(?:where|equal to) .{0,20}(?:amount|number) .{0,10}life you (?:gained|gain)/i,
+    // Gap 1 fix: "5 or more life this turn" (Resplendent Angel)
+    /(?:\d+ or more) life this turn/i,
   ],
   tokens: [
     /whenever (?:a |another |you create a? )token/i,
@@ -235,7 +254,7 @@ const PAYOFF_PATTERNS: Record<MechanicAxis, RegExp[]> = {
   ],
   graveyard: [
     /whenever .{0,30} is put into .{0,20}graveyard/i,
-    /for each card in (?:your |a |their )?graveyard/i,
+    /for each (?:\w+ )?cards? in (?:your |a |their )?graveyard/i,
     /from your graveyard/i,
   ],
   draw: [
@@ -328,6 +347,12 @@ const PAYOFF_PATTERNS: Record<MechanicAxis, RegExp[]> = {
   storm: [
     /\bstorm\b/i,
     /for each spell .{0,20}cast this turn/i,
+  ],
+  delirium: [
+    /\bdelirium\b/i,
+    /four or more card types? (?:among cards )?in your graveyard/i,
+    /if there are four or more/i,
+    /for each card type (?:among cards )?in your graveyard/i,
   ],
 };
 
@@ -468,6 +493,8 @@ export function buildSynergyProfile(card: CardRecord): CardSynergyProfile {
     // targeting wins: keep them on the opponent-mill axis and prevent accidental
     // graveyard/self-mill recursion bonuses.
     if (sourceTags.has("mill") && isExplicitOpponentMill(haystack)) sourceTags.delete("selfMill");
+    // Pure self-mill cards should not be tagged as opponent-mill
+    if (sourceTags.has("selfMill") && !isExplicitOpponentMill(haystack)) sourceTags.delete("mill");
     for (const [tag, pattern] of Object.entries(BROAD_PATTERNS)) {
       if (pattern.test(haystack)) broadTags.add(tag);
     }
@@ -524,13 +551,19 @@ export function inferPrimaryAxes(profiles: CardSynergyProfile[]): MechanicAxis[]
     }
   }
   const total = profiles.length;
-  const MIN_COVERAGE = Math.max(3, Math.ceil(total * 0.12));  // narrow strategies like mill need fewer dedicated cards
+  // Minimum axis coverage (sources + payoffs) needed to qualify.
+  // Calibrated for full 60-card decks (~30 nonlands). For small seed pools the bar
+  // drops proportionally so 5-card intent sets produce meaningful axis signals.
+  const MIN_COVERAGE = total <= 4 ? 1 : total <= 8 ? 2 : Math.max(3, Math.ceil(total * 0.12));
   return [...axisCounts.entries()]
     .map(([axis, counts]) => ({
       axis,
       coverage: counts.sources + counts.payoffs,
       score: counts.sources + counts.payoffs * 1.5 + counts.engines * 2,
-      qualifiesByPayoffs: counts.payoffs >= 2 && counts.sources + counts.payoffs >= 4,
+      // For small pools: 1 payoff + 2 total is enough to qualify.
+      qualifiesByPayoffs: total <= 8
+        ? counts.payoffs >= 1 && counts.sources + counts.payoffs >= 2
+        : counts.payoffs >= 2 && counts.sources + counts.payoffs >= 4,
     }))
     .filter((entry) => entry.coverage >= MIN_COVERAGE || entry.qualifiesByPayoffs)
     .sort((a, b) => b.score - a.score || b.coverage - a.coverage)
@@ -756,6 +789,8 @@ export function computeSynergyScoreV2(
   const profiles = deckEntries
     .filter((e) => !e.card.typeLine.includes("Land"))
     .map((e) => buildSynergyProfile(e.card));
+  // No deck context → no synergy contribution
+  if (profiles.length === 0) return 0;
   const profile = buildSynergyProfile(card);
   const axes = inferPrimaryAxes([profile, ...profiles]);
   if (axes.length === 0) return 0;
