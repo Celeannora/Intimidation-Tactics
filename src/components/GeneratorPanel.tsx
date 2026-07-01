@@ -803,19 +803,115 @@ export function GeneratorPanel() {
           {!currentDeckSummary && currentDeckMode !== "off" && " (deck is empty)"}
         </p>
         {(currentDeckMode === "seeds" || currentDeckMode === "keep") && (
-          <div>
-            <label className="mb-1 block text-[11px] text-zinc-500">
-              Fuzz: allow optimizer to swap up to {seedFuzzSwaps} weak seed cop{seedFuzzSwaps === 1 ? "y" : "ies"}
-            </label>
-            <input
-              type="range" min={0} max={20} step={1}
-              value={seedFuzzSwaps}
-              onChange={(e) => setSeedFuzzSwaps(Number(e.target.value))}
-              className="w-full accent-teal-500"
-            />
-            <p className="mt-0.5 text-[11px] leading-snug text-zinc-600">
-              0 = strict lock. Higher values let the optimizer drop your lowest-scoring seed copies (kept as soft preferences) and replace them with better picks.
-            </p>
+          <div className="space-y-3 border-t border-zinc-800 pt-3 mt-1">
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">Seed controls</div>
+
+            {/* ── Fuzz ── */}
+            <div>
+              <label className="mb-1 block text-[11px] text-zinc-400">
+                Fuzz — relax up to{" "}
+                <span className="font-medium text-zinc-200">{seedFuzzSwaps}</span>
+                {" "}weak seed cop{seedFuzzSwaps === 1 ? "y" : "ies"}
+              </label>
+              <input
+                type="range" min={0} max={20} step={1}
+                value={seedFuzzSwaps}
+                onChange={(e) => setSeedFuzzSwaps(Number(e.target.value))}
+                className="w-full accent-teal-500"
+              />
+              <p className="mt-0.5 text-[11px] leading-snug text-zinc-600">
+                Before generation, the engine scores every seed card. At 0 all seeds are strictly locked.
+                Raising this value demotes the N lowest-scoring seed copies to soft preferences — the optimizer
+                can replace them with better picks while still being strongly biased toward keeping them.
+                Works with both Offline and AI engines.
+              </p>
+            </div>
+
+            {/* ── Sequential seed-chain (AI only) ── */}
+            {engine === "ai" && (
+              <div className="rounded-md border border-zinc-800 bg-zinc-900/40 p-2">
+                <label className="flex items-start gap-2 text-xs">
+                  <input
+                    type="checkbox"
+                    checked={aiSequentialMode}
+                    onChange={(e) => setAiSequentialMode(e.target.checked)}
+                    className="mt-0.5 accent-teal-500"
+                  />
+                  <span>
+                    <span className="font-medium text-zinc-200">Sequential seed-chain</span>
+                    <span className="mt-0.5 block text-[11px] leading-snug text-zinc-500">
+                      Instead of one-shot generation, the AI builds the deck incrementally — each step
+                      it sees the current locked spine plus a re-scored candidate pool, proposes the next
+                      batch of cards, and those become seeds for the next step. Continues until the
+                      nonland budget is filled, then the offline optimizer adds lands and tunes.
+                      <br /><span className="text-zinc-600">Fuzz above applies after sequential completes — it relaxes the weakest N copies from the final spine before the offline pass.</span>
+                    </span>
+                  </span>
+                </label>
+                {aiSequentialMode && (
+                  <div className="mt-2 space-y-2">
+                    <div>
+                      <label className="mb-1 block text-[11px] text-zinc-500">
+                        Cards per step — schedule
+                      </label>
+                      <input
+                        type="text"
+                        value={aiSequentialScheduleRaw}
+                        onChange={(e) => setAiSequentialScheduleRaw(e.target.value)}
+                        placeholder="e.g. 3, 5, 2  or just  4"
+                        className="w-full rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-xs font-mono"
+                      />
+                      <p className="mt-1 text-[11px] leading-snug text-zinc-600">
+                        Single number = uniform steps. Comma-separated = per-step schedule; last value repeats.
+                        Each value 1–20. Keep step size smaller than the remaining budget — large steps
+                        give the AI less context at each pass and produce less coherent synergy chains.
+                      </p>
+                    </div>
+                    {/* Live step preview */}
+                    <div className="rounded border border-zinc-800 bg-zinc-950 px-2 py-1.5">
+                      <p className="mb-1 text-[10px] font-medium uppercase tracking-wider text-zinc-600">Step preview</p>
+                      {seedNonlandCount > 0 && (
+                        <p className="mb-1 text-[10px] text-zinc-500">
+                          {seedNonlandCount} seed cards locked → AI fills {Math.max(0, Math.round(mainboardSize * 0.60) - seedNonlandCount)} remaining nonland slots
+                        </p>
+                      )}
+                      <div className="flex flex-wrap gap-1">
+                        {(() => {
+                          const nonlandBudget = Math.round(mainboardSize * 0.60);
+                          const startCount = Math.min(seedNonlandCount, nonlandBudget);
+                          const steps: { step: number; size: number; cumulative: number }[] = [];
+                          let cum = startCount;
+                          let s = 0;
+                          while (cum < nonlandBudget && s < 20) {
+                            s++;
+                            const size = aiStepSchedule[Math.min(s - 1, aiStepSchedule.length - 1)];
+                            const actual = Math.min(size, nonlandBudget - cum);
+                            cum += actual;
+                            steps.push({ step: s, size: actual, cumulative: cum });
+                          }
+                          if (steps.length === 0) {
+                            return <span className="text-[10px] text-zinc-600">Seeds already fill the nonland budget — sequential has nothing to add. Reduce seed count or increase deck size.</span>;
+                          }
+                          return steps.map(({ step, size, cumulative }) => (
+                            <span
+                              key={step}
+                              className="inline-flex items-center gap-0.5 rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] text-zinc-300"
+                            >
+                              <span className="text-zinc-500">S{step}</span>
+                              <span className="font-medium text-teal-400">+{size}</span>
+                              <span className="text-zinc-600">→{cumulative}</span>
+                            </span>
+                          ));
+                        })()}
+                      </div>
+                      <p className="mt-1 text-[10px] text-zinc-600">
+                        S = step · +N = cards added · →N = cumulative nonland locked
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -1074,87 +1170,7 @@ export function GeneratorPanel() {
               </p>
             </div>
           </div>
-          {/* Sequential seed-chain mode */}
-          <div className="rounded-md border border-zinc-800 bg-zinc-900/40 p-2">
-            <label className="flex items-start gap-2 text-xs">
-              <input
-                type="checkbox"
-                checked={aiSequentialMode}
-                onChange={(e) => setAiSequentialMode(e.target.checked)}
-                className="mt-0.5 accent-teal-500"
-              />
-              <span>
-                <span className="font-medium text-zinc-200">Sequential seed-chain</span>
-                <span className="mt-0.5 block text-[11px] leading-snug text-zinc-500">
-                  Requires seed cards. Instead of one-shot generation, the AI builds the deck
-                  incrementally — each step it sees the current locked spine, proposes the next
-                  batch of additions, and those become seeds for the next step. Continues until
-                  the nonland budget is filled.
-                </span>
-              </span>
-            </label>
-            {aiSequentialMode && (
-              <div className="mt-2 space-y-2">
-                <div>
-                  <label className="mb-1 block text-[11px] text-zinc-500">
-                    Cards per step — schedule
-                  </label>
-                  <input
-                    type="text"
-                    value={aiSequentialScheduleRaw}
-                    onChange={(e) => setAiSequentialScheduleRaw(e.target.value)}
-                    placeholder="e.g. 3, 5, 2  or just  4"
-                    className="w-full rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-xs font-mono"
-                  />
-                  <p className="mt-1 text-[11px] leading-snug text-zinc-600">
-                    Single number = uniform steps. Comma-separated list = per-step schedule;
-                    the last value repeats for any remaining steps. Each value 1–20.
-                  </p>
-                </div>
-                {/* Live preview of the resolved schedule */}
-                <div className="rounded border border-zinc-800 bg-zinc-950 px-2 py-1.5">
-                  <p className="mb-1 text-[10px] font-medium uppercase tracking-wider text-zinc-600">Step preview</p>
-                  {seedNonlandCount > 0 && (
-                    <p className="mb-1 text-[10px] text-zinc-500">
-                      {seedNonlandCount} seed cards locked → AI fills {Math.max(0, Math.round(mainboardSize * 0.60) - seedNonlandCount)} remaining nonland slots
-                    </p>
-                  )}
-                  <div className="flex flex-wrap gap-1">
-                    {(() => {
-                      const nonlandBudget = Math.round(mainboardSize * 0.60);
-                      const startCount = Math.min(seedNonlandCount, nonlandBudget);
-                      const steps: { step: number; size: number; cumulative: number }[] = [];
-                      let cum = startCount;
-                      let s = 0;
-                      while (cum < nonlandBudget && s < 20) {
-                        s++;
-                        const size = aiStepSchedule[Math.min(s - 1, aiStepSchedule.length - 1)];
-                        const actual = Math.min(size, nonlandBudget - cum);
-                        cum += actual;
-                        steps.push({ step: s, size: actual, cumulative: cum });
-                      }
-                      if (steps.length === 0) {
-                        return <span className="text-[10px] text-zinc-600">Seeds already fill the nonland budget.</span>;
-                      }
-                      return steps.map(({ step, size, cumulative }) => (
-                        <span
-                          key={step}
-                          className="inline-flex items-center gap-0.5 rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] text-zinc-300"
-                        >
-                          <span className="text-zinc-500">S{step}</span>
-                          <span className="font-medium text-teal-400">+{size}</span>
-                          <span className="text-zinc-600">→{cumulative}</span>
-                        </span>
-                      ));
-                    })()}
-                  </div>
-                  <p className="mt-1 text-[10px] text-zinc-600">
-                    S = step · +N = cards added · →N = cumulative nonland locked
-                  </p>
-                </div>
-              </div>
-            )}
-          </div>
+          {/* Sequential seed-chain moved to Seed controls above */}
           <div>
             <label className="mb-1 block text-[11px] text-zinc-500">User context / instructions</label>
             <textarea
@@ -1686,7 +1702,11 @@ function validateAIResponse(raw: string, result: GenerateResult): AIValidation {
     resolvedList.push({ name: entry.card.name, lower, qty: entry.quantity, board: entry.board });
   }
   const findResolved = (name: string, board: "main" | "side") => {
-    const lower = name.trim().toLowerCase();
+    const lower = name.trim()
+      .replace(/[\u2018\u2019\u02BC]/g, "'")
+      .replace(/[\u2013\u2014]/g, "-")
+      .normalize("NFC")
+      .toLowerCase();
     if (!lower) return undefined;
     const exact = resolvedByExact.get(`${board}::${lower}`);
     if (exact) return exact;

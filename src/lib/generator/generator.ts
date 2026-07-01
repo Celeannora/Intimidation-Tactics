@@ -233,6 +233,160 @@ function generateOne(
       `Seed fuzz: demoted ${fuzzSwaps - remainingToDrop} of ${fuzzSwaps} requested seed copies to soft-preferred (optimizer may swap them)`
     );
   }
+  // ── Seed overflow guard (synergy-aware) ──────────────────────────────────
+  // When the user seeds a large imported deck into a smaller target size,
+  // the total locked seed quantities can exceed the entire nonland budget
+  // (targetMainboardSize − minimum-land reserve). Seeds are immune to both
+  // the mana-base-reserve shedding step and trimMainboardToSize, so an
+  // unchecked overflow produces a deck that ignores the deck size setting
+  // (e.g. 163 seeds → 163-card result when size is set to 61).
+  //
+  // Fix: score every seed entry with cardScore() against the current archetype
+  // and options, then shed excess copies starting from the LOWEST-scoring
+  // cards first. This preserves high-synergy / high-power cards at their
+  // original quantities as long as possible. Each entry's quantity floors at
+  // 1 so no card disappears entirely from the seed pool.
+  {
+    const seedLandQty = seedLands.reduce((s, e) => s + e.quantity, 0);
+    const maxNonlandSeeds = Math.max(1, targetMainboardSize - ABSOLUTE_MINIMUM_LANDS - seedLandQty);
+    const totalSeedQty = seedEntries.reduce((s, e) => s + e.quantity, 0);
+    if (totalSeedQty > maxNonlandSeeds) {
+      const before = totalSeedQty;
+      // Score each entry. deckAxes is not computed yet so we pass [] here
+      // (same approach the fuzz-swap block above uses). cardScore still
+      // captures role-fit, power, and keyword alignment vs the archetype.
+      const tentativeAvg = 3.0;
+      const scored = seedEntries
+        .map((e) => ({
+          entry: e,
+          score: cardScore(e.card, [], { ...options, colors: effectiveColors }, tentativeAvg),
+        }))
+        .sort((a, b) => a.score - b.score); // ascending: lowest score first
+
+      // Clone so we can mutate quantities without touching the original array.
+      const working = seedEntries.map((e) => ({ ...e }));
+      const byOracle = new Map(working.map((e) => [e.card.oracleId, e]));
+      let remaining = totalSeedQty - maxNonlandSeeds;
+
+      // Shed copies from lowest-scoring cards first (floor: 1 copy each).
+      for (const { entry } of scored) {
+        if (remaining <= 0) break;
+        const live = byOracle.get(entry.card.oracleId);
+        if (!live || live.quantity <= 1) continue;
+        const shed = Math.min(live.quantity - 1, remaining);
+        live.quantity -= shed;
+        remaining -= shed;
+      }
+
+      // Safety valve: if we still need to shed (all entries are at 1 copy,
+      // meaning unique-card count alone exceeds the budget), remove entire
+      // lowest-scoring entries until we fit.
+      if (remaining > 0) {
+        for (const { entry } of scored) {
+          if (remaining <= 0) break;
+          const live = byOracle.get(entry.card.oracleId);
+          if (!live || live.quantity <= 0) continue;
+          remaining -= live.quantity;
+          live.quantity = 0;
+        }
+      }
+
+      seedEntries = working.filter((e) => e.quantity > 0);
+      const after = seedEntries.reduce((s, e) => s + e.quantity, 0);
+      reasoning.push(
+        `Seed overflow (synergy-aware): trimmed ${before} seed cop${before === 1 ? "y" : "ies"} down to ${after} ` +
+        `to fit within ${targetMainboardSize}-card target (nonland budget: ${maxNonlandSeeds}); ` +
+        `lowest-scoring copies shed first to protect high-value cards`
+      );
+    }
+
+    // ── Copy consolidation pass ────────────────────────────────────────────
+    // After trimming, a large unique-card seed pool often collapses to mostly
+    // 1-of copies. A deck full of singletons is hypergeometrically inconsistent
+    // (only ~11% chance of seeing a 1-of in your opening hand). This pass
+    // promotes high-scoring survivors toward their natural copy count (up to
+    // maxCopiesForCard) by redistributing copies from the lowest-scoring cards.
+    //  - Budget is the same maxNonlandSeeds computed above; never re-expands.
+    //  - Top-quartile cards target up to maxCopies (4 for most).
+    //  - Second-quartile cards target up to 2 copies.
+    //  - Bottom-half cards stay at 1 copy (or are removed to fund promotions).
+    //  - Only fires when more than half the surviving entries are 1-ofs.
+    {
+      const seedLandQty = seedLands.reduce((s, e) => s + e.quantity, 0);
+      const maxNonlandSeeds = Math.max(1, targetMainboardSize - ABSOLUTE_MINIMUM_LANDS - seedLandQty);
+      const singletons = seedEntries.filter((e) => e.quantity === 1).length;
+      const shouldConsolidate = singletons > seedEntries.length / 2;
+      if (shouldConsolidate && seedEntries.length > 0) {
+        const tentativeAvg = 3.0;
+        const scored2 = seedEntries
+          .map((e) => ({
+            entry: e,
+            score: cardScore(e.card, [], { ...options, colors: effectiveColors }, tentativeAvg),
+          }))
+          .sort((a, b) => b.score - a.score); // DESCENDING: best first for promotion
+
+        // Determine target copy counts by quartile.
+        const n = scored2.length;
+        const targetQty = (rank: number): number => {
+          const pct = rank / n;
+          if (pct < 0.25) return Math.min(maxCopiesForCard(scored2[rank].entry.card, options.format), 4);
+          if (pct < 0.50) return 2;
+          return 1;
+        };
+
+        const consolidated = seedEntries.map((e) => ({ ...e }));
+        const byOracle2 = new Map(consolidated.map((e) => [e.card.oracleId, e]));
+
+        // First pass: promote top entries, cutting from the bottom to fund it.
+        for (let rank = 0; rank < scored2.length; rank++) {
+          const { entry } = scored2[rank];
+          const live = byOracle2.get(entry.card.oracleId);
+          if (!live) continue;
+          const want = targetQty(rank);
+          if (live.quantity >= want) continue; // already at or above target
+          const need = want - live.quantity;
+          // Fund by shedding from lowest-scoring cards (iterate from tail).
+          let funded = 0;
+          for (let j = scored2.length - 1; j > rank && funded < need; j--) {
+            const donor = byOracle2.get(scored2[j].entry.card.oracleId);
+            if (!donor || donor.quantity <= 1) continue;
+            const give = Math.min(donor.quantity - 1, need - funded);
+            donor.quantity -= give;
+            funded += give;
+          }
+          live.quantity += funded;
+        }
+
+        // Enforce budget ceiling (rounding may have drifted slightly).
+        let consolidatedTotal = consolidated.reduce((s, e) => s + e.quantity, 0);
+        if (consolidatedTotal > maxNonlandSeeds) {
+          // Trim from worst entries first (excess = consolidatedTotal - maxNonlandSeeds).
+          for (let j = scored2.length - 1; j >= 0; j--) {
+            if (consolidatedTotal <= maxNonlandSeeds) break;
+            const donor = byOracle2.get(scored2[j].entry.card.oracleId);
+            if (!donor || donor.quantity <= 0) continue;
+            const cut = Math.min(donor.quantity, consolidatedTotal - maxNonlandSeeds);
+            donor.quantity -= cut;
+            consolidatedTotal -= cut;
+          }
+        }
+
+        const consolidated2 = consolidated.filter((e) => e.quantity > 0);
+        const afterConsolidate = consolidated2.reduce((s, e) => s + e.quantity, 0);
+        const newSingletons = consolidated2.filter((e) => e.quantity === 1).length;
+        // Always apply; afterConsolidate may be <= beforeConsolidate due to budget
+        // enforcement above — it should never exceed it.
+        seedEntries = consolidated2;
+        if (newSingletons < singletons) {
+          reasoning.push(
+            `Seed consolidation: ${singletons} singleton${singletons === 1 ? "" : "s"} → ${newSingletons} after promoting top-scored cards; ` +
+            `${consolidated2.length} unique cards, ${afterConsolidate} total copies`
+          );
+        }
+      }
+    }
+  }
+
   const seededCards = seedEntries.map((e) => e.card);
   const focusSourceEntries = legalFocusEntries.filter((e) => !e.card.typeLine.includes("Land"));
 
@@ -573,6 +727,83 @@ function generateOne(
   // the deck below the recommended land floor. If lands fell short, top up
   // with basics (color-balanced) by replacing the highest-cmc nonland slots.
   enforceLandFloor(finalEntries, landBudget, effectiveColors, allCards, lockedIds, targetMainboardSize, reasoning);
+
+  // ── Phase 3b: copy-count consolidation ───────────────────────────────────
+  // The optimizer swaps one card for another, always keeping the outgoing
+  // quantity. A board-wipe slot (1 copy) swapped for a 4-of threat stays at
+  // 1 copy. After 200 iterations this fills the deck with singletons.
+  // This pass scores every unlocked nonland with full deckAxes, then
+  // redistributes copies budget-neutrally:
+  //   - top-scored cards gain copies toward their recommended count
+  //   - bottom-scored cards donate copies (floor: 1 each) to fund those gains
+  // Locked seeds and lands are never touched.
+  {
+    const mainNonlands = finalEntries.filter(
+      (e) => e.board === "main" && !e.card.typeLine.includes("Land")
+    );
+    const totalNonlandCopies = mainNonlands.reduce((s, e) => s + e.quantity, 0);
+    const singletonsBefore = mainNonlands.filter((e) => e.quantity === 1).length;
+
+    // Only run when there are meaningful singletons to fix.
+    if (singletonsBefore > mainNonlands.length / 3) {
+      // Score with full deckAxes now available.
+      const scoredFinal = mainNonlands
+        .map((e) => ({
+          entry: e,
+          score: cardScore(e.card, finalEntries, effectiveOptions, targetAvgCmc),
+          isLocked: lockedIds.has(e.card.oracleId),
+        }))
+        .sort((a, b) => b.score - a.score); // descending: best first
+
+      // Target copy count per card respecting format caps and card type.
+      const idealQty = (e: DeckEntry): number => {
+        const cap = Math.min(maxCopiesForCard(e.card, effectiveOptions.format), 4);
+        if (e.card.typeLine.includes("Legendary") || e.card.gameChanger) return Math.min(2, cap);
+        const roles = assignRoles(e.card);
+        if (roles.includes("BoardWipe")) return Math.min(1, cap);
+        if (isThreat(roles) && e.card.cmc <= 2) return Math.min(4, cap);
+        return Math.min(3, cap);
+      };
+
+      // Two-pointer: i walks top (promotion candidates), j walks bottom (donors).
+      // We mutate entry.quantity in-place since these are the same objects in finalEntries.
+      let i = 0;
+      let j = scoredFinal.length - 1;
+      while (i < j) {
+        const top = scoredFinal[i];
+        const bot = scoredFinal[j];
+        const want = idealQty(top.entry);
+        if (top.entry.quantity >= want) { i++; continue; }
+        if (bot.entry.quantity <= 1) { j--; continue; }
+        if (top.isLocked && bot.isLocked) { i++; j--; continue; }
+        // Donor gives 1 copy at a time to preserve granularity.
+        if (!bot.isLocked) {
+          bot.entry.quantity -= 1;
+        }
+        if (!top.isLocked) {
+          top.entry.quantity += 1;
+        }
+        // If bot is now at 1, advance j; if top has reached its want, advance i.
+        if (bot.entry.quantity <= 1) j--;
+        if (top.entry.quantity >= want) i++;
+      }
+
+      // Verify total is unchanged.
+      const newTotal = mainNonlands.reduce((s, e) => s + e.quantity, 0);
+      if (newTotal !== totalNonlandCopies) {
+        // Drift guard: shouldn't happen, but log it.
+        reasoning.push(`Copy consolidation drift: ${newTotal} vs ${totalNonlandCopies} — skipped`);
+      } else {
+        const singletonsAfter = mainNonlands.filter((e) => e.quantity === 1).length;
+        if (singletonsAfter < singletonsBefore) {
+          reasoning.push(
+            `Copy consolidation: ${singletonsBefore} singleton${singletonsBefore === 1 ? "" : "s"} \u2192 ${singletonsAfter}; ` +
+            `top-scored nonlands promoted toward recommended copy counts`
+          );
+        }
+      }
+    }
+  }
 
   const finalMainProfiles = finalEntries
     .filter((e) => e.board === "main" && !e.card.typeLine.includes("Land"))

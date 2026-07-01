@@ -922,6 +922,7 @@ function buildResultFromAIResponse(
             preferEntries: options.preferEntries,
           }
         : { preferEntries: mergeEntries(options.preferEntries ?? [], aiNonlandPreferences) }),
+      allowSeedColorExpansion: true,
       generateSideboard: false,
     },
     allCards
