@@ -7,6 +7,7 @@
  */
 
 import type { CardRecord } from "../types";
+import type { DeckEntry } from "../legality";
 import { buildSynergyProfile, type EngineRole, type MechanicAxis } from "../generator/synergyModel";
 
 export type SynergyEdgeKind = "source-to-payoff" | "mutual-engine" | "shared-axis";
@@ -199,6 +200,22 @@ export function buildSeedSynergyGraph(seeds: CardRecord[]): SeedSynergyGraph {
   const graph: SeedSynergyGraph = { nodes, edges, connectedAxes, axisSeedCardCounts, density, weightedDensity, narrative };
   _graphCache.set(key, graph);
   return graph;
+}
+
+/**
+ * Build a synergy graph over the cards of a finished deck. Uses the deck's
+ * unique nonland cards (quantities are irrelevant to a card↔card relationship
+ * graph), so the same source→payoff / mutual-engine / shared-axis analysis that
+ * feeds the seed prompt is available to explain the assembled deck in the UI.
+ */
+export function buildDeckSynergyGraph(entries: DeckEntry[]): SeedSynergyGraph {
+  const uniqueNonland = new Map<string, CardRecord>();
+  for (const entry of entries) {
+    if (entry.board !== "main") continue;
+    if (entry.card.typeLine.includes("Land")) continue;
+    if (!uniqueNonland.has(entry.card.oracleId)) uniqueNonland.set(entry.card.oracleId, entry.card);
+  }
+  return buildSeedSynergyGraph([...uniqueNonland.values()]);
 }
 
 export function formatSynergyGraphForPrompt(graph: SeedSynergyGraph): string {
