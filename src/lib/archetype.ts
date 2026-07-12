@@ -261,6 +261,22 @@ export function detectThemes(entries: DeckEntry[]): DetectedTheme[] {
 const SCORED_MACROS: Archetype[] = ["Aggro", "Midrange", "Control", "Tempo", "Combo", "Ramp", "Prison"];
 
 /**
+ * Minimum macro-fitness score (out of a 0–14 scale) required to hand back a
+ * confident macro classification rather than the `Unknown` hybrid bucket.
+ *
+ * The ratio-based `score()` awards ~2 "free" points to essentially any deck that
+ * runs a normal (~22–25) land count, so a structurally incoherent pile — e.g. a
+ * homebrew with almost no real threat base — can still score 3–4 on a macro it
+ * does not actually play (its points coming from land ratio + one incidental
+ * role). Classifying such decks confidently propagates into
+ * {@link ./mythicViability.computeMetaPositioningPillar}, whose per-macro base
+ * viability lookup is optimistic (Midrange 80, Aggro 75). Below this floor we
+ * return `Unknown`, which that pillar treats conservatively. Genuine archetype
+ * decks match several role targets and clear the floor comfortably.
+ */
+const MIN_MACRO_FITNESS = 5;
+
+/**
  * Single unified detector. Returns the macro archetype (under both `archetype`
  * and `macro`), a confidence, the multi-label themes, and the signal trace.
  */
@@ -307,6 +323,14 @@ export function detectArchetype(entries: DeckEntry[]): ArchetypeDetectionResult 
   }
 
   const confidence = Math.min(bestScore / 14, 1);
+
+  // Minimum-fitness gate (issue #4 / 13a): hand back the explicit hybrid bucket
+  // instead of an over-confident macro when no archetype fits well enough.
+  if (bestScore < MIN_MACRO_FITNESS) {
+    signals.push(`Unclassified: best macro fit ${bestScore}/14 below coherence floor (${MIN_MACRO_FITNESS})`);
+    return finalize("Unknown", confidence, themes, signals, archetypeScores);
+  }
+
   return finalize(bestArchetype, confidence, themes, signals, archetypeScores);
 }
 

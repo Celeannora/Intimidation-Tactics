@@ -121,7 +121,14 @@ const SOURCE_PATTERNS: Record<MechanicAxis, RegExp[]> = {
     /draw cards? equal/i,
   ],
   etb: [
-    /when .{0,60} enters(?: the battlefield)?/i,
+    // A self-ETB triggered ability — i.e. a good blink/flicker target. Uses the
+    // literal "when " templating of a single self-trigger (\bwhen\b excludes the
+    // "whenever a/another creature enters" payoff wording, handled in
+    // PAYOFF_PATTERNS.etb). Requires the battlefield zone specifically so it does
+    // not fire on "enters your graveyard/hand", keeps the trigger subject within
+    // one short clause (no cross-sentence stitching), and excludes triggers that
+    // key off a permanent entering under an opponent's control.
+    /\bwhen [^.,]{0,40}\benters the battlefield\b(?![^.]{0,30}under (?:an?|target|your|their) opponent)/i,
   ],
   counters: [
     /put[s]? [a\d].{0,10}\+1\/\+1 counter/i,
@@ -488,13 +495,20 @@ export function buildSynergyProfile(card: CardRecord): CardSynergyProfile {
     for (const [axis, patterns] of Object.entries(PAYOFF_PATTERNS) as [MechanicAxis, RegExp[]][]) {
       if (patterns.some(p => p.test(haystack))) payoffTags.add(axis);
     }
-    // Opponent-mill cards often contain the substring "mills three cards", which
-    // looks like self-mill if we only inspect the verb phrase. Explicit opponent
-    // targeting wins: keep them on the opponent-mill axis and prevent accidental
-    // graveyard/self-mill recursion bonuses.
-    if (sourceTags.has("mill") && isExplicitOpponentMill(haystack)) sourceTags.delete("selfMill");
-    // Pure self-mill cards should not be tagged as opponent-mill
-    if (sourceTags.has("selfMill") && !isExplicitOpponentMill(haystack)) sourceTags.delete("mill");
+    // Disambiguate opponent-mill (`mill`) from self-mill (`selfMill`). The
+    // generic "mills N" pattern fires for both directions, so each tag is
+    // (re)decided from a direction-specific clause check rather than by deleting
+    // one whenever the other is present. This lets a card that mills BOTH sides
+    // — e.g. "target opponent mills three cards, then you mill three cards" —
+    // carry both tags, keeps a self-directed bare "mill 3" on the selfMill axis
+    // (not dropped), and stops an embedded "you mill" clause from being erased by
+    // an opponent-mill clause.
+    if (sourceTags.has("mill") || sourceTags.has("selfMill")) {
+      if (hasOpponentMillClause(haystack)) sourceTags.add("mill");
+      else sourceTags.delete("mill");
+      if (hasSelfMillClause(haystack)) sourceTags.add("selfMill");
+      else sourceTags.delete("selfMill");
+    }
     for (const [tag, pattern] of Object.entries(BROAD_PATTERNS)) {
       if (pattern.test(haystack)) broadTags.add(tag);
     }
@@ -505,8 +519,37 @@ export function buildSynergyProfile(card: CardRecord): CardSynergyProfile {
   return { name: card.name, typeLine: tl, cmc: card.cmc, sourceTags, payoffTags, broadTags, engineRole, isLand };
 }
 
-function isExplicitOpponentMill(text: string): boolean {
-  return /(?:target (?:opponent|player)|each opponent|each player) mills?/i.test(text);
+/**
+ * True if the text contains a mill clause directed at an opponent/other player
+ * (the `mill` axis). Requires opponent-targeting language — not merely the verb
+ * "mill" — so a bare self-mill ("you mill three") never reads as opponent-mill.
+ */
+function hasOpponentMillClause(text: string): boolean {
+  return (
+    /(?:target (?:opponent|player)|each (?:opponent|player)|(?:defending|that|those) (?:player|players|opponent|opponents)) mills?/i.test(text) ||
+    /(?:target (?:opponent|player)|each (?:opponent|player)).{0,80}put[s]? .{0,30}top .{0,40}(?:cards? )?of .{0,30}library .{0,40}graveyard/i.test(text) ||
+    /whenever (?:an opponent|one or more opponents).{0,40}mill/i.test(text) ||
+    // Opponent-mill amplifier wording (e.g. The Water Crystal): "they mill that
+    // many plus/more", "if ... would mill ... plus/more/instead".
+    /they mill that many (?:plus|more|and)/i.test(text) ||
+    /if .{0,20}would mill.{0,40}(?:plus|more|instead)/i.test(text)
+  );
+}
+
+/**
+ * True if the text contains a self-directed mill clause (the `selfMill` axis):
+ * explicit "you mill", self-milling library-to-graveyard wording, surveil, or a
+ * bare "mill N" that is NOT accompanied by any opponent-targeting language.
+ */
+function hasSelfMillClause(text: string): boolean {
+  return (
+    /\byou mill\b/i.test(text) ||
+    /\bself-?mill\b/i.test(text) ||
+    /put[s]? .{0,20}top .{0,20}(?:cards? )?of your library .{0,20}into your graveyard/i.test(text) ||
+    /\bsurveil \d+/i.test(text) ||
+    (/\bmills?\s+(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|x|that many|half)/i.test(text) &&
+      !hasOpponentMillClause(text))
+  );
 }
 
 function classifyEngineRole(
@@ -686,6 +729,12 @@ export function crossAxisCompositionBonus(
   if (hasPair(deckAxes, candidateAxes, "landfall", "domain")) bonus += 5;
   if (hasPair(deckAxes, candidateAxes, "spellslinger", "storm")) bonus += 6;
   if (hasPair(deckAxes, candidateAxes, "energy", "counters")) bonus += 4;
+  // Additional legitimate compositions previously uncredited:
+  if (hasPair(deckAxes, candidateAxes, "burn", "spellslinger")) bonus += 6; // prowess/magecraft + reach
+  if (hasPair(deckAxes, candidateAxes, "burn", "tokens")) bonus += 5;       // go-wide aggro + drain/reach finish
+  if (hasPair(deckAxes, candidateAxes, "graveyard", "reanimator")) bonus += 6; // fill yard → reanimate
+  if (hasPair(deckAxes, candidateAxes, "sacrifice", "reanimator")) bonus += 5; // sac fodder + recursion
+  if (hasPair(deckAxes, candidateAxes, "energy", "artifacts")) bonus += 4;  // energy payoffs are artifact-centric
 
   return Math.min(18, bonus);
 }
@@ -809,9 +858,14 @@ export function castabilityFeedbackPenalty(probCastable: number): number {
 }
 
 export function keywordFocusToAxes(focus: string[]): MechanicAxis[] {
+  // NOTE: evasion/combat-keyword focuses (Flying, Trample, Stompy, Evasion
+  // Tempo) intentionally have NO mapping. They describe how a creature connects
+  // in combat, not a source→payoff synergy axis. Earlier revisions mapped them
+  // to unrelated axes as proxies (Flying→spellslinger, Trample/Stompy→counters,
+  // Evasion Tempo→spellslinger), which actively misdirected card selection
+  // toward off-theme cards. Omitting them contributes no (wrong) axis credit;
+  // the generator still values these keywords via its keyword-value matrix.
   const map: Record<string, MechanicAxis | MechanicAxis[]> = {
-    Flying:    "spellslinger",  // no exact axis — use as broad flying matters
-    Trample:   "counters",      // trample payoffs often counter-based
     Tokens:    "tokens",
     "Go-Wide Tokens": "tokens",
     Sacrifice: "sacrifice",
@@ -834,9 +888,7 @@ export function keywordFocusToAxes(focus: string[]): MechanicAxis[] {
     "Big Mana": "draw",
     "Tribal Support": "typal",
     "Voltron/Auras": "enchantress",
-    Stompy: "counters",
     "Flash/Draw-Go": "draw",
-    "Evasion Tempo": "spellslinger",
     "Artifacts/Tokens": ["artifacts", "tokens"],
     "Draw-Go Control": "draw",
   };
