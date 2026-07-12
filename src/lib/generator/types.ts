@@ -5,6 +5,7 @@ import type { DeckEntry } from "../legality";
 import type { MechanicAxis } from "./synergyModel";
 import type { ConstructedFormat, PlayEnvironment } from "../formats";
 import type { LiveWinRateDataset } from "../meta/liveWinRate";
+import type { SeedSynergyGraph } from "../analysis/synergyGraph";
 
 export type GenerationEngine = "offline" | "ai";
 export type SpeedProfile = "fast" | "midrange" | "slow";
@@ -362,6 +363,13 @@ export interface GenerateResult {
   cardAdvantageScore?: number;
   /** Synergy-pair violations produced by validateSynergyPairs. */
   synergyViolations?: SynergyViolation[];
+  /**
+   * Card↔card synergy relationships across the assembled deck's nonland cards
+   * (source→payoff / mutual-engine / shared-axis edges with per-edge weights,
+   * plus weighted density). Computed during generation to feed the reasoning
+   * UI's synergy view. Absent when fewer than 2 nonland cards are present.
+   */
+  deckSynergyGraph?: SeedSynergyGraph;
   /**
    * AI-engine only: prominent, user-facing warnings that must NOT be buried in
    * diagnostics.reasoning. Surfaced when the pipeline silently degraded or could

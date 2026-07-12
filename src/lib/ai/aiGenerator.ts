@@ -10,7 +10,7 @@ import { blendRoleTargets } from "../generator/roleTargets";
 import { buildSynergyProfile, generateCardReasons, generateTribalReasons, keywordFocusToAxes } from "../generator/synergyModel";
 import type { MechanicAxis } from "../generator/synergyModel";
 import { analyzeSeeds, formatSeedSummaryForPrompt } from "../analysis/seedAnalyzer";
-import { buildSeedSynergyGraph, formatSynergyGraphForPrompt } from "../analysis/synergyGraph";
+import { buildSeedSynergyGraph, buildDeckSynergyGraph, formatSynergyGraphForPrompt } from "../analysis/synergyGraph";
 import type {
   GenerateOptions,
   GenerateResult,
@@ -1425,6 +1425,7 @@ function buildResultFromAIResponse(
     tempoScore,
     cardAdvantageScore,
     synergyViolations,
+    deckSynergyGraph: buildDeckSynergyGraph(entries),
     warnings: warnings.length > 0 ? warnings : undefined,
     repromptSignal: { rejectionSummary, unresolvedNames },
   };

@@ -26,6 +26,7 @@ import { MythicViabilityPanel } from "./MythicViabilityPanel";
 import { CONSTRUCTED_FORMATS, getFormatRules, type ConstructedFormat, type PlayEnvironment } from "../lib/formats";
 import { generateDeckName } from "../lib/deckExporter";
 import { getLiveWinRateData } from "../lib/meta/liveWinRate";
+import { buildCardBreakdowns, topSynergyPairs } from "../lib/analysis/reasoningView";
 
 const ARCHETYPES: Archetype[] = [
   "Aggro", "Midrange", "Control", "Tempo", "Combo", "Ramp", "Prison",
@@ -1391,28 +1392,31 @@ export function GeneratorPanel() {
                 </div>
               </div>
               <div>
-                <div className="mb-1 text-[11px] font-medium text-zinc-500">Top card contributors</div>
+                <div className="mb-1 text-[11px] font-medium text-zinc-500">Card breakdown — why each card scored what it did</div>
                 <div className="space-y-1.5">
-                  {active.scoreBreakdown.cardScores
-                    .filter((score) => score.board === "main")
-                    .slice(0, 12)
-                    .map((score) => (
-                      <div key={score.oracleId} className="rounded border border-zinc-800 bg-zinc-950/60 p-2">
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="font-medium text-zinc-200">{score.quantity}× {score.name}</span>
-                          <span className="text-teal-300">+{score.contribution.toFixed(1)} total · {score.perCopyScore.toFixed(1)} each</span>
-                        </div>
-                        <div className="mt-1 text-[11px] leading-snug text-zinc-500">
-                          role×power +{score.rolePowerContribution.toFixed(1)} ({score.roleMultiplier.toFixed(1)}×{score.powerScore.toFixed(1)}) · synergy +{score.synergyContribution.toFixed(1)} · directional +{score.directionalContribution.toFixed(1)} · signal +{score.signalContribution.toFixed(1)}
-                          {score.efficiencyContribution ? ` · efficiency +${score.efficiencyContribution.toFixed(1)}` : ""}
-                          {score.flexibilityContribution ? ` · flexibility +${score.flexibilityContribution.toFixed(1)}` : ""}
-                          {score.ladderContribution ? ` · ladder +${score.ladderContribution.toFixed(1)}` : ""}
-                          {score.focusCardBonus ? ` · focus card +${score.focusCardBonus.toFixed(1)}` : ""}
-                          {(score.focusBonus || score.tribalBonus) ? ` · focus/tribal +${(score.focusBonus + score.tribalBonus).toFixed(1)}` : ""}
-                          {(score.cmcPenalty || score.pricePenalty) ? ` · penalties -${(score.cmcPenalty + score.pricePenalty).toFixed(1)}` : ""}
-                        </div>
+                  {buildCardBreakdowns(active.scoreBreakdown.cardScores, 12).map((b) => (
+                    <div key={b.oracleId} className="rounded border border-zinc-800 bg-zinc-950/60 p-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-medium text-zinc-200">{b.quantity}× {b.name}</span>
+                        <span className="text-teal-300">+{b.total.toFixed(1)} total · {b.perCopy.toFixed(1)} each</span>
                       </div>
-                    ))}
+                      <div className="mt-1.5 flex flex-wrap gap-1">
+                        {b.factors.map((f) => (
+                          <span
+                            key={f.label}
+                            className={[
+                              "rounded px-1.5 py-0.5 text-[10px] leading-none",
+                              f.sign === "positive"
+                                ? "bg-teal-950/60 text-teal-300"
+                                : "bg-red-950/60 text-red-300",
+                            ].join(" ")}
+                          >
+                            {f.label}: {f.value >= 0 ? "+" : "−"}{Math.abs(f.value).toFixed(1)}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
             </div>
@@ -1436,6 +1440,37 @@ export function GeneratorPanel() {
                 ))}
             </div>
           </details>
+          {active.deckSynergyGraph && topSynergyPairs(active.deckSynergyGraph, 15).length > 0 && (
+            <details className="mb-2">
+              <summary className="cursor-pointer text-zinc-400 hover:text-zinc-200">
+                Synergy pairs
+                <span className="ml-1 text-zinc-600">
+                  · {Math.round(active.deckSynergyGraph.weightedDensity * 100)}% weighted density
+                </span>
+              </summary>
+              <div className="mt-2 space-y-1">
+                <div className="mb-1 text-[11px] leading-snug text-zinc-500">
+                  Strongest card↔card relationships in the deck. Weight: mutual engine 1.0, source→payoff 0.8, shared axis 0.4.
+                </div>
+                {topSynergyPairs(active.deckSynergyGraph, 15).map((p) => (
+                  <div
+                    key={`${p.a}|${p.b}|${p.kind}|${p.axis}`}
+                    className="flex items-center gap-2 rounded border border-zinc-800 bg-zinc-950/60 p-2"
+                  >
+                    <span
+                      className="h-2 w-2 shrink-0 rounded-full"
+                      style={{ backgroundColor: `rgba(45, 212, 191, ${0.25 + p.weight * 0.75})` }}
+                      aria-hidden
+                    />
+                    <span className="flex-1 text-zinc-200">
+                      {p.a} <span className="text-zinc-500">↔</span> {p.b}
+                    </span>
+                    <span className="shrink-0 text-[10px] text-zinc-400">{p.label}</span>
+                  </div>
+                ))}
+              </div>
+            </details>
+          )}
           <details>
             <summary className="cursor-pointer text-zinc-400 hover:text-zinc-200">Reasoning log</summary>
             <ul className="mt-2 space-y-0.5 font-mono text-[11px] text-zinc-500">
