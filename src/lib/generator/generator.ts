@@ -840,6 +840,12 @@ function generateOne(
   const mythicViability = computeMythicViability(
     finalEntries.filter((e) => e.board === "main"),
     options.archetype,
+    {
+      colors: options.colors,
+      format: options.format,
+      playEnvironment: options.playEnvironment,
+      liveWinRate: options.liveWinRate ?? null,
+    },
   );
   const tempoScore = computeTempoScore(
     finalEntries.filter((e) => e.board === "main"),

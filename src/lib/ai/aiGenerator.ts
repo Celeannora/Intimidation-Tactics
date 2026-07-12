@@ -714,15 +714,19 @@ function buildRefinementPrompt(prev: GenerateResult, targetMainboardSize: number
   const diagnostics: string[] = [];
   const mv = prev.mythicViability;
   if (mv) {
-    const { pillars, score } = mv;
-    if (pillars.consistency < 55)
-      diagnostics.push(`Consistency pillar is LOW (${pillars.consistency.toFixed(0)}/100) — fix curve shape and mana coverage.`);
-    if (pillars.redundancy < 50)
-      diagnostics.push(`Redundancy pillar is LOW (${pillars.redundancy.toFixed(0)}/100) — add more 4-of copies of key spells.`);
-    if (pillars.metaPositioning < 50)
-      diagnostics.push(`Meta-positioning pillar is LOW (${pillars.metaPositioning.toFixed(0)}/100) — the archetype role profile is mismatched; align threats/interaction to archetype.`);
-    if (score < 55)
-      diagnostics.push(`Overall mythic-viability score is ${score.toFixed(0)} — aim above 55 before this deck is tournament-relevant.`);
+    const s = mv.structural;
+    if (s.manaBase < 70)
+      diagnostics.push(`Mana base is UNDER-SOURCED (${s.manaBase}/100 Frank-Karsten coverage) — add/fix colour sources.`);
+    if (s.curve < 55)
+      diagnostics.push(`Curve is OFF (${s.curve}/100) — smooth the mana curve, cut top-end clumps.`);
+    if (s.fourOfDensity < 50)
+      diagnostics.push(`Four-of density is LOW (${s.fourOfDensity}/100) — add more 4-of copies of key spells.`);
+    if (s.synergyDensity < 50)
+      diagnostics.push(`Synergy depth is LOW (${s.synergyDensity}/100) — deepen role coverage / engine redundancy.`);
+    if (s.score < 65)
+      diagnostics.push(`Overall structural soundness is ${s.score}/100 — aim above 65 before this deck is well-built.`);
+    if (mv.competitive.matched)
+      diagnostics.push(`Real meta win rate for the matched archetype (${mv.competitive.sourceArchetype}) is ${mv.competitive.winRate?.toFixed(1)}%.`);
   }
   if (typeof prev.tempoScore === "number" && prev.tempoScore < 40)
     diagnostics.push(`Tempo score is LOW (${prev.tempoScore.toFixed(0)}/100) — add early interaction or cheaper threats.`);
@@ -769,8 +773,8 @@ export async function runRefinementLoop(
   for (let i = 0; i < maxIterations; i++) {
     const mv = current.mythicViability;
     const violations = current.synergyViolations ?? [];
-    // Early-exit: deck is good enough
-    if (mv && mv.score >= 55 && violations.length === 0) break;
+    // Early-exit: deck is structurally sound and has no synergy violations.
+    if (mv && mv.structural.score >= 65 && violations.length === 0) break;
 
     const prompt = buildRefinementPrompt(current, normalizedMainboardSize(options));
     try {
@@ -1018,7 +1022,12 @@ function buildResultFromAIResponse(
 
   // ── sonar.md metrics: compute per the offline pipeline pattern ───────────
   const mainEntries = entries.filter((e) => e.board === "main");
-  const mythicViability: MythicViabilityReport = computeMythicViability(mainEntries, options.archetype);
+  const mythicViability: MythicViabilityReport = computeMythicViability(mainEntries, options.archetype, {
+    colors: options.colors,
+    format: options.format,
+    playEnvironment: options.playEnvironment,
+    liveWinRate: options.liveWinRate ?? null,
+  });
   const tempoScore: number = computeTempoScore(mainEntries, options.archetype);
   const cardAdvantageScore: number = computeCardAdvantageScore(mainEntries);
   const synergyViolations: SynergyViolation[] = validateSynergyPairs(entries, options.archetype);
@@ -1030,10 +1039,15 @@ function buildResultFromAIResponse(
       )
     );
   }
+  const comp = mythicViability.competitive;
+  const compText = comp.matched
+    ? `competitive: ${comp.winRate?.toFixed(1)}% WR vs ${comp.sourceArchetype} (real data)`
+    : "competitive: no comparable market data";
   reasoning.push(
-    `Mythic viability: score=${mythicViability.score.toFixed(0)} (${mythicViability.label}) | ` +
-    `WR≈${(mythicViability.winRateEstimate * 100).toFixed(1)}% | ` +
-    `consistency=${mythicViability.pillars.consistency.toFixed(0)} redundancy=${mythicViability.pillars.redundancy.toFixed(0)} meta=${mythicViability.pillars.metaPositioning.toFixed(0)}`
+    `Structural soundness: ${mythicViability.structural.score.toFixed(0)}/100 ` +
+    `(mana ${mythicViability.structural.manaBase} curve ${mythicViability.structural.curve} ` +
+    `land ${mythicViability.structural.landRatio} 4-of ${mythicViability.structural.fourOfDensity} ` +
+    `synergy ${mythicViability.structural.synergyDensity}) | ${compText}`
   );
   reasoning.push(`Tempo score: ${tempoScore.toFixed(0)} | Card advantage score: ${cardAdvantageScore.toFixed(0)}`);
 
