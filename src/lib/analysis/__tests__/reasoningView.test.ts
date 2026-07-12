@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { CardScoreContribution } from "../../generator/types";
 import type { CardRecord } from "../../types";
 import type { SeedSynergyGraph, SynergyGraphEdge } from "../synergyGraph";
-import { buildCardBreakdown, buildCardBreakdowns, quickSynergyView, topSynergyPairs } from "../reasoningView";
+import { buildCardBreakdown, buildCardBreakdowns, cardSynergyTags, quickSynergyView, topSynergyPairs } from "../reasoningView";
 
 function makeScore(overrides: Partial<CardScoreContribution> & { oracleId: string; name: string }): CardScoreContribution {
   return {
@@ -231,5 +231,33 @@ describe("quickSynergyView", () => {
     expect(view.sharedAxes).toEqual([]);
     expect(view.feeds).toEqual([]);
     expect(view.fedBy).toEqual([]);
+  });
+});
+
+// ── Card synergy tags (empty-deck fallback) ──────────────────────────────────
+
+describe("cardSynergyTags", () => {
+  it("surfaces the source axes a token-maker produces", () => {
+    const tags = cardSynergyTags(
+      makeCard("Token Maker", "Create a 1/1 green Saproling creature token.", "Sorcery"),
+    );
+    expect(tags.sourceAxes).toContain("tokens");
+    expect(typeof tags.engineRole).toBe("string");
+    expect(tags.engineRole.length).toBeGreaterThan(0);
+  });
+
+  it("reports empty axes for a vanilla creature", () => {
+    const tags = cardSynergyTags(makeCard("Plain Bear", "", "Creature — Bear"));
+    expect(tags.sourceAxes).toEqual([]);
+    expect(tags.payoffAxes).toEqual([]);
+  });
+
+  it("does not depend on deck context (deck-independent read)", () => {
+    const card = makeCard("Token Lord", "Tokens you control get +1/+1.", "Enchantment");
+    // Same result regardless of any surrounding deck — this is a single-card fingerprint.
+    const a = cardSynergyTags(card);
+    const b = cardSynergyTags(card);
+    expect(a).toEqual(b);
+    expect(a.payoffAxes).toContain("tokens");
   });
 });

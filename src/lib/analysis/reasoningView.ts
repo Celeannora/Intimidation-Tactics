@@ -11,7 +11,7 @@
 import type { CardScoreContribution } from "../generator/types";
 import type { SeedSynergyGraph, SynergyEdgeKind, SynergyGraphEdge } from "./synergyGraph";
 import type { CardRecord } from "../types";
-import type { MechanicAxis } from "../generator/synergyModel";
+import type { EngineRole, MechanicAxis } from "../generator/synergyModel";
 import {
   buildSynergyProfile,
   computeSynergyScoreV2,
@@ -212,5 +212,30 @@ export function quickSynergyView(card: CardRecord, deckCards: CardRecord[]): Qui
     feeds: conn.feeds.slice(0, 3),
     fedBy: conn.fedBy.slice(0, 3),
     partnerCount: conn.partners,
+  };
+}
+
+/**
+ * A deck-independent read of a single card's own synergy fingerprint: the
+ * mechanic axes it produces (sources) and benefits from (payoffs), plus its
+ * coarse engine role. Powers the quick-synergy panel's empty-deck state, where
+ * there is no deck context to compare against but the card's intrinsic tags are
+ * still useful signal. Pure; reuses {@link buildSynergyProfile}.
+ */
+export interface CardSynergyTags {
+  /** Mechanic axes this card produces. */
+  sourceAxes: MechanicAxis[];
+  /** Mechanic axes this card rewards / scales with. */
+  payoffAxes: MechanicAxis[];
+  /** Coarse role classification (engine / enabler / payoff / support / interact). */
+  engineRole: EngineRole;
+}
+
+export function cardSynergyTags(card: CardRecord): CardSynergyTags {
+  const profile = buildSynergyProfile(card);
+  return {
+    sourceAxes: [...profile.sourceTags],
+    payoffAxes: [...profile.payoffTags],
+    engineRole: profile.engineRole,
   };
 }
