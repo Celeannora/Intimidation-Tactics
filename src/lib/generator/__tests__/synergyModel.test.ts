@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CardRecord } from "../../types";
-import { buildSynergyProfile, crossAxisCompositionBonus, inferPrimaryAxes, summarizeSynergyConnections, synergyDensityMultiplier } from "../synergyModel";
+import { buildSynergyProfile, crossAxisCompositionBonus, inferPrimaryAxes, keywordFocusToAxes, summarizeSynergyConnections, synergyDensityMultiplier } from "../synergyModel";
 
 function makeCard(name: string, oracleText: string, typeLine = "Creature — Test", quantity = 1): CardRecord[] {
   const card = {
@@ -129,5 +129,83 @@ describe("synergy connection scoring", () => {
 
     expect(crossAxisCompositionBonus(selfMill, recursionDeck)).toBeGreaterThanOrEqual(7);
     expect(crossAxisCompositionBonus(opponentMill, recursionDeck)).toBe(0);
+  });
+});
+
+// ── 13b regression: tagging accuracy on unusual/homebrew card text ────────────
+
+describe("keywordFocusToAxes — evasion/combat keywords give no misdirected axis", () => {
+  it("does not map Flying/Trample/Stompy/Evasion Tempo to unrelated synergy axes", () => {
+    expect(keywordFocusToAxes(["Flying"])).toEqual([]);
+    expect(keywordFocusToAxes(["Trample"])).toEqual([]);
+    expect(keywordFocusToAxes(["Stompy"])).toEqual([]);
+    expect(keywordFocusToAxes(["Evasion Tempo"])).toEqual([]);
+    // Specifically: Flying must not pull spellslinger, Trample must not pull counters.
+    expect(keywordFocusToAxes(["Flying", "Trample"])).not.toContain("spellslinger");
+    expect(keywordFocusToAxes(["Flying", "Trample"])).not.toContain("counters");
+  });
+
+  it("still maps genuine synergy focuses", () => {
+    expect(keywordFocusToAxes(["Lifegain"])).toEqual(["lifegain"]);
+    expect(keywordFocusToAxes(["+1/+1 Counters"])).toEqual(["counters"]);
+    expect(keywordFocusToAxes(["Reanimator"])).toEqual(["reanimator", "graveyard", "selfMill"]);
+  });
+});
+
+describe("etb SOURCE tag — only genuine self-ETB blink targets", () => {
+  it("tags a homebrew creature with its own enters-the-battlefield ability", () => {
+    const p = buildSynergyProfile(
+      makeCard("Homebrew Wisp", "When Homebrew Wisp enters the battlefield, draw a card.")[0],
+    );
+    expect(p.sourceTags.has("etb")).toBe(true);
+  });
+
+  it("does not tag an ETB that triggers off an opponent's permanent entering", () => {
+    const p = buildSynergyProfile(
+      makeCard("Suspicious Watcher", "When a creature enters the battlefield under an opponent's control, you draw a card.", "Enchantment")[0],
+    );
+    expect(p.sourceTags.has("etb")).toBe(false);
+  });
+
+  it("does not tag a non-battlefield 'enters' trigger", () => {
+    const p = buildSynergyProfile(
+      makeCard("Graveyard Ghoul", "When Graveyard Ghoul enters your graveyard, you gain 2 life.")[0],
+    );
+    expect(p.sourceTags.has("etb")).toBe(false);
+  });
+});
+
+describe("mill vs selfMill disambiguation on dual-direction homebrew text", () => {
+  it("keeps BOTH tags when a card mills the opponent and yourself", () => {
+    const p = buildSynergyProfile(
+      makeCard("Twin Grind", "Target opponent mills three cards, then you mill two cards.", "Sorcery")[0],
+    );
+    expect(p.sourceTags.has("mill")).toBe(true);
+    expect(p.sourceTags.has("selfMill")).toBe(true);
+  });
+
+  it("tags a bare self-mill as selfMill only", () => {
+    const p = buildSynergyProfile(makeCard("Deep Delve", "You mill four cards.", "Sorcery")[0]);
+    expect(p.sourceTags.has("selfMill")).toBe(true);
+    expect(p.sourceTags.has("mill")).toBe(false);
+  });
+});
+
+describe("crossAxisCompositionBonus — newly credited compositions", () => {
+  it("credits burn alongside spellslinger", () => {
+    const candidate = buildSynergyProfile(
+      makeCard("Homebrew Bolt", "This spell deals 3 damage to any target.", "Instant")[0],
+    );
+    const deck = makeCard("Prowess Mage", "Whenever you cast an instant or a sorcery, this creature gets +1/+1.", "Creature — Wizard", 4)
+      .map(buildSynergyProfile);
+    expect(crossAxisCompositionBonus(candidate, deck)).toBeGreaterThanOrEqual(6);
+  });
+
+  it("credits graveyard fill alongside reanimation", () => {
+    const candidate = buildSynergyProfile(
+      makeCard("Corpse Digger", "Return target creature card from your graveyard to the battlefield.", "Sorcery")[0],
+    );
+    const deck = makeCard("Yard Filler", "Flashback {2}{B}.", "Sorcery", 4).map(buildSynergyProfile);
+    expect(crossAxisCompositionBonus(candidate, deck)).toBeGreaterThanOrEqual(6);
   });
 });
