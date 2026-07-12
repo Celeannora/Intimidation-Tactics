@@ -2,7 +2,7 @@ import type { Archetype } from "../archetype";
 import type { ThemeId } from "../archetypeVocab";
 import type { ManaColor, CardRecord } from "../types";
 import type { DeckEntry } from "../legality";
-import type { MechanicAxis } from "./synergyModel";
+import type { MechanicAxis, AxisConfidence } from "./synergyModel";
 import type { ConstructedFormat, PlayEnvironment } from "../formats";
 import type { LiveWinRateDataset } from "../meta/liveWinRate";
 import type { SeedSynergyGraph } from "../analysis/synergyGraph";
@@ -185,6 +185,12 @@ export interface GenerationDiagnostic {
   optimizerSteps: number;
   /** Mechanical axes used for directional source/payoff scoring. */
   primaryAxes: MechanicAxis[];
+  /**
+   * Per-axis confidence/coverage for the assembled deck's nonland cards,
+   * strongest first. Lets consumers distinguish a dominant axis from a marginal
+   * one rather than treating every entry in {@link primaryAxes} as equal.
+   */
+  axisConfidence?: AxisConfidence[];
 }
 
 export interface CardScoreContribution {

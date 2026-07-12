@@ -21,6 +21,7 @@ import {
   generateTribalReasons,
   generateCardReasons,
   inferPrimaryAxes,
+  inferPrimaryAxesDetailed,
   keywordFocusToAxes,
   type MechanicAxis,
 } from "./synergyModel";
@@ -868,6 +869,17 @@ function generateOne(
     );
   }
 
+  // Per-axis confidence over the assembled deck's nonland cards — surfaces how
+  // dominant vs. marginal each detected axis actually is, rather than a flat list.
+  const axisConfidence = inferPrimaryAxesDetailed(finalMainProfiles);
+  if (axisConfidence.length > 0) {
+    reasoning.push(
+      `Axis confidence: ${axisConfidence
+        .map((a) => `${a.axis} ${Math.round(a.confidence * 100)}% (${a.coverage} card${a.coverage === 1 ? "" : "s"})`)
+        .join(", ")}`,
+    );
+  }
+
   const diagnostics: GenerationDiagnostic = {
     reasoning,
     deckScore: finalScore.total,
@@ -876,6 +888,7 @@ function generateOne(
     manaBaseCoverage: finalScore.manaBaseCoverage,
     optimizerSteps: optResult.steps,
     primaryAxes: deckAxes,
+    axisConfidence,
   };
 
   return {

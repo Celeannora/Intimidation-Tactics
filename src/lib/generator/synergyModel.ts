@@ -94,8 +94,12 @@ const SOURCE_PATTERNS: Record<MechanicAxis, RegExp[]> = {
     /gain life equal/i,
     /create a food token/i,
     /sacrifice.*food.*gain/i,
-    // Gap 2 fix: "you gain twice that much life" / replacement lifegain amplifiers (The Wind Crystal)
-    /you gain (?:twice|double|that much|x) (?:that much |more )?life/i,
+    // Gap 2 fix: "you gain twice that much life" / replacement lifegain amplifiers (The Wind Crystal).
+    // Requires an amplifier word (twice/double/x); a bare "you gain that much life"
+    // is NOT a source — it is the *effect* of a preceding trigger (drain payoffs
+    // like Bloodthirsty Conqueror's "whenever an opponent loses life, you gain that
+    // much life"), handled on the payoff side.
+    /you gain (?:twice|double|x) (?:that much |more )?life/i,
     /if you would gain life.{0,40}instead/i,
   ],
   tokens: [
@@ -246,6 +250,13 @@ const PAYOFF_PATTERNS: Record<MechanicAxis, RegExp[]> = {
     /(?:where|equal to) .{0,20}(?:amount|number) .{0,10}life you (?:gained|gain)/i,
     // Gap 1 fix: "5 or more life this turn" (Resplendent Angel)
     /(?:\d+ or more) life this turn/i,
+    // Drain payoffs: lifegain triggered by an opponent losing life (Bloodthirsty
+    // Conqueror), and "opponent loses N life AND you gain N life" drain clauses —
+    // including death-triggered aristocrat drains (Vengeful Bloodwitch, Zulaport
+    // Cutthroat). Functionally identical to gain-then-drain, so they register on
+    // the lifegain axis as payoffs rather than being lost to the sacrifice bucket.
+    /whenever an opponent loses life/i,
+    /opponents?\s+loses?\s+\d+\s+life[^.]{0,25}you gain \d+ life/i,
   ],
   tokens: [
     /whenever (?:a |another |you create a? )token/i,
@@ -574,10 +585,28 @@ function classifyEngineRole(
 // ── Deck axis inference ───────────────────────────────────────────────────────
 
 /**
- * Infer the primary mechanical axes from a collection of profiles.
- * Returns axes sorted by coverage descending (> threshold).
+ * Per-axis confidence for a detected primary axis. `confidence` is normalized to
+ * the strongest qualifying axis (top axis = 1), so downstream consumers (UI,
+ * synergy graph, reasoning) can distinguish a dominant axis from a marginal one
+ * rather than treating every entry in a bare `MechanicAxis[]` as equally central.
  */
-export function inferPrimaryAxes(profiles: CardSynergyProfile[]): MechanicAxis[] {
+export interface AxisConfidence {
+  axis: MechanicAxis;
+  /** 0–1, relative to the top axis's raw score (dominant axis = 1). */
+  confidence: number;
+  /** Number of profiles that source or pay off this axis. */
+  coverage: number;
+}
+
+/**
+ * Infer the primary mechanical axes from a collection of profiles, keeping the
+ * per-axis coverage/score the ranking is based on. Axes are returned strongest
+ * first (score desc, coverage tiebreak), capped at the top 5.
+ *
+ * This is the rich accessor; {@link inferPrimaryAxes} wraps it for the many call
+ * sites that only need the bare axis identities.
+ */
+export function inferPrimaryAxesDetailed(profiles: CardSynergyProfile[]): AxisConfidence[] {
   const axisCounts = new Map<MechanicAxis, { sources: number; payoffs: number; engines: number }>();
   for (const p of profiles) {
     for (const a of p.sourceTags) {
@@ -598,7 +627,7 @@ export function inferPrimaryAxes(profiles: CardSynergyProfile[]): MechanicAxis[]
   // Calibrated for full 60-card decks (~30 nonlands). For small seed pools the bar
   // drops proportionally so 5-card intent sets produce meaningful axis signals.
   const MIN_COVERAGE = total <= 4 ? 1 : total <= 8 ? 2 : Math.max(3, Math.ceil(total * 0.12));
-  return [...axisCounts.entries()]
+  const qualifying = [...axisCounts.entries()]
     .map(([axis, counts]) => ({
       axis,
       coverage: counts.sources + counts.payoffs,
@@ -612,8 +641,23 @@ export function inferPrimaryAxes(profiles: CardSynergyProfile[]): MechanicAxis[]
     .sort((a, b) => b.score - a.score || b.coverage - a.coverage)
     // Up to 5 primary axes (raised from 3) so multi-axis decks aren't truncated;
     // downstream consumers (generateCardReasons, axisScore) handle arbitrary counts.
-    .slice(0, 5)
-    .map((entry) => entry.axis);
+    .slice(0, 5);
+  const topScore = qualifying[0]?.score ?? 0;
+  return qualifying.map((entry) => ({
+    axis: entry.axis,
+    coverage: entry.coverage,
+    // Normalize to the dominant axis; guard against a 0 top score (no signal).
+    confidence: topScore > 0 ? Math.round((entry.score / topScore) * 1000) / 1000 : 0,
+  }));
+}
+
+/**
+ * Infer the primary mechanical axes as a bare list, strongest first. Thin
+ * accessor over {@link inferPrimaryAxesDetailed} for callers that only need the
+ * axis identity and not its confidence/coverage.
+ */
+export function inferPrimaryAxes(profiles: CardSynergyProfile[]): MechanicAxis[] {
+  return inferPrimaryAxesDetailed(profiles).map((entry) => entry.axis);
 }
 
 // ── Axis score for card selection ─────────────────────────────────────────────
