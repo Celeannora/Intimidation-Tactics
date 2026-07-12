@@ -4,6 +4,7 @@ import type { ManaColor, CardRecord } from "../types";
 import type { DeckEntry } from "../legality";
 import type { MechanicAxis } from "./synergyModel";
 import type { ConstructedFormat, PlayEnvironment } from "../formats";
+import type { LiveWinRateDataset } from "../meta/liveWinRate";
 
 export type GenerationEngine = "offline" | "ai";
 export type SpeedProfile = "fast" | "midrange" | "slow";
@@ -156,6 +157,15 @@ export interface GenerateOptions {
    * Set to 0 / undefined to disable (default one-shot behaviour).
    */
   aiSequentialStepSize?: number | number[];
+
+  /**
+   * Pre-fetched live per-archetype win-rate dataset for the target format,
+   * used by Track 2 competitive-strength scoring. The main thread fetches this
+   * (cache-first, see meta/liveWinRate) and threads it in so generateDecks()
+   * stays pure/worker-safe. When absent, competitive strength reports
+   * "data not loaded" rather than synthesizing a number.
+   */
+  liveWinRate?: LiveWinRateDataset | null;
 }
 
 
@@ -219,33 +229,73 @@ export interface ScoreBreakdown {
   };
 }
 
-// ── Mythic-viability report ────────────────────────────────────────────────
+// ── Viability report (two explicit tracks) ─────────────────────────────────
 
-/** The three structural pillars from sonar.md's mythic-viability research. */
-export interface MythicViabilityPillars {
-  /** 0–100: Karsten mana satisfaction + curve smoothness. */
-  consistency: number;
-  /** 0–100: Rule-of-9 four-of density for key threat/engine slots. */
-  redundancy: number;
-  /** 0–100: Threat/interaction ratio vs archetype-ideal benchmark. */
-  metaPositioning: number;
+/**
+ * Track 1 — Structural soundness. Measurable from the decklist alone, with no
+ * external data: mana-base coverage (Frank Karsten), curve shape, land ratio,
+ * four-of density, and synergy/axis density. This is an honest quality signal
+ * for the deck's construction, NOT a win-rate prediction.
+ */
+export interface StructuralSoundness {
+  /** 0–100 aggregate structural score (weighted blend of the sub-scores). */
+  score: number;
+  /** 0–100 Frank-Karsten colour-source coverage. */
+  manaBase: number;
+  /** 0–100 curve-shape fit. */
+  curve: number;
+  /** 0–100 land-ratio fit. */
+  landRatio: number;
+  /** 0–100 four-of density (fourOfCount × 12.5, capped at 8 four-ofs). */
+  fourOfDensity: number;
+  /** 0–100 synergy / engine-role depth. */
+  synergyDensity: number;
+  /** Human-readable diagnostics for each structural sub-score. */
+  notes: string[];
+}
+
+/** Why a competitive-strength signal is unavailable. */
+export type CompetitiveUnavailableReason =
+  | "no-market-data"     // deck did not match any tracked archetype
+  | "data-not-loaded"    // no live dataset was supplied to the scorer
+  | "format-unsupported"; // no live win-rate source exists for this format
+
+/**
+ * Track 2 — Competitive strength, grounded ONLY in real per-archetype win-rate
+ * data. `matched` is true only when the deck matched a tracked archetype with
+ * enough confidence; in that case `winRate` is a real measured number. When
+ * unmatched (expected for most AI-generated/homebrew decks) NO percentage is
+ * synthesized — `reason` explains the absence and the UI shows "no market data".
+ */
+export interface CompetitiveStrength {
+  matched: boolean;
+  /** Real win rate as a percentage in [0, 100] (only when matched). */
+  winRate?: number;
+  /** 95% confidence interval [low, high] as percentages (when available). */
+  confidenceInterval?: [number, number];
+  /** Sample size (games) backing the win rate. */
+  sampleSize?: number;
+  /** Display name of the matched tracked archetype. */
+  sourceArchetype?: string;
+  /** Fuzzy-match confidence 0–1 (only when matched). */
+  matchConfidence?: number;
+  /** Epoch ms the underlying live data was last refreshed. */
+  lastUpdated?: number;
+  /** Provenance host of the win-rate data. */
+  source?: string;
+  /** Explanation when `matched` is false. */
+  reason?: CompetitiveUnavailableReason;
 }
 
 /**
- * Composite mythic-viability assessment attached to every GenerateResult.
- * Derived from the sonar.md 55–61% win-rate research: score ≥55 maps to the
- * mythic-viable band, ≥75 maps to a tier-1 projection.
+ * Two-track viability assessment attached to every GenerateResult. Replaces the
+ * old single blended "mythic viability %" (which mixed legitimate structural
+ * math with an unvalidated static meta table). The two tracks are reported
+ * distinctly so structural soundness is never confused with a win-rate claim.
  */
 export interface MythicViabilityReport {
-  /** 0–100 composite score (average of the three pillars). */
-  score: number;
-  /** Estimated win-rate proxy: 0.45 + (score / 100) × 0.2, clamped to [0.45, 0.65]. */
-  winRateEstimate: number;
-  pillars: MythicViabilityPillars;
-  /** Human-readable tier label derived from score. */
-  label: "not-viable" | "fringe" | "mythic-viable" | "tier-1";
-  /** Diagnostic messages explaining each pillar's assessment. */
-  notes: string[];
+  structural: StructuralSoundness;
+  competitive: CompetitiveStrength;
 }
 
 /**

@@ -394,21 +394,19 @@ describe("Metric gate: sonar.md metrics present and in-range on generated decks"
       };
       const result = generateDeck(opts, POOL);
 
-      // mythicViability must be present with all pillars in [0, 100]
+      // mythicViability must be present with structural sub-scores in [0, 100]
       expect(result.mythicViability).toBeDefined();
       const mv = result.mythicViability!;
-      expect(mv.score).toBeGreaterThanOrEqual(0);
-      expect(mv.score).toBeLessThanOrEqual(100);
-      expect(mv.pillars.consistency).toBeGreaterThanOrEqual(0);
-      expect(mv.pillars.consistency).toBeLessThanOrEqual(100);
-      expect(mv.pillars.redundancy).toBeGreaterThanOrEqual(0);
-      expect(mv.pillars.redundancy).toBeLessThanOrEqual(100);
-      expect(mv.pillars.metaPositioning).toBeGreaterThanOrEqual(0);
-      expect(mv.pillars.metaPositioning).toBeLessThanOrEqual(100);
-      expect(mv.winRateEstimate).toBeGreaterThanOrEqual(0);
-      expect(mv.winRateEstimate).toBeLessThanOrEqual(1);
-      expect(typeof mv.label).toBe("string");
-      expect(mv.label.length).toBeGreaterThan(0);
+      const s = mv.structural;
+      expect(s.score).toBeGreaterThanOrEqual(0);
+      expect(s.score).toBeLessThanOrEqual(100);
+      for (const sub of [s.manaBase, s.curve, s.landRatio, s.fourOfDensity, s.synergyDensity]) {
+        expect(sub).toBeGreaterThanOrEqual(0);
+        expect(sub).toBeLessThanOrEqual(100);
+      }
+      // Competitive track: no live dataset supplied in tests → honest unmatched state.
+      expect(mv.competitive.matched).toBe(false);
+      expect(typeof mv.competitive.reason).toBe("string");
 
       // tempoScore in [0, 100]
       expect(result.tempoScore).toBeDefined();
@@ -427,18 +425,18 @@ describe("Metric gate: sonar.md metrics present and in-range on generated decks"
       expect(countEntries(mainOf(result.entries))).toBe(60);
 
       // no NaN in any numeric metric
-      expect(Number.isFinite(mv.score)).toBe(true);
+      expect(Number.isFinite(mv.structural.score)).toBe(true);
       expect(Number.isFinite(result.tempoScore!)).toBe(true);
       expect(Number.isFinite(result.cardAdvantageScore!)).toBe(true);
     }, 30000);
   }
 
-  it("Generated deck with lifegain seeds → mythicViability.score >= 25 (fringe threshold)", () => {
+  it("Generated deck with lifegain seeds → structural.score >= 25", () => {
     const lifegainSeeds = poolByOracle("you gain.*life|lifelink", 4);
     if (lifegainSeeds.length < 2) return;
     const result = generateFromSeeds(lifegainSeeds, "Midrange", ["W", "G"]);
     expect(result.mythicViability).toBeDefined();
-    expect(result.mythicViability!.score).toBeGreaterThanOrEqual(25);
+    expect(result.mythicViability!.structural.score).toBeGreaterThanOrEqual(25);
   }, 30000);
 
   it("Generated deck with sacrifice seeds → synergyViolations is an array", () => {

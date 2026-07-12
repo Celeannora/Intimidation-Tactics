@@ -1,5 +1,6 @@
 import Dexie, { Table } from "dexie";
 import type { CardRecord } from "./types";
+import type { LiveWinRateDataset } from "./meta/liveWinRate";
 
 export interface ImportMeta {
   key: string;
@@ -32,11 +33,22 @@ export interface MatchResult {
   playedAt: number;    // Date.now()
 }
 
+/**
+ * Cached live per-archetype win-rate dataset (Track 2 competitive-strength data).
+ * Keyed by `${format}:${environment}` so ladder/tournament variants coexist.
+ */
+export interface LiveWinRateCacheRow {
+  key: string;
+  dataset: LiveWinRateDataset;
+  cachedAt: number;    // Date.now() when this row was written
+}
+
 export class MTGDeckBuilderDB extends Dexie {
-  cards!:        Table<CardRecord,   string>;
-  meta!:         Table<ImportMeta,   string>;
-  savedDecks!:   Table<SavedDeck,    string>;
-  matchResults!: Table<MatchResult,  number>;
+  cards!:        Table<CardRecord,        string>;
+  meta!:         Table<ImportMeta,        string>;
+  savedDecks!:   Table<SavedDeck,         string>;
+  matchResults!: Table<MatchResult,       number>;
+  liveWinRate!:  Table<LiveWinRateCacheRow, string>;
 
   constructor() {
     super("mtgDeckBuilderDB");
@@ -109,6 +121,31 @@ export class MTGDeckBuilderDB extends Dexie {
       meta:         "key",
       savedDecks:   "id, updatedAt",
       matchResults: "++id, deckId, playedAt",
+    });
+
+    this.version(4).stores({
+      cards: `
+        id,
+        oracleId,
+        name,
+        cmc,
+        legalityStandard,
+        legalityFuture,
+        bannedInStandard,
+        setCode,
+        setName,
+        rarity,
+        imageNormal,
+        importedAt,
+        *keywordsJson,
+        *colorsJson,
+        *colorIdentityJson,
+        typeLine
+      `,
+      meta:         "key",
+      savedDecks:   "id, updatedAt",
+      matchResults: "++id, deckId, playedAt",
+      liveWinRate:  "key, cachedAt",
     });
   }
 }

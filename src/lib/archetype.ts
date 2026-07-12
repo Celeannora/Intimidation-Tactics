@@ -269,9 +269,12 @@ const SCORED_MACROS: Archetype[] = ["Aggro", "Midrange", "Control", "Tempo", "Co
  * homebrew with almost no real threat base — can still score 3–4 on a macro it
  * does not actually play (its points coming from land ratio + one incidental
  * role). Classifying such decks confidently propagates into
- * {@link ./mythicViability.computeMetaPositioningPillar}, whose per-macro base
- * viability lookup is optimistic (Midrange 80, Aggro 75). Below this floor we
- * return `Unknown`, which that pillar treats conservatively. Genuine archetype
+ * {@link ./mythicViability.resolveCompetitiveStrength}, which fuzzy-matches the
+ * macro against real per-archetype win-rate data — so an over-confident macro
+ * would let a structurally incoherent pile borrow a tracked archetype's live
+ * win rate it has not earned. Below this floor we return `Unknown`, which
+ * matches no tracked archetype: the competitive track reports "no market data"
+ * and the deck is left with a structural-only assessment. Genuine archetype
  * decks match several role targets and clear the floor comfortably.
  */
 const MIN_MACRO_FITNESS = 5;

@@ -25,6 +25,7 @@ import { AISettingsDrawer } from "./AISettingsDrawer";
 import { MythicViabilityPanel } from "./MythicViabilityPanel";
 import { CONSTRUCTED_FORMATS, getFormatRules, type ConstructedFormat, type PlayEnvironment } from "../lib/formats";
 import { generateDeckName } from "../lib/deckExporter";
+import { getLiveWinRateData } from "../lib/meta/liveWinRate";
 
 const ARCHETYPES: Archetype[] = [
   "Aggro", "Midrange", "Control", "Tempo", "Combo", "Ramp", "Prison",
@@ -468,10 +469,14 @@ export function GeneratorPanel() {
         : "";
 
       const currentDeck = buildCurrentDeckEntries();
+      // Track 2: fetch real per-archetype win-rate data (cache-first, ~24h TTL)
+      // on the main thread so the pure generator/worker just receives it as data.
+      const liveWinRate = await getLiveWinRateData(format, playEnvironment).catch(() => null);
       const opts: GenerateOptions = {
         engine,
         format,
         playEnvironment,
+        liveWinRate,
         archetype: effectiveArchetype,
         themes: effectiveThemes,
         colors: effectiveColors,
@@ -1323,40 +1328,7 @@ export function GeneratorPanel() {
 
       {active && (
         <div className="rounded-lg border border-zinc-800 bg-zinc-900/50 p-3 text-xs">
-          {/* ── Mythic-viability badge ───────────────────────────────── */}
-          {active.mythicViability && (
-            <div className="mb-3 flex flex-wrap items-center gap-2">
-              <span className={[
-                "rounded-full px-3 py-0.5 text-xs font-bold uppercase tracking-wide",
-                active.mythicViability.label === "tier-1"        ? "bg-yellow-500 text-black" :
-                active.mythicViability.label === "mythic-viable" ? "bg-purple-600 text-white" :
-                active.mythicViability.label === "fringe"        ? "bg-blue-600 text-white" :
-                                                                   "bg-zinc-700 text-zinc-300",
-              ].join(" ")}>
-                {active.mythicViability.label === "tier-1"        ? "🏆 Tier 1" :
-                 active.mythicViability.label === "mythic-viable" ? "💎 Mythic Viable" :
-                 active.mythicViability.label === "fringe"        ? "⚡ Fringe" :
-                                                                    "🔧 Not Viable"}
-              </span>
-              <span className="text-xs text-zinc-400">
-                Viability: <strong className="text-zinc-200">{active.mythicViability.score}/100</strong>
-                <span className="ml-1 text-zinc-500">
-                  (~{active.mythicViability.winRateEstimate.toFixed(1)}% WR)
-                </span>
-              </span>
-              {active.tempoScore !== undefined && (
-                <span className="text-xs text-zinc-400">
-                  Tempo: <strong className="text-sky-300">{active.tempoScore}</strong>
-                </span>
-              )}
-              {active.cardAdvantageScore !== undefined && (
-                <span className="text-xs text-zinc-400">
-                  Card Adv: <strong className="text-emerald-300">{active.cardAdvantageScore}</strong>
-                </span>
-              )}
-            </div>
-          )}
-          {/* ── Mythic Viability detailed panel ─────────────────────── */}
+          {/* ── Viability: structural + competitive tracks ──────────── */}
           {active.mythicViability && (
             <div className="mb-3">
               <MythicViabilityPanel

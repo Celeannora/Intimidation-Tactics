@@ -1,110 +1,88 @@
 /**
- * mythicViability.ts — Mythic viable win-rate estimation
+ * mythicViability.ts — Two-track deck viability assessment.
  *
- * Implements sonar.md Part 1 — MMR Math & Win-Rate Targets.
+ * This module deliberately does NOT emit a single blended "mythic viability %".
+ * That old design mixed legitimate structural math with a static, never-
+ * validated meta table and presented the result as a win-rate prediction —
+ * which made AI/homebrew decks look as strong as netdecks even though they lose
+ * in real play. Instead we report two explicit, honestly-labelled tracks:
  *
- * Three pillars produce a 0-100 composite score that maps onto a
- * win-rate proxy. A mythic-viable deck targets ≥ 55% win rate
- * (composite score ≥ 55).
+ *   Track 1 — Structural soundness: measurable from the decklist alone
+ *     (Frank-Karsten mana coverage, curve, land ratio, four-of density,
+ *     synergy/engine depth). A construction-quality signal, not a win rate.
  *
- * Pillar weights:
- *   consistency     (45%) — mana reliability + castability + hand keepability
- *   redundancy      (30%) — engine depth, 4-of density, role backup
- *   metaPositioning (25%) — archetype meta viability + role-profile fit
+ *   Track 2 — Competitive strength: grounded ONLY in real per-archetype
+ *     win-rate data (see ./meta/liveWinRate + ./meta/archetypeMatch). If the
+ *     deck matches a tracked archetype we surface the real win rate + interval;
+ *     if not, we report "no comparable market data" rather than inventing a
+ *     number.
  */
 
 import type { DeckEntry } from "./legality";
 import type { Archetype } from "./archetype";
-import { ARCHETYPE_BENCHMARKS, getRoleComposition } from "./archetype";
+import type { ManaColor } from "./types";
+import type { ConstructedFormat, PlayEnvironment } from "./formats";
+import type {
+  MythicViabilityReport,
+  StructuralSoundness,
+  CompetitiveStrength,
+} from "./generator/types";
+import { manaBaseCoverage } from "./generator/weights";
 import { assignRoles, isThreat } from "./roles";
-import type { MythicViabilityReport, MythicViabilityPillars } from "./generator/types";
+import { matchArchetype } from "./meta/archetypeMatch";
+import { isFormatSupported, type LiveWinRateDataset } from "./meta/liveWinRate";
 
-// ── Win-rate proxy ────────────────────────────────────────────────────────────
+// ── Track 1 sub-scores ─────────────────────────────────────────────────────
 
-/**
- * Maps composite score (0-100) to an estimated Bo1 win-rate percentage.
- * Calibrated so score≥55 → ~55%+ WR, score 70+ → ~59%+ WR.
- */
-export function winRateProxy(score: number): number {
-  // Linear interpolation: 0→0.42, 50→0.50, 100→0.62
-  const base = 0.42;
-  const slope = 0.002; // 0.2% WR per composite point
-  return Math.round((base + score * slope) * 1000) / 10; // returns percentage e.g. 55.4
-}
-
-export function mythicViabilityLabel(score: number): MythicViabilityReport["label"] {
-  if (score >= 70) return "tier-1";
-  if (score >= 55) return "mythic-viable";
-  if (score >= 35) return "fringe";
-  return "not-viable";
-}
-
-// ── Pillar 1: Consistency ─────────────────────────────────────────────────────
-
-/**
- * Consistency pillar (0-100).
- * Combines land count reliability, curve shape, and castability signals.
- *
- * Inputs drawn from the live deck entries (no async dependency).
- */
-export function computeConsistencyPillar(entries: DeckEntry[]): number {
+/** 0–100 land-ratio fit (target ~36–45% lands in a 60-card deck). */
+export function landRatioScore(entries: DeckEntry[]): number {
   const deckSize = entries.reduce((s, e) => s + e.quantity, 0);
   if (deckSize === 0) return 0;
-
   const landCount = entries
     .filter((e) => e.card.typeLine.includes("Land"))
     .reduce((s, e) => s + e.quantity, 0);
+  const ratio = landCount / deckSize;
+  if (ratio >= 0.36 && ratio <= 0.45) return 100;
+  if (ratio >= 0.30 && ratio <= 0.50) return 70;
+  return 40;
+}
+
+/** 0–100 curve-shape fit based on average nonland MV. */
+export function curveScore(entries: DeckEntry[]): number {
   const nonlands = entries.filter((e) => !e.card.typeLine.includes("Land"));
   const nonlandQty = nonlands.reduce((s, e) => s + e.quantity, 0);
+  if (nonlandQty === 0) return 0;
+  const avgCmc = nonlands.reduce((s, e) => s + e.card.cmc * e.quantity, 0) / nonlandQty;
+  if (avgCmc >= 1.5 && avgCmc <= 3.5) return 100;
+  if (avgCmc > 3.5 && avgCmc <= 4.5) return Math.max(30, 100 - (avgCmc - 3.5) * 40);
+  if (avgCmc < 1.5) return 80;
+  return 20;
+}
 
-  // 1a. Land ratio score (target 22-26 in 60-card deck → 36-43%)
-  const landRatio = deckSize > 0 ? landCount / deckSize : 0;
-  const landScore = landRatio >= 0.36 && landRatio <= 0.45
-    ? 100
-    : landRatio >= 0.30 && landRatio <= 0.50
-      ? 70
-      : 40;
-
-  // 1b. Curve score — penalize uncastable clumps at top-end
-  const avgCmc = nonlandQty > 0
-    ? nonlands.reduce((s, e) => s + e.card.cmc * e.quantity, 0) / nonlandQty
-    : 0;
-
-  // Good curve: avg MV 2.0-3.5 for most archetypes
-  const curveScore = avgCmc >= 1.5 && avgCmc <= 3.5
-    ? 100
-    : avgCmc > 3.5 && avgCmc <= 4.5
-      ? Math.max(30, 100 - (avgCmc - 3.5) * 40)
-      : avgCmc < 1.5
-        ? 80
-        : 20;
-
-  // 1c. 4-of density score — consistent decks play 4 copies of key cards
+/**
+ * 0–100 four-of density. Fixed per issue #5 / old Priority 7c: score is
+ * `fourOfCount × 12.5`, capped at 8 four-ofs (=100). The previous
+ * `fourOfCount × 20` capped at 5 saturated far too early, giving thin decks
+ * full marks for four four-ofs.
+ */
+export function fourOfDensityScore(entries: DeckEntry[]): number {
   const fourOfCount = entries.filter(
     (e) => !e.card.typeLine.includes("Land") && e.quantity >= 4,
   ).length;
-  const densityScore = Math.min(100, fourOfCount * 20); // cap at 5 four-ofs = 100
-
-  const raw = landScore * 0.4 + curveScore * 0.35 + densityScore * 0.25;
-  return Math.round(Math.min(100, Math.max(0, raw)));
+  return Math.min(100, fourOfCount * 12.5);
 }
 
-// ── Pillar 2: Redundancy ──────────────────────────────────────────────────────
-
 /**
- * Redundancy pillar (0-100).
- * Measures engine depth: how many role slots have ≥3 card backup.
- * Implements sonar.md Part 2 "Rule of 9" / Universal Construction Mathematics.
+ * 0–100 synergy / engine-role depth: how many core role slots have ≥3-card
+ * backup, plus a bonus for deeply-redundant roles (≥6 copies).
  */
-export function computeRedundancyPillar(entries: DeckEntry[]): number {
+export function synergyDensityScore(entries: DeckEntry[]): number {
   if (entries.length === 0) return 0;
 
-  // Count total copies across each role category
   const roleTotals: Record<string, number> = {
     threats: 0, removal: 0, boardWipes: 0,
     counterspells: 0, cardDraw: 0, ramp: 0,
   };
-
   for (const entry of entries) {
     if (entry.card.typeLine.includes("Land")) continue;
     const roles = assignRoles(entry.card);
@@ -116,102 +94,142 @@ export function computeRedundancyPillar(entries: DeckEntry[]): number {
     if (roles.includes("Ramp")) roleTotals["ramp"] += entry.quantity;
   }
 
-  // Penalize empty roles (that should be present in a generic deck)
   const coreRoles = ["threats", "removal", "cardDraw"];
   let filledCoreRoles = 0;
-  for (const role of coreRoles) {
-    if ((roleTotals[role] ?? 0) >= 3) filledCoreRoles++;
-  }
+  for (const role of coreRoles) if ((roleTotals[role] ?? 0) >= 3) filledCoreRoles++;
   const coreCoverage = (filledCoreRoles / coreRoles.length) * 60;
 
-  // Bonus for over-redundant roles (≥6 copies = deep coverage)
-  const allRoles = Object.values(roleTotals);
-  const deepCoverage = allRoles.filter((c) => c >= 6).length;
+  const deepCoverage = Object.values(roleTotals).filter((c) => c >= 6).length;
   const depthBonus = Math.min(40, deepCoverage * 10);
 
   return Math.round(Math.min(100, coreCoverage + depthBonus));
 }
 
-// ── Pillar 3: Meta positioning ────────────────────────────────────────────────
-
-const ARCHETYPE_META_VIABILITY: Record<Archetype, number> = {
-  // Rough Standard Bo1 meta viability scores based on sonar.md benchmarks
-  Midrange: 80,
-  Aggro:    75,
-  Tempo:    70,
-  Control:  65,
-  Combo:    60,
-  Ramp:     55,
-  Prison:   45,
-  Unknown:  40,
-};
-
 /**
- * Meta-positioning pillar (0-100).
- * Combines: archetype base meta viability + role-profile fit vs archetype benchmark.
+ * Compute Track 1 — structural soundness — from the decklist alone.
+ * Weighted blend of the five sub-scores (weights sum to 1.0):
+ *   manaBase 0.25, synergyDensity 0.25, curve 0.20, landRatio 0.15, fourOf 0.15
  */
-export function computeMetaPositioningPillar(entries: DeckEntry[], archetype: Archetype): number {
-  const metaBase = ARCHETYPE_META_VIABILITY[archetype] ?? 40;
-
-  // Role profile fit vs ARCHETYPE_BENCHMARKS
-  const comp = getRoleComposition(entries);
-  const bench = ARCHETYPE_BENCHMARKS[archetype];
-  if (!bench || archetype === "Unknown") return Math.round(metaBase * 0.8);
-
-  const keys: Array<keyof typeof comp> = ["threats", "removal", "boardWipes", "counterspells", "cardDraw", "ramp", "lands"];
-  let fitScore = 0;
-  let scoredKeys = 0;
-  for (const k of keys) {
-    const target = bench[k] ?? 0;
-    if (target === 0) continue;
-    scoredKeys++;
-    const actual = comp[k] ?? 0;
-    const ratio = actual / target;
-    fitScore += ratio >= 0.8 && ratio <= 1.3 ? 2 : ratio >= 0.6 && ratio <= 1.6 ? 1 : 0;
+export function computeStructuralSoundness(entries: DeckEntry[]): StructuralSoundness {
+  if (entries.length === 0) {
+    return {
+      score: 0, manaBase: 0, curve: 0, landRatio: 0, fourOfDensity: 0, synergyDensity: 0,
+      notes: ["Empty deck — no structural signal."],
+    };
   }
 
-  const profileFitPct = scoredKeys > 0 ? (fitScore / (scoredKeys * 2)) * 100 : 50;
+  const manaBase = Math.round(manaBaseCoverage(entries) * 100);
+  const curve = Math.round(curveScore(entries));
+  const landRatio = Math.round(landRatioScore(entries));
+  const fourOfDensity = Math.round(fourOfDensityScore(entries));
+  const synergyDensity = Math.round(synergyDensityScore(entries));
 
-  return Math.round(metaBase * 0.5 + profileFitPct * 0.5);
+  const score = Math.round(
+    manaBase * 0.25 +
+    synergyDensity * 0.25 +
+    curve * 0.20 +
+    landRatio * 0.15 +
+    fourOfDensity * 0.15,
+  );
+
+  const notes: string[] = [
+    `Mana base ${manaBase}/100 (Frank-Karsten coverage): ${manaBase >= 90 ? "colour sources sufficient" : manaBase >= 70 ? "minor colour gaps" : "under-sourced — expect colour screw"}`,
+    `Curve ${curve}/100: ${curve >= 80 ? "healthy curve" : curve >= 40 ? "acceptable curve" : "top-heavy / clumped curve"}`,
+    `Land ratio ${landRatio}/100: ${landRatio >= 100 ? "ideal land count" : landRatio >= 70 ? "workable land count" : "land count off-target"}`,
+    `Four-of density ${fourOfDensity}/100: ${fourOfDensity >= 75 ? "consistent 4-of core" : fourOfDensity >= 40 ? "some redundancy" : "few 4-ofs — inconsistent draws"}`,
+    `Synergy depth ${synergyDensity}/100: ${synergyDensity >= 70 ? "deep role coverage" : synergyDensity >= 45 ? "core roles covered" : "missing role redundancy"}`,
+  ];
+
+  return { score, manaBase, curve, landRatio, fourOfDensity, synergyDensity, notes };
+}
+
+// ── Track 2 — competitive strength (real data only) ─────────────────────────
+
+/**
+ * Resolve Track 2 from a fuzzy match against real win-rate data. Never
+ * synthesizes a percentage: when the deck doesn't match a tracked archetype
+ * (or no dataset is available) it returns an explicit unavailable state.
+ */
+export function resolveCompetitiveStrength(
+  archetype: Archetype,
+  colors: ManaColor[],
+  dataset: LiveWinRateDataset | null | undefined,
+  format: ConstructedFormat | undefined,
+): CompetitiveStrength {
+  if (!dataset) {
+    return {
+      matched: false,
+      reason: isFormatSupported(format) ? "data-not-loaded" : "format-unsupported",
+    };
+  }
+
+  const match = matchArchetype({ archetype, colors }, dataset);
+  if (!match.matched || !match.candidate) {
+    return {
+      matched: false,
+      reason: "no-market-data",
+      lastUpdated: dataset.lastUpdated,
+      source: dataset.source,
+    };
+  }
+
+  const c = match.candidate;
+  return {
+    matched: true,
+    winRate: c.winRate,
+    confidenceInterval: c.confidenceInterval,
+    sampleSize: c.sampleSize,
+    sourceArchetype: c.name,
+    matchConfidence: Math.round(match.confidence * 100) / 100,
+    lastUpdated: dataset.lastUpdated,
+    source: dataset.source,
+  };
 }
 
 // ── Composite ─────────────────────────────────────────────────────────────────
 
+/** Extra context needed for Track 2. Track 1 needs only the decklist. */
+export interface ViabilityContext {
+  colors?: ManaColor[];
+  format?: ConstructedFormat;
+  playEnvironment?: PlayEnvironment;
+  /** Pre-fetched live win-rate dataset (see meta/liveWinRate). */
+  liveWinRate?: LiveWinRateDataset | null;
+}
+
 /**
- * Compute the full MythicViabilityReport for a deck.
+ * Compute the two-track viability report for a deck.
  *
- * @param entries  Final deck entries (main + side).
- * @param archetype  Detected or user-selected archetype.
+ * @param entries    Mainboard deck entries.
+ * @param archetype  Detected or user-selected macro archetype.
+ * @param context    Colours/format + the pre-fetched live win-rate dataset.
  */
 export function computeMythicViability(
   entries: DeckEntry[],
   archetype: Archetype,
+  context: ViabilityContext = {},
 ): MythicViabilityReport {
-  // Empty deck → every pillar is 0
-  if (entries.length === 0) {
-    const pillars: MythicViabilityPillars = { consistency: 0, redundancy: 0, metaPositioning: 0 };
-    return { pillars, score: 0, winRateEstimate: winRateProxy(0), label: "not-viable", notes: [] };
-  }
-
-  const consistency = computeConsistencyPillar(entries);
-  const redundancy = computeRedundancyPillar(entries);
-  const metaPositioning = computeMetaPositioningPillar(entries, archetype);
-
-  const pillars: MythicViabilityPillars = { consistency, redundancy, metaPositioning };
-
-  // Weighted composite: 45% consistency, 30% redundancy, 25% meta
-  const composite = Math.round(
-    consistency * 0.45 + redundancy * 0.30 + metaPositioning * 0.25,
+  const structural = computeStructuralSoundness(entries);
+  const colors = context.colors ?? deriveColors(entries);
+  const competitive = resolveCompetitiveStrength(
+    archetype,
+    colors,
+    context.liveWinRate,
+    context.format,
   );
+  return { structural, competitive };
+}
 
-  const winRateEstimate = winRateProxy(composite);
-  const label = mythicViabilityLabel(composite);
-
-  // Build diagnostic notes for each pillar
-  const notes: string[] = [];
-  notes.push(`Consistency ${consistency}/100: ${consistency >= 70 ? "strong mana + curve" : consistency >= 45 ? "acceptable curve, check land count" : "poor mana reliability"}`);
-  notes.push(`Redundancy ${redundancy}/100: ${redundancy >= 70 ? "deep role coverage" : redundancy >= 45 ? "core roles covered" : "missing critical role copies"}`);
-  notes.push(`Meta positioning ${metaPositioning}/100: ${metaPositioning >= 70 ? "archetype tier-1 ready" : metaPositioning >= 45 ? "competitive in archetype" : "archetype or role fit needs work"}`);
-
-  return { pillars, score: composite, winRateEstimate, label, notes };
+/** Best-effort colour identity from the decklist when not supplied by caller. */
+function deriveColors(entries: DeckEntry[]): ManaColor[] {
+  const set = new Set<ManaColor>();
+  for (const e of entries) {
+    try {
+      const ci = JSON.parse(e.card.colorIdentityJson) as ManaColor[];
+      for (const c of ci) set.add(c);
+    } catch {
+      /* ignore malformed colour identity */
+    }
+  }
+  return (["W", "U", "B", "R", "G"] as ManaColor[]).filter((c) => set.has(c));
 }
