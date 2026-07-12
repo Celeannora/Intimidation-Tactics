@@ -4,6 +4,10 @@ import type { CardRecord } from "../lib/types";
 import { useDeckStore } from "../store/deckStore";
 import { computeSynergyScoreV2 } from "../lib/generator/synergyModel";
 import { cardSynergyTags, quickSynergyView } from "../lib/analysis/reasoningView";
+import { recommendSynergyCards, type SynergyCandidate } from "../lib/analysis/synergyRecommender";
+
+// How many real synergistic cards to surface in the inline quick-check panel.
+const QUICK_SYNERGY_LIMIT = 8;
 
 const COLORS = ["W", "U", "B", "R", "G"];
 const COLOR_LABEL: Record<string, string> = {
@@ -53,6 +57,35 @@ export function CardRow({
     ? cardSynergyTags(card)
     : null;
   const colors = JSON.parse(card.colorIdentityJson) as string[];
+
+  // Real, named-card synergy suggestions for THIS card — the same engine the
+  // Synergy tab uses, seeded with just this card. Deck-independent: it answers
+  // "what other cards in the database synergize with this one?" regardless of
+  // what's currently in the deck. Fetched lazily when the panel opens and cached
+  // per card so reopening doesn't refetch.
+  const [recs, setRecs] = useState<SynergyCandidate[] | null>(null);
+  const [recsLoading, setRecsLoading] = useState(false);
+  const [recsError, setRecsError] = useState<string | null>(null);
+  const fetchedForRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!synergyOpen) return;
+    if (fetchedForRef.current === card.oracleId) return; // already loaded for this card
+    fetchedForRef.current = card.oracleId;
+    let cancelled = false;
+    setRecsLoading(true);
+    setRecsError(null);
+    recommendSynergyCards([card], { limit: QUICK_SYNERGY_LIMIT })
+      .then((rec) => { if (!cancelled) setRecs(rec.candidates); })
+      .catch((e) => {
+        if (!cancelled) {
+          setRecsError(e instanceof Error ? e.message : String(e));
+          fetchedForRef.current = null; // allow a retry when the panel is reopened
+        }
+      })
+      .finally(() => { if (!cancelled) setRecsLoading(false); });
+    return () => { cancelled = true; };
+  }, [synergyOpen, card]);
 
   return (
     <div className="flex flex-col gap-1 rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2 hover:border-zinc-700">
@@ -135,6 +168,53 @@ export function CardRow({
 
       {synergyOpen && (
         <div id={synergyPanelId} className="mt-1 border-t border-zinc-800 pt-2 text-xs">
+          {/* PRIMARY: real synergistic cards from the database, seeded with this card. */}
+          <div className="mb-1.5 font-medium text-zinc-300">Synergistic cards</div>
+          {recsLoading && (
+            <p className="text-[11px] text-zinc-500" aria-live="polite">Finding synergistic cards…</p>
+          )}
+          {recsError && (
+            <p className="text-[11px] text-red-400">Couldn’t load synergy suggestions: {recsError}</p>
+          )}
+          {!recsLoading && !recsError && recs && recs.length === 0 && (
+            <p className="text-[11px] text-zinc-500">No synergistic cards found in the database for {card.name}.</p>
+          )}
+          {!recsLoading && recs && recs.length > 0 && (
+            <ul className="space-y-1">
+              {recs.map((cand) => (
+                <li
+                  key={cand.card.oracleId}
+                  className="flex items-start justify-between gap-2 rounded border border-zinc-800 bg-zinc-900/60 px-2 py-1"
+                >
+                  <button
+                    onClick={() => onCardClick?.(cand.card)}
+                    className="min-w-0 flex-1 text-left"
+                    title={onCardClick ? `View ${cand.card.name}` : undefined}
+                  >
+                    <span className="flex items-center gap-1.5">
+                      <span className="truncate text-[11px] font-medium text-zinc-200">{cand.card.name}</span>
+                      <span className="shrink-0 font-mono text-[10px] text-zinc-500" title="Synergy score">
+                        {cand.score.toFixed(1)}
+                      </span>
+                    </span>
+                    {cand.reasons[0] && (
+                      <span className="mt-0.5 block text-[10px] leading-snug text-zinc-500">{cand.reasons[0]}</span>
+                    )}
+                  </button>
+                  <button
+                    onClick={() => onAdd(cand.card)}
+                    className="shrink-0 rounded bg-teal-700 px-1.5 py-0.5 text-[11px] font-medium text-white hover:bg-teal-500"
+                    aria-label={`Add ${cand.card.name} to deck`}
+                  >
+                    <span aria-hidden="true">+</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {/* SECONDARY: how this card relates to the current deck (supplementary). */}
+          <div className="mt-2 border-t border-zinc-800/60 pt-2">
           {synergyDetail ? (
             <>
               <div className="mb-1.5 flex items-center gap-2">
@@ -220,6 +300,7 @@ export function CardRow({
               <p className="mt-1 text-[10px] text-zinc-600">Role: {cardTags.engineRole}</p>
             </>
           ) : null}
+          </div>
         </div>
       )}
     </div>
