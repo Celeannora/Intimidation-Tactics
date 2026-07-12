@@ -155,7 +155,9 @@ export function SynergyPreAnalysisPanel({
   // Filter state
   const [maxCmc, setMaxCmc] = useState<number | undefined>(undefined);
   const [typeFilter, setTypeFilter] = useState<string>("");
-  const [legalityFormat, setLegalityFormat] = useState<string>("commander");
+  // No shared session-level format exists (the generator's format is local to
+  // GeneratorPanel); default to the app-wide default of "standard" to match it.
+  const [legalityFormat, setLegalityFormat] = useState<string>("standard");
 
   // Derive deck cards for seed picker (non-land mainboard)
   const deckNonlands = useMemo(
