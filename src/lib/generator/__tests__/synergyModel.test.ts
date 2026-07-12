@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CardRecord } from "../../types";
-import { buildSynergyProfile, crossAxisCompositionBonus, inferPrimaryAxes, keywordFocusToAxes, summarizeSynergyConnections, synergyDensityMultiplier } from "../synergyModel";
+import { buildSynergyProfile, crossAxisCompositionBonus, inferPrimaryAxes, inferPrimaryAxesDetailed, keywordFocusToAxes, summarizeSynergyConnections, synergyDensityMultiplier } from "../synergyModel";
 
 function makeCard(name: string, oracleText: string, typeLine = "Creature — Test", quantity = 1): CardRecord[] {
   const card = {
@@ -85,6 +85,90 @@ describe("inferPrimaryAxes", () => {
     ];
 
     expect(inferPrimaryAxes(cards.map(buildSynergyProfile))).toHaveLength(5);
+  });
+});
+
+describe("inferPrimaryAxesDetailed — per-axis confidence (Priority 14)", () => {
+  it("scores a dominant axis higher than a marginal one and normalizes the top to 1", () => {
+    const cards = [
+      // Dominant lifegain plan: 6 payoffs + 6 sources.
+      ...makeCard("LG Payoff", "Whenever you gain life, each opponent loses 1 life.", "Enchantment", 6),
+      ...makeCard("LG Source", "You gain 3 life.", "Instant", 6),
+      // Marginal counters presence: sources only, just clearing the coverage bar.
+      ...makeCard("Counter Source", "Put a +1/+1 counter on target creature.", "Instant", 3),
+    ];
+
+    const detailed = inferPrimaryAxesDetailed(cards.map(buildSynergyProfile));
+
+    // Strongest first; dominant axis normalizes to exactly 1.
+    expect(detailed[0].axis).toBe("lifegain");
+    expect(detailed[0].confidence).toBe(1);
+
+    const counters = detailed.find((a) => a.axis === "counters");
+    expect(counters).toBeDefined();
+    // Marginal axis is present but strictly less confident than the dominant one.
+    expect(counters!.confidence).toBeGreaterThan(0);
+    expect(counters!.confidence).toBeLessThan(1);
+    expect(detailed[0].confidence).toBeGreaterThan(counters!.confidence);
+
+    // Coverage reflects the actual card counts.
+    expect(detailed[0].coverage).toBe(12);
+    expect(counters!.coverage).toBe(3);
+
+    // Confidence is monotonically non-increasing in rank order.
+    for (let i = 1; i < detailed.length; i++) {
+      expect(detailed[i].confidence).toBeLessThanOrEqual(detailed[i - 1].confidence);
+    }
+  });
+
+  it("stays consistent with the bare inferPrimaryAxes accessor", () => {
+    const cards = [
+      ...makeCard("LG Payoff", "Whenever you gain life, each opponent loses 1 life.", "Enchantment", 6),
+      ...makeCard("LG Source", "You gain 3 life.", "Instant", 6),
+      ...makeCard("Counter Source", "Put a +1/+1 counter on target creature.", "Instant", 3),
+    ];
+    const profiles = cards.map(buildSynergyProfile);
+
+    expect(inferPrimaryAxesDetailed(profiles).map((a) => a.axis)).toEqual(inferPrimaryAxes(profiles));
+  });
+});
+
+describe("directional lifegain/drain tagging (Priority 14 regression)", () => {
+  it("tags Bloodthirsty Conqueror as a lifegain PAYOFF, not a source", () => {
+    // Real oracle text: drain payoff — life gained is the *effect* of an opponent
+    // losing life, so "you gain that much life" must NOT read as a lifegain source.
+    const profile = buildSynergyProfile(
+      makeCard(
+        "Bloodthirsty Conqueror",
+        "Flying, deathtouch\nWhenever an opponent loses life, you gain that much life. (Damage causes loss of life.)",
+      )[0],
+    );
+
+    expect(profile.payoffTags.has("lifegain")).toBe(true);
+    expect(profile.sourceTags.has("lifegain")).toBe(false);
+  });
+
+  it("tags Vengeful Bloodwitch's death-drain on the lifegain axis as a payoff", () => {
+    // Real oracle text: death-triggered drain (aristocrats). The drain must
+    // register as lifegain-adjacent, not be lost to the sacrifice bucket alone.
+    const profile = buildSynergyProfile(
+      makeCard(
+        "Vengeful Bloodwitch",
+        "Whenever this creature or another creature you control dies, target opponent loses 1 life and you gain 1 life.",
+      )[0],
+    );
+
+    expect(profile.payoffTags.has("lifegain")).toBe(true);
+    // Still a genuine dies-matters payoff — we add the lifegain axis, not swap it.
+    expect(profile.payoffTags.has("sacrifice")).toBe(true);
+  });
+
+  it("still treats a replacement amplifier (twice that much life) as a lifegain source", () => {
+    // Guard against over-correcting: The Wind Crystal-style amplifiers stay sources.
+    const profile = buildSynergyProfile(
+      makeCard("Wind Crystal", "If you would gain life, you gain twice that much life instead.", "Artifact")[0],
+    );
+    expect(profile.sourceTags.has("lifegain")).toBe(true);
   });
 });
 
