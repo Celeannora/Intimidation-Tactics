@@ -5,9 +5,12 @@ import { useDeckStore } from "../store/deckStore";
 import { computeSynergyScoreV2 } from "../lib/generator/synergyModel";
 import { cardSynergyTags, quickSynergyView } from "../lib/analysis/reasoningView";
 import { recommendSynergyCards, type SynergyCandidate } from "../lib/analysis/synergyRecommender";
+import { CONSTRUCTED_FORMATS, type ConstructedFormat } from "../lib/formats";
 
 // How many real synergistic cards to surface in the inline quick-check panel.
 const QUICK_SYNERGY_LIMIT = 8;
+// App-wide default format for synergy filtering (matches SynergyPreAnalysisPanel).
+const DEFAULT_SYNERGY_FORMAT: ConstructedFormat = "standard";
 
 const COLORS = ["W", "U", "B", "R", "G"];
 const COLOR_LABEL: Record<string, string> = {
@@ -66,16 +69,24 @@ export function CardRow({
   const [recs, setRecs] = useState<SynergyCandidate[] | null>(null);
   const [recsLoading, setRecsLoading] = useState(false);
   const [recsError, setRecsError] = useState<string | null>(null);
+  // Legality format the recommendations are filtered to. Local per-panel state —
+  // there is no shared/global format concept in the store — defaulting to the
+  // app-wide default of "standard" so the quick-check never suggests cards that
+  // are illegal in the format the user is building for.
+  const [synergyFormat, setSynergyFormat] = useState<ConstructedFormat>(DEFAULT_SYNERGY_FORMAT);
+  // Cache key includes the format so switching formats re-runs instead of showing
+  // stale results filtered for a different format.
   const fetchedForRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!synergyOpen) return;
-    if (fetchedForRef.current === card.oracleId) return; // already loaded for this card
-    fetchedForRef.current = card.oracleId;
+    const key = `${card.oracleId}::${synergyFormat}`;
+    if (fetchedForRef.current === key) return; // already loaded for this card + format
+    fetchedForRef.current = key;
     let cancelled = false;
     setRecsLoading(true);
     setRecsError(null);
-    recommendSynergyCards([card], { limit: QUICK_SYNERGY_LIMIT })
+    recommendSynergyCards([card], { limit: QUICK_SYNERGY_LIMIT, legalityFormat: synergyFormat })
       .then((rec) => { if (!cancelled) setRecs(rec.candidates); })
       .catch((e) => {
         if (!cancelled) {
@@ -85,7 +96,7 @@ export function CardRow({
       })
       .finally(() => { if (!cancelled) setRecsLoading(false); });
     return () => { cancelled = true; };
-  }, [synergyOpen, card]);
+  }, [synergyOpen, card, synergyFormat]);
 
   return (
     <div className="flex flex-col gap-1 rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2 hover:border-zinc-700">
@@ -169,7 +180,22 @@ export function CardRow({
       {synergyOpen && (
         <div id={synergyPanelId} className="mt-1 border-t border-zinc-800 pt-2 text-xs">
           {/* PRIMARY: real synergistic cards from the database, seeded with this card. */}
-          <div className="mb-1.5 font-medium text-zinc-300">Synergistic cards</div>
+          <div className="mb-1.5 flex items-center justify-between gap-2">
+            <span className="font-medium text-zinc-300">Synergistic cards</span>
+            <label className="flex items-center gap-1 text-[10px] text-zinc-500">
+              <span className="sr-only sm:not-sr-only">Format</span>
+              <select
+                value={synergyFormat}
+                onChange={(e) => setSynergyFormat(e.target.value as ConstructedFormat)}
+                aria-label={`Synergy format filter for ${card.name}`}
+                className="rounded border border-zinc-700 bg-zinc-900 px-1.5 py-0.5 text-[10px] text-zinc-200"
+              >
+                {CONSTRUCTED_FORMATS.map((f) => (
+                  <option key={f.id} value={f.id}>{f.label}</option>
+                ))}
+              </select>
+            </label>
+          </div>
           {recsLoading && (
             <p className="text-[11px] text-zinc-500" aria-live="polite">Finding synergistic cards…</p>
           )}
