@@ -610,7 +610,9 @@ export function inferPrimaryAxes(profiles: CardSynergyProfile[]): MechanicAxis[]
     }))
     .filter((entry) => entry.coverage >= MIN_COVERAGE || entry.qualifiesByPayoffs)
     .sort((a, b) => b.score - a.score || b.coverage - a.coverage)
-    .slice(0, 3)
+    // Up to 5 primary axes (raised from 3) so multi-axis decks aren't truncated;
+    // downstream consumers (generateCardReasons, axisScore) handle arbitrary counts.
+    .slice(0, 5)
     .map((entry) => entry.axis);
 }
 

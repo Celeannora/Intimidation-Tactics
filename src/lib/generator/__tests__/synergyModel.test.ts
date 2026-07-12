@@ -73,15 +73,18 @@ describe("inferPrimaryAxes", () => {
     expect(axes).not.toContain("sacrifice");
   });
 
-  it("keeps only the strongest three mechanical axes", () => {
+  it("keeps up to five mechanical axes (raised from three)", () => {
+    // Six distinct qualifying axes present; the cap should return exactly five.
     const cards = [
       ...makeCard("Draw Source", "Draw a card.", "Sorcery", 5),
       ...makeCard("Token Source", "Create a 1/1 creature token.", "Sorcery", 5),
       ...makeCard("Graveyard Source", "Return target creature card from your graveyard to your hand.", "Sorcery", 5),
       ...makeCard("Counter Source", "Put a +1/+1 counter on target creature.", "Instant", 5),
+      ...makeCard("Discard Source", "Discard a card.", "Sorcery", 5),
+      ...makeCard("Lifegain Source", "You gain 3 life.", "Sorcery", 5),
     ];
 
-    expect(inferPrimaryAxes(cards.map(buildSynergyProfile))).toHaveLength(3);
+    expect(inferPrimaryAxes(cards.map(buildSynergyProfile))).toHaveLength(5);
   });
 });
 
