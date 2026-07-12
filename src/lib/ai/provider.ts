@@ -67,6 +67,13 @@ export interface AISettings {
   llamaCppModel?: string;     // default "local"
   llamaCppApiKey?: string;    // optional bearer for proxied setups
   /**
+   * Opt-in: send the structured-output JSON schema to llama.cpp / LM Studio via
+   * `response_format: { type: "json_schema" }`. Off by default because many local
+   * loadouts hang or refuse to emit tokens under grammar-constrained JSON mode;
+   * enable only when the backend is known to support it.
+   */
+  llamaCppUseJsonSchema?: boolean;
+  /**
    * Optional per-provider output-token cap. When a request does not specify
    * `maxTokens`, providers fall back to this value (and then their own default).
    */

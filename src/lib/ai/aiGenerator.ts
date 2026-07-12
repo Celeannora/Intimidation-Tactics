@@ -35,14 +35,6 @@ export const DEFAULT_AI_TEMPERATURE = 0.4;
 const DEFAULT_LAND_DIGEST_LIMIT = 30;
 const DEFAULT_AI_MAX_TOKENS = 8000;
 const LOCAL_PROVIDER_DIGEST_WARNING_LIMIT = 300;
-/**
- * Delta-digest cap for sequential-mode steps after the first. The confirmed
- * spine is already summarized in the prompt text each step, so re-sending the
- * full ~220-card candidate digest every step wastes tokens and makes the
- * transcript grow quadratically. Later steps only need enough fresh candidates
- * to propose the next small batch.
- */
-const SEQUENTIAL_DELTA_DIGEST_LIMIT = 80;
 
 export interface AIPrompts {
   system: string;
@@ -291,6 +283,46 @@ export function buildAIPrompts(
   return { system, user, poolSize: scored.length };
 }
 
+/** Number of fresh candidates surfaced per sequential delta step (≥ step 2). */
+export const SEQUENTIAL_DELTA_CANDIDATE_LIMIT = 30;
+
+/**
+ * Compact per-step payload for sequential mode steps ≥ 2. Instead of re-sending
+ * the full ~220-card candidate digest (which the transcript already carries from
+ * step 1 and which grows the request quadratically), we send only:
+ *   1. a one-line summary of the locked nonland spine, and
+ *   2. the top-N freshly re-scored candidates that are NOT already locked.
+ * The system prompt and land reference were already delivered on step 1, so the
+ * model retains full context while each later step drops ~60–70% of the tokens.
+ */
+export function buildDeltaDigest(
+  options: GenerateOptions,
+  allCards: CardRecord[],
+  lockedSpine: DeckEntry[],
+  candidateLimit: number = SEQUENTIAL_DELTA_CANDIDATE_LIMIT
+): { spineSummary: string; candidateDigest: string; candidateCount: number } {
+  const spineNonland = lockedSpine.filter(
+    (e) => e.board !== "side" && !e.card.typeLine.includes("Land")
+  );
+  const spineSummary = spineNonland.length
+    ? spineNonland.map((e) => `${e.quantity}× ${e.card.name}`).join("; ")
+    : "(none yet)";
+
+  const lockedIds = new Set(lockedSpine.map((e) => e.card.oracleId));
+  // Re-score against the growing spine, then keep only fresh (un-locked) cards.
+  // Over-fetch so post-filter still leaves a full candidate slate.
+  const stepOptions: GenerateOptions = { ...options, seedEntries: lockedSpine };
+  const { scored } = scoreNonlandPool(
+    stepOptions,
+    allCards,
+    candidateLimit + lockedIds.size + 40,
+    lockedIds
+  );
+  const candidates = scored.filter((s) => !lockedIds.has(s.card.oracleId)).slice(0, candidateLimit);
+  const candidateDigest = candidates.map(digestScoredCard).join("\n");
+  return { spineSummary, candidateDigest, candidateCount: candidates.length };
+}
+
 // ────────────────────────────────────────────────────────────────────────────
 // Iteration loop
 // ────────────────────────────────────────────────────────────────────────────
@@ -489,18 +521,14 @@ export async function generateDeckAISequential(
     reasoning.push(`— ${passLabel} (locked ${seedNonlandCopies()}/${nonlandBudget} nonland, adding up to ${thisStepTarget} [schedule size: ${thisStepSize}]) —`);
     config.onPassStart?.(stepIndex, totalSteps);
 
-    // Build a fresh prompt with the updated (growing) seed list.
-    // Delta digest: the first step sends the full candidate pool; later steps
-    // only need a smaller top-N slice of re-scored candidates since the locked
-    // spine is already summarized in the prompt text. This keeps the growing
-    // transcript from ballooning quadratically across steps.
-    const stepDigestLimit = stepIndex === 1
-      ? digestLimit
-      : Math.min(digestLimit, SEQUENTIAL_DELTA_DIGEST_LIMIT);
-    const stepOptions: GenerateOptions = { ...options, seedEntries: currentSeeds };
-    const { system, user } = buildAIPrompts(stepOptions, allCards, stepDigestLimit);
-
+    // Delta digest: step 1 sends the full candidate pool + system prompt; later
+    // steps send only a compact spine summary + top-N re-scored fresh candidates
+    // (see buildDeltaDigest). The system prompt and land reference already live in
+    // the transcript, so this keeps the growing request from ballooning
+    // quadratically while preserving full context.
     if (stepIndex === 1) {
+      const stepOptions: GenerateOptions = { ...options, seedEntries: currentSeeds };
+      const { system, user } = buildAIPrompts(stepOptions, allCards, digestLimit);
       messages.push({ role: "system", content: system });
       messages.push({
         role: "user",
@@ -517,18 +545,15 @@ export async function generateDeckAISequential(
         ].filter(Boolean).join("\n"),
       });
     } else {
-      const spineLines = currentSeeds
-        .filter((e) => e.board !== "side" && !e.card.typeLine.includes("Land"))
-        .map((e) => `${e.quantity}× ${e.card.name}`)
-        .join("; ");
+      const { spineSummary, candidateDigest, candidateCount } = buildDeltaDigest(options, allCards, currentSeeds);
+      reasoning.push(`${passLabel}: delta digest — spine summary + ${candidateCount} fresh candidate(s) (was full ${digestLimit}-card digest).`);
       messages.push({
         role: "user",
         content: [
           `Step ${stepIndex} of ~${totalSteps}.`,
-          `Confirmed nonland spine so far (${seedNonlandCopies()} copies): ${spineLines || "(none yet)"}.`,
-          `Re-scored candidate pool for this step:`,
-          ``,
-          user,
+          `Confirmed nonland spine so far (${seedNonlandCopies()} copies): ${spineSummary}.`,
+          `Top re-scored candidates NOT yet in the spine (same column format as step 1):`,
+          candidateDigest || "(no fresh candidates remain)",
           ``,
           `SEQUENTIAL BUILD — propose EXACTLY ${thisStepTarget} NEW nonland copies not already in the confirmed spine.`,
           `Return only those ${thisStepTarget} cards in main[]. Do NOT re-list already-confirmed cards.`,
@@ -609,15 +634,15 @@ export async function generateDeckAISequential(
     (e) => e.board !== "side" && !e.card.typeLine.includes("Land")
   );
 
-  // Guard: fail only if we have literally no nonland cards to build from.
-  // NOTE: do NOT guard on lastRawJSON — it stays undefined when the initial
-  // seeds already satisfy the nonland budget (while loop never runs), which is
-  // a valid and expected path, not a failure.
+  // No nonland spine to build from (e.g. every AI step failed and no seeds were
+  // supplied). Rather than aborting, fall back to the pure offline engine so the
+  // caller still receives a usable deck. This mirrors the resilience of the
+  // one-shot AI path, which also degrades to the offline pipeline on failure.
   if (fullSpineNonland.length === 0) {
-    throw new Error(
-      `AI sequential generation failed — seeds had no nonland cards and no AI steps produced any. ` +
-      reasoning.slice(-4).join(" | ")
-    );
+    reasoning.push("Sequential AI produced no usable cards; falling back to the offline engine.");
+    const fallback = generateOffline({ ...options, engine: "offline" }, allCards);
+    fallback.diagnostics.reasoning = [...reasoning, ...fallback.diagnostics.reasoning];
+    return fallback;
   }
   const syntheticJSON = JSON.stringify({
     summary: `Sequential seed-chain build (${stepIndex} step${stepIndex === 1 ? "" : "s"}, ${seedNonlandCopies()} nonland cards locked).`,
@@ -1174,20 +1199,25 @@ function appendFeasibilityReasoning(
 
   const proposed: ProposedEntry[] = mainboard.map((e) => ({ card: e.card, quantity: e.quantity }));
   const seedCards = (options.seedEntries ?? []).map((e) => e.card);
-  const feasibility = checkFeasibility(proposed, seedCards);
-  if (feasibility.violations.length === 0) return;
+  // Diagnostics only — a bug in the checker must never abort generation.
+  try {
+    const feasibility = checkFeasibility(proposed, seedCards);
+    if (feasibility.violations.length === 0) return;
 
-  const hard = feasibility.violations.filter((v) => v.severity === "hard");
-  const soft = feasibility.violations.filter((v) => v.severity === "soft");
-  if (hard.length > 0) {
-    reasoning.push(
-      `Feasibility check: ${hard.length} hard issue(s) — ${hard.map((v) => `[${v.rule}] ${v.detail}`).slice(0, 4).join(" | ")}`
-    );
-  }
-  if (soft.length > 0) {
-    reasoning.push(
-      `Feasibility check: ${soft.length} soft note(s) — ${soft.map((v) => `[${v.rule}] ${v.detail}`).slice(0, 3).join(" | ")}`
-    );
+    const hard = feasibility.violations.filter((v) => v.severity === "hard");
+    const soft = feasibility.violations.filter((v) => v.severity === "soft");
+    if (hard.length > 0) {
+      reasoning.push(
+        `Feasibility check: ${hard.length} hard issue(s) — ${hard.map((v) => `[${v.rule}] ${v.detail}`).slice(0, 4).join(" | ")}`
+      );
+    }
+    if (soft.length > 0) {
+      reasoning.push(
+        `Feasibility check: ${soft.length} soft note(s) — ${soft.map((v) => `[${v.rule}] ${v.detail}`).slice(0, 3).join(" | ")}`
+      );
+    }
+  } catch (e) {
+    reasoning.push(`Feasibility check skipped (internal error: ${e instanceof Error ? e.message : String(e)})`);
   }
 }
 

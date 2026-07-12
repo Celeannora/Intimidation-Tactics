@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, afterEach } from "vitest";
 import type { CardRecord } from "../../types";
 import type { GenerateOptions } from "../../generator/types";
-import { buildAIPrompts, clampAINonlandSpine, salvageDeckJSON, validateAIProposal } from "../aiGenerator";
+import { buildAIPrompts, buildDeltaDigest, clampAINonlandSpine, salvageDeckJSON, validateAIProposal, SEQUENTIAL_DELTA_CANDIDATE_LIMIT } from "../aiGenerator";
 import { OllamaProvider } from "../ollama";
 
 function makeCard(overrides: Partial<CardRecord> & { name: string; typeLine?: string; oracleText?: string }): CardRecord {
@@ -366,6 +366,36 @@ function makePool(n: number): CardRecord[] {
   return Array.from({ length: n }, (_, i) =>
     makeCard({ name: `Pool Card ${i + 1}`, cmc: (i % 5) + 1 })
   );
+}
+
+describe("buildDeltaDigest", () => {
+  it("summarizes the locked spine and excludes locked cards from candidates", () => {
+    const pool = makePool(50);
+    const lockedSpine = [
+      { card: pool[0], quantity: 2, board: "main" as const },
+      { card: pool[1], quantity: 1, board: "main" as const },
+    ];
+    const { spineSummary, candidateDigest, candidateCount } = buildDeltaDigest(options, pool, lockedSpine);
+
+    expect(spineSummary).toContain(`2× ${pool[0].name}`);
+    expect(spineSummary).toContain(`1× ${pool[1].name}`);
+    // Locked cards must never reappear as fresh candidates.
+    expect(candidateDigest).not.toContain(`${pool[0].name} |`);
+    expect(candidateDigest).not.toContain(`${pool[1].name} |`);
+    expect(candidateCount).toBeGreaterThan(0);
+    expect(candidateCount).toBeLessThanOrEqual(SEQUENTIAL_DELTA_CANDIDATE_LIMIT);
+  });
+
+  it("caps candidates at the delta limit — far smaller than the full digest", () => {
+    const pool = makePool(120);
+    const { candidateCount } = buildDeltaDigest(options, pool, []);
+    expect(candidateCount).toBeLessThanOrEqual(SEQUENTIAL_DELTA_CANDIDATE_LIMIT);
+    expect(spineSummaryEmpty(pool)).toBe("(none yet)");
+  });
+});
+
+function spineSummaryEmpty(pool: CardRecord[]): string {
+  return buildDeltaDigest(options, pool, []).spineSummary;
 }
 
 /** Provider that returns one JSON batch of `batchSize` cards per call. */

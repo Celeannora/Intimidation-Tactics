@@ -165,6 +165,21 @@ export function AISettingsDrawer({ onClose }: Props) {
                   </>
                 }
               />
+              <div>
+                <label className="flex items-center gap-2 text-xs font-medium text-zinc-400">
+                  <input
+                    type="checkbox"
+                    checked={settings.llamaCppUseJsonSchema ?? false}
+                    onChange={(e) => update("llamaCppUseJsonSchema", e.target.checked)}
+                    className="h-3.5 w-3.5 rounded border-zinc-700 bg-zinc-900"
+                  />
+                  Constrain output to JSON schema
+                </label>
+                <p className="mt-1 text-[11px] text-zinc-500">
+                  Sends <code>response_format: json_schema</code> for stricter deck JSON. Leave off unless your
+                  server supports it — some local models hang under grammar-constrained JSON mode.
+                </p>
+              </div>
             </>
           )}
 
