@@ -25,7 +25,7 @@ import {
   keywordFocusToAxes,
   type MechanicAxis,
 } from "./synergyModel";
-import { buildSeedSynergyGraph } from "../analysis/synergyGraph";
+import { buildSeedSynergyGraph, buildDeckSynergyGraph } from "../analysis/synergyGraph";
 import type {
   GenerateOptions,
   GenerateResult,
@@ -904,6 +904,7 @@ function generateOne(
     tempoScore,
     cardAdvantageScore,
     synergyViolations,
+    deckSynergyGraph: buildDeckSynergyGraph(finalEntries),
   };
 }
 
