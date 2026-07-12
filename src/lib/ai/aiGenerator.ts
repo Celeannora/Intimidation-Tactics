@@ -8,6 +8,7 @@ import { generateDeck as generateOffline } from "../generator/generator";
 import { buildScoreBreakdown, cardScoreDetail, deckScore, targetAvgCmcFor } from "../generator/weights";
 import { blendRoleTargets } from "../generator/roleTargets";
 import { buildSynergyProfile, generateCardReasons, generateTribalReasons, keywordFocusToAxes } from "../generator/synergyModel";
+import type { MechanicAxis } from "../generator/synergyModel";
 import { analyzeSeeds, formatSeedSummaryForPrompt } from "../analysis/seedAnalyzer";
 import { buildSeedSynergyGraph, formatSynergyGraphForPrompt } from "../analysis/synergyGraph";
 import type {
@@ -129,22 +130,83 @@ export interface AIChatTranscript {
 // Pool analysis + weighted digest
 // ────────────────────────────────────────────────────────────────────────────
 
-interface ScoredCard {
+export interface ScoredCard {
   card: CardRecord;
   score: number;
   detail: ReturnType<typeof cardScoreDetail>;
   fromDeck?: boolean;
 }
 
-/** Flaw 6 mitigation: how many tag-diverse cards to surface from below the top-N cutoff. */
-function diversityQuotaFor(digestLimit: number): number {
-  return Math.max(2, Math.round(digestLimit * 0.1));
+/**
+ * Flaw #6 redesign — decouple candidate INCLUSION from candidate RANKING.
+ *
+ * The LLM's candidate universe used to be the pure offline top-N-by-score, so
+ * the same heuristic that later grades Track 1 structural score was the sole
+ * gate on what the model could even consider — a circular authority problem. We
+ * now reserve part of the candidate slate for cards selected by *independent*
+ * inclusion signals, drawn from BELOW the score cutoff:
+ *
+ *   1. synergy-axis overlap with the deck's seed/locked cards (from
+ *      `synergyModel`) — genuine synergy pieces the heuristic underrates in
+ *      isolation;
+ *   2. utility broad-tags (ramp / tutor / draw) the offline scorer chronically
+ *      underweights;
+ *   3. shape diversity — role/tag signatures absent from the offline top-N.
+ *
+ * These are surfaced by SWAPPING (not appending) marginal top-N candidates for
+ * signal picks, so the digest — and therefore the token budget — stays the same
+ * size. Offline score is still a first-class signal (the bulk of the slate); it
+ * is simply no longer the *only* way into the LLM's view.
+ */
+
+/** Broad-tags for pure utility roles the offline heuristic tends to underweight. */
+const UTILITY_BROAD_TAGS: ReadonlySet<string> = new Set(["ramp", "tutor", "draw"]);
+
+export interface OverflowQuotas {
+  synergy: number;
+  utility: number;
+  diverse: number;
+}
+
+export function overflowQuotasFor(digestLimit: number): OverflowQuotas {
+  return {
+    synergy: Math.max(2, Math.round(digestLimit * 0.1)),
+    utility: Math.max(1, Math.round(digestLimit * 0.05)),
+    diverse: Math.max(2, Math.round(digestLimit * 0.05)),
+  };
+}
+
+/** Union of synergy axes (source + payoff) across the deck's seed/locked cards. */
+export function deckSynergyAxes(entries: DeckEntry[]): Set<MechanicAxis> {
+  const axes = new Set<MechanicAxis>();
+  for (const entry of entries) {
+    const profile = buildSynergyProfile(entry.card);
+    for (const axis of profile.sourceTags) axes.add(axis);
+    for (const axis of profile.payoffTags) axes.add(axis);
+  }
+  return axes;
+}
+
+/** True when a card sources or pays off any of the deck's synergy axes. */
+function cardHitsAxes(card: CardRecord, axes: Set<MechanicAxis>): boolean {
+  if (axes.size === 0) return false;
+  const profile = buildSynergyProfile(card);
+  for (const axis of profile.sourceTags) if (axes.has(axis)) return true;
+  for (const axis of profile.payoffTags) if (axes.has(axis)) return true;
+  return false;
+}
+
+/** True when a card carries a utility broad-tag (ramp / tutor / draw). */
+function cardIsUtility(card: CardRecord): boolean {
+  const profile = buildSynergyProfile(card);
+  for (const tag of profile.broadTags) if (UTILITY_BROAD_TAGS.has(tag)) return true;
+  return false;
 }
 
 /**
  * A coarse "shape" signature for a scored card: its sorted role set plus the
- * offline synergy signal tags. Used by the Flaw 6 diversity quota to detect
- * card shapes NOT already represented among the offline top-N candidates.
+ * offline synergy signal tags. Used by the diversity quota to detect card
+ * shapes NOT already represented among the offline top-N candidates.
  */
 function cardShapeSignature(s: ScoredCard): string {
   const roles = assignRoles(s.card).slice().sort().join(",");
@@ -153,26 +215,41 @@ function cardShapeSignature(s: ScoredCard): string {
 }
 
 /**
- * Flaw 6 mitigation. The LLM only ever sees the offline scorer's top-N
- * candidates, so a systematic offline bias can silently gate entire card shapes
- * out of the LLM's universe. From the candidates ranked BELOW the digest cutoff
- * (never deck cards), pick up to `quota` whose role/tag signature is absent from
- * the top-N candidate set — surfacing under-represented shapes without inflating
- * the token budget (the caller swaps these in for marginal top-N candidates).
+ * From the candidates ranked BELOW the digest cutoff (never deck cards), pick a
+ * quota per independent inclusion signal. Buckets are filled in priority order
+ * (synergy → utility → shape diversity); within each bucket the highest-scoring
+ * qualifying cards win (overflow arrives pre-sorted by score). A card is never
+ * picked twice. The result is an ordered list of swap-in candidates.
  */
-function selectDiverseOverflow(topScored: ScoredCard[], overflow: ScoredCard[], quota: number): ScoredCard[] {
-  if (quota <= 0 || overflow.length === 0) return [];
-  const covered = new Set(topScored.filter((s) => !s.fromDeck).map(cardShapeSignature));
-  const picks: ScoredCard[] = [];
-  for (const s of overflow) {
-    if (picks.length >= quota) break;
-    const sig = cardShapeSignature(s);
-    if (!covered.has(sig)) {
-      picks.push(s);
-      covered.add(sig);
+export function selectSignalOverflow(
+  topScored: ScoredCard[],
+  overflow: ScoredCard[],
+  deckAxes: Set<MechanicAxis>,
+  quotas: OverflowQuotas,
+): ScoredCard[] {
+  if (overflow.length === 0) return [];
+  const picked = new Set<string>();
+  const out: ScoredCard[] = [];
+  const take = (predicate: (s: ScoredCard) => boolean, quota: number): void => {
+    if (quota <= 0) return;
+    let taken = 0;
+    for (const s of overflow) {
+      if (taken >= quota) break;
+      if (picked.has(s.card.oracleId)) continue;
+      if (!predicate(s)) continue;
+      out.push(s);
+      picked.add(s.card.oracleId);
+      taken++;
     }
-  }
-  return picks;
+  };
+  // 1. Synergy-axis overlap with the deck's seeds/locked cards.
+  take((s) => cardHitsAxes(s.card, deckAxes), quotas.synergy);
+  // 2. Utility broad-tags (ramp / tutor / draw).
+  take((s) => cardIsUtility(s.card), quotas.utility);
+  // 3. Shape diversity: role/tag signatures absent from the offline top-N.
+  const covered = new Set(topScored.filter((s) => !s.fromDeck).map(cardShapeSignature));
+  take((s) => !covered.has(cardShapeSignature(s)), quotas.diverse);
+  return out;
 }
 
 function scoreNonlandPool(
@@ -180,7 +257,7 @@ function scoreNonlandPool(
   allCards: CardRecord[],
   digestLimit: number,
   deckOracleIds?: Set<string>
-): { scored: ScoredCard[]; lands: CardRecord[]; targetAvgCmc: number; fullPoolSize: number; diverseOverflow: ScoredCard[] } {
+): { scored: ScoredCard[]; lands: CardRecord[]; targetAvgCmc: number; fullPoolSize: number; signalOverflow: ScoredCard[] } {
   const fullPool = buildPool(allCards, options);
   const nonland = fullPool.filter((c) => !c.typeLine.includes("Land"));
   const lands = fullPool.filter(
@@ -197,8 +274,15 @@ function scoreNonlandPool(
     .sort((a, b) => b.score - a.score);
   const scored = sortedAll.slice(0, digestLimit);
   const overflow = sortedAll.slice(digestLimit).filter((s) => !s.fromDeck);
-  const diverseOverflow = selectDiverseOverflow(scored, overflow, diversityQuotaFor(digestLimit));
-  return { scored, lands, targetAvgCmc, fullPoolSize: fullPool.length, diverseOverflow };
+  // Independent inclusion signals: synergy axes come from every deck-related
+  // entry, not just seedEntries, so focus/prefer intent also widens the slate.
+  const deckAxes = deckSynergyAxes([
+    ...(options.seedEntries ?? []),
+    ...(options.focusEntries ?? []),
+    ...(options.preferEntries ?? []),
+  ]);
+  const signalOverflow = selectSignalOverflow(scored, overflow, deckAxes, overflowQuotasFor(digestLimit));
+  return { scored, lands, targetAvgCmc, fullPoolSize: fullPool.length, signalOverflow };
 }
 
 function digestScoredCard(s: ScoredCard): string {
@@ -280,7 +364,7 @@ export function buildAIPrompts(
     for (const entry of entries) deckOracleIds.add(entry.card.oracleId);
   }
 
-  const { scored, lands, fullPoolSize, diverseOverflow } = scoreNonlandPool(options, allCards, digestLimit, deckOracleIds);
+  const { scored, lands, fullPoolSize, signalOverflow } = scoreNonlandPool(options, allCards, digestLimit, deckOracleIds);
   const fullPoolIds = new Set(buildPool(allCards, options).map((card) => card.oracleId));
 
   // Separate scored cards into deck cards (user's current picks) and pool candidates.
@@ -294,14 +378,20 @@ export function buildAIPrompts(
   const remainingSlots = Math.max(0, digestLimit - deckCardsInDigest.length);
   let poolCardsInDigest = poolCards.slice(0, remainingSlots);
 
-  // Flaw 6 mitigation: swap a small tail of the candidate slots for tag-diverse
-  // cards drawn from BELOW the offline top-N cutoff, so the offline scorer can't
-  // fully gate the LLM's candidate universe. Swapping (rather than appending)
-  // keeps the digest — and therefore the token budget — the same size.
-  if (diverseOverflow.length > 0 && poolCardsInDigest.length > 0) {
+  // Flaw #6 redesign: swap a bounded tail of the candidate slots for cards
+  // selected by INDEPENDENT inclusion signals (synergy-axis overlap, utility
+  // broad-tags, shape diversity) drawn from BELOW the offline top-N cutoff, so
+  // the offline scorer is no longer the sole gate on the LLM's candidate
+  // universe. Swapping (rather than appending) keeps the digest — and therefore
+  // the token budget — the same size. `signalOverflow` is pre-ordered so the
+  // most connected picks land first when the swap budget is tight.
+  if (signalOverflow.length > 0 && poolCardsInDigest.length > 0) {
     const inDigestIds = new Set(poolCardsInDigest.map((s) => s.card.oracleId));
-    const quota = Math.min(diverseOverflow.length, Math.max(1, Math.round(poolCardsInDigest.length * 0.1)));
-    const picks = diverseOverflow.filter((s) => !inDigestIds.has(s.card.oracleId)).slice(0, quota);
+    const swapBudget = Math.min(
+      poolCardsInDigest.length,
+      Math.max(1, Math.round(poolCardsInDigest.length * 0.15))
+    );
+    const picks = signalOverflow.filter((s) => !inDigestIds.has(s.card.oracleId)).slice(0, swapBudget);
     if (picks.length > 0) {
       poolCardsInDigest = [...poolCardsInDigest.slice(0, poolCardsInDigest.length - picks.length), ...picks];
     }

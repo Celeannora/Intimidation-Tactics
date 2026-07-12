@@ -1,7 +1,8 @@
 import { describe, expect, it, vi, afterEach } from "vitest";
 import type { CardRecord } from "../../types";
 import type { GenerateOptions } from "../../generator/types";
-import { buildAIPrompts, buildDeltaDigest, clampAINonlandSpine, salvageDeckJSON, validateAIProposal, SEQUENTIAL_DELTA_CANDIDATE_LIMIT } from "../aiGenerator";
+import { buildAIPrompts, buildDeltaDigest, clampAINonlandSpine, salvageDeckJSON, validateAIProposal, SEQUENTIAL_DELTA_CANDIDATE_LIMIT, selectSignalOverflow, deckSynergyAxes, type ScoredCard } from "../aiGenerator";
+import { cardScoreDetail } from "../../generator/weights";
 import { OllamaProvider } from "../ollama";
 
 function makeCard(overrides: Partial<CardRecord> & { name: string; typeLine?: string; oracleText?: string }): CardRecord {
@@ -729,5 +730,72 @@ describe("feasibility / out-of-pool re-prompt gate (Fix 1 & 4)", () => {
     expect(n).toBe(2);
     // The unresolved-name degradation is surfaced to the user (Fix 8).
     expect(result.warnings?.some((w) => /pool|dropped|could not be matched/i.test(w))).toBe(true);
+  });
+});
+
+describe("candidate inclusion decoupled from offline ranking (Flaw #6)", () => {
+  // Build a ScoredCard the way scoreNonlandPool does, but with an explicit score
+  // so we can place a card BELOW the digest cutoff on purpose.
+  const scored = (card: CardRecord, score: number): ScoredCard => ({
+    card,
+    score,
+    detail: cardScoreDetail(card, [], options, 3),
+    fromDeck: false,
+  });
+
+  it("surfaces a low-offline-score card whose synergy axis overlaps the seeds, and skips an axis-less higher-score card", () => {
+    // Seed strategy: +1/+1 counters (proliferate source → "counters" axis).
+    const seed = makeCard({
+      name: "Proliferate Seed",
+      typeLine: "Sorcery",
+      oracleText: "Proliferate.",
+    });
+    const deckAxes = deckSynergyAxes([{ card: seed, quantity: 1, board: "main" }]);
+    expect(deckAxes.has("counters")).toBe(true);
+
+    // A genuine counters payoff the offline heuristic underrates in isolation.
+    const synergyPayoff = makeCard({
+      name: "Counter Payoff",
+      typeLine: "Creature — Beast",
+      oracleText: "Counter Payoff gets +1/+0 for each +1/+1 counter among creatures you control.",
+    });
+    // A vanilla body with NO synergy axis — but a *higher* offline score.
+    const axisLess = makeCard({
+      name: "Vanilla Beater",
+      typeLine: "Creature — Beast",
+      oracleText: "",
+    });
+
+    // Both sit below the digest cutoff; overflow arrives pre-sorted by score, so
+    // the axis-less card (higher score) is FIRST — proving selection is not just
+    // "take the top of overflow".
+    const overflow = [scored(axisLess, 50), scored(synergyPayoff, 5)];
+
+    // Isolate the synergy bucket: no utility / diversity picks.
+    const picks = selectSignalOverflow([], overflow, deckAxes, {
+      synergy: 5,
+      utility: 0,
+      diverse: 0,
+    });
+
+    const pickedNames = picks.map((p) => p.card.name);
+    // Reachable despite the lowest score in the pool …
+    expect(pickedNames).toContain("Counter Payoff");
+    // … while the axis-less higher-score card is NOT surfaced by this signal.
+    expect(pickedNames).not.toContain("Vanilla Beater");
+  });
+
+  it("surfaces nothing from the synergy bucket when the deck has no synergy axes", () => {
+    const synergyPayoff = makeCard({
+      name: "Counter Payoff",
+      typeLine: "Creature — Beast",
+      oracleText: "Counter Payoff gets +1/+0 for each +1/+1 counter among creatures you control.",
+    });
+    const picks = selectSignalOverflow([], [scored(synergyPayoff, 5)], new Set(), {
+      synergy: 5,
+      utility: 0,
+      diverse: 0,
+    });
+    expect(picks).toHaveLength(0);
   });
 });
