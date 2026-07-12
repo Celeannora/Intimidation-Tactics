@@ -200,7 +200,7 @@ export function GeneratorPanel() {
       const types = new Set<string>();
       for (const card of cards) {
         if (!card.typeLine.includes("Creature")) continue;
-        const parts = card.typeLine.split(/[—\-]/);
+        const parts = card.typeLine.split(/[—-]/);
         if (parts.length < 2) continue;
         for (const t of parts[1].split(/\s+/).map((s) => s.trim()).filter(Boolean)) {
           if (t.length >= 2) types.add(t);
@@ -910,7 +910,7 @@ export function GeneratorPanel() {
                         })()}
                       </div>
                       <p className="mt-1 text-[10px] text-zinc-600">
-                        S = step · +N = cards added · →N = cumulative nonland locked
+                        S = step · +N = cards added · →N = cumulative nonland locked
                       </p>
                     </div>
                   </div>
