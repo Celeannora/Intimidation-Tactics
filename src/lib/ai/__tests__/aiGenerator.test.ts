@@ -223,6 +223,17 @@ describe("salvageDeckJSON", () => {
     expect(salvaged.main).toEqual([{ name: "Test Beast", qty: 4, reason: "efficient threat" }]);
     expect(salvaged.side).toEqual([{ name: "Naturalize", qty: 2, reason: "artifact answer" }]);
   });
+
+  // Fix 8: the old `/\{[^{}]*\}/g` object matcher broke on any nested braces and
+  // silently produced zero entries. The hardened matcher tolerates one level of
+  // nesting (e.g. a metadata sub-object) so those cards are still recovered.
+  it("recovers entries when an object contains one level of nested braces", () => {
+    const salvaged = salvageDeckJSON(
+      `{"summary":"x","main":[{"name":"Test Beast","qty":4,"reason":"threat","meta":{"tier":1}},{"name":"Second Beast","qty":2,"reason":"backup"}]}`
+    );
+    expect(salvaged.main.map((m) => m.name)).toEqual(["Test Beast", "Second Beast"]);
+    expect(salvaged.main[0].qty).toBe(4);
+  });
 });
 
 
@@ -358,7 +369,7 @@ describe("clampAINonlandSpine", () => {
 // generateDeckAISequential
 // ────────────────────────────────────────────────────────────────────────────
 
-import { generateDeckAISequential } from "../aiGenerator";
+import { generateDeckAISequential, generateDeckAI, createCallBudget, CallBudgetExceededError, DEFAULT_CALL_BUDGET } from "../aiGenerator";
 import type { AIProvider, AIGenerationRequest } from "../provider";
 
 /** Build a minimal pool of N unique creature cards. */
@@ -407,17 +418,19 @@ function makeBatchProvider(pool: CardRecord[], batchSize: number, callLog: strin
     isReady: async () => true,
     generate: async (req: AIGenerationRequest) => {
       // Pull the next batchSize cards from the pool that haven't been emitted yet.
+      // Fix 5 changed the delta-step spine summary to a multi-line format where
+      // each locked card is its own line: `${qty}× ${name} (CMC${cmc}) [roles]
+      // score=N "oracle"`. Extract locked names from those lines across all user
+      // messages. Candidate-digest lines use a different `name | ...` shape and
+      // never start with `${qty}× `, so this cannot pick them up by accident.
       const alreadyLocked = new Set<string>();
+      const lineRe = /^\d+× (.+?) \(CMC\d+\)/gm;
       for (const msg of req.messages) {
-        if (msg.role === "user") {
-          // Extract any names mentioned in "Confirmed nonland spine"
-          const m = msg.content.match(/Confirmed nonland spine so far[^:]*:\s*([^\n]+)/);
-          if (m) {
-            for (const part of m[1].split(";")) {
-              const nm = part.trim().replace(/^\d+× /, "");
-              if (nm && nm !== "(none yet)") alreadyLocked.add(nm);
-            }
-          }
+        if (msg.role !== "user") continue;
+        let m: RegExpExecArray | null;
+        while ((m = lineRe.exec(msg.content)) !== null) {
+          const nm = m[1].trim();
+          if (nm && nm !== "(none yet)") alreadyLocked.add(nm);
         }
       }
       const batch = pool.filter((c) => !alreadyLocked.has(c.name)).slice(0, batchSize);
@@ -604,5 +617,117 @@ describe("generateDeckAISequential", () => {
     // Should still produce a valid deck (defensive default of 4 kicks in).
     expect(result.entries.filter((e) => e.board === "main").length).toBeGreaterThan(0);
     expect(callLog.length).toBeGreaterThan(0);
+  });
+});
+
+describe("call budget guard (Fix 7)", () => {
+  it("createCallBudget defaults to the module ceiling and clamps to >= 1", () => {
+    expect(createCallBudget().ceiling).toBe(DEFAULT_CALL_BUDGET);
+    expect(createCallBudget().used).toBe(0);
+    expect(createCallBudget(0).ceiling).toBe(1);
+    expect(createCallBudget(20).ceiling).toBe(20);
+  });
+
+  it("CallBudgetExceededError carries the ceiling", () => {
+    const e = new CallBudgetExceededError(5);
+    expect(e.ceiling).toBe(5);
+    expect(e.name).toBe("CallBudgetExceededError");
+  });
+
+  it("stops the sequential chain at the shared ceiling and surfaces a warning", async () => {
+    const pool = makePool(40);
+    const callLog: string[][] = [];
+    const provider = makeBatchProvider(pool, 2, callLog);
+    const budget = createCallBudget(2);
+
+    const result = await generateDeckAISequential(
+      { ...options, aiSequentialStepSize: 2 },
+      pool,
+      provider,
+      { callBudget: budget }
+    );
+
+    // The provider is invoked exactly `ceiling` times, then the guard fires.
+    expect(callLog.length).toBe(2);
+    expect(budget.used).toBe(2);
+    // The deck is still finalized from the cards locked before the ceiling…
+    expect(result.entries.filter((e) => e.board === "main").length).toBeGreaterThan(0);
+    // …and the early stop is surfaced to the user, not just logged.
+    expect(result.warnings?.some((w) => /call budget/i.test(w))).toBe(true);
+  });
+});
+
+describe("feasibility / out-of-pool re-prompt gate (Fix 1 & 4)", () => {
+  /**
+   * Provider that emits `bad` on the first call (containing an out-of-pool
+   * name) and `good` on every subsequent call. Records how many times it ran.
+   */
+  function makeRepromptProvider(pool: CardRecord[]): { provider: AIProvider; calls: () => number } {
+    let n = 0;
+    const good = (extra: { name: string; qty: number; reason: string }[] = []) => ({
+      summary: "Green midrange",
+      game_plan: "Curve out and swing.",
+      main: [...pool.slice(0, 20).map((c) => ({ name: c.name, qty: 2, reason: "beater" })), ...extra],
+      side: [],
+    });
+    const provider: AIProvider = {
+      id: "mock",
+      label: "Mock",
+      isReady: async () => true,
+      generate: async () => {
+        n++;
+        if (n === 1) {
+          // First pass proposes a card that is NOT in the pool → unresolvedNames.
+          return JSON.stringify(good([{ name: "Totally Fake Nonexistent Card", qty: 2, reason: "oops" }]));
+        }
+        return JSON.stringify(good());
+      },
+    };
+    return { provider, calls: () => n };
+  }
+
+  it("re-prompts exactly once when the first proposal references an out-of-pool card", async () => {
+    const pool = makePool(40);
+    const { provider, calls } = makeRepromptProvider(pool);
+
+    const result = await generateDeckAI({ ...options, aiIterations: 1 }, pool, provider);
+
+    // One generation pass + exactly one bounded re-prompt = 2 provider calls.
+    expect(calls()).toBe(2);
+    // The re-prompt path must be recorded in the reasoning trail.
+    expect(result.diagnostics.reasoning.some((r) => /re-prompt/i.test(r))).toBe(true);
+    expect(result.entries.filter((e) => e.board === "main").length).toBeGreaterThan(0);
+  });
+
+  it("caps the re-prompt at 1 even when the second proposal is still dirty", async () => {
+    // Both passes reference an out-of-pool name, so the issue never clears.
+    // The gate must still fire exactly once (2 total calls), keep the original
+    // deck, and surface the problem rather than looping.
+    const pool = makePool(40);
+    let n = 0;
+    const dirty = () => ({
+      summary: "Green midrange",
+      game_plan: "Curve out and swing.",
+      main: [
+        ...pool.slice(0, 20).map((c) => ({ name: c.name, qty: 2, reason: "beater" })),
+        { name: "Totally Fake Nonexistent Card", qty: 2, reason: "oops" },
+      ],
+      side: [],
+    });
+    const provider: AIProvider = {
+      id: "mock",
+      label: "Mock",
+      isReady: async () => true,
+      generate: async () => {
+        n++;
+        return JSON.stringify(dirty());
+      },
+    };
+
+    const result = await generateDeckAI({ ...options, aiIterations: 1 }, pool, provider);
+    // Exactly one re-prompt — never an unbounded loop.
+    expect(n).toBe(2);
+    // The unresolved-name degradation is surfaced to the user (Fix 8).
+    expect(result.warnings?.some((w) => /pool|dropped|could not be matched/i.test(w))).toBe(true);
   });
 });

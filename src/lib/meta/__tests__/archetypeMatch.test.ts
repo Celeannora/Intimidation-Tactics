@@ -104,9 +104,12 @@ describe("matchArchetype", () => {
     }
   });
 
-  it("accepts a colour-only match (macro differs) when it clears the floor unambiguously", () => {
-    // Query macro differs from the tracked archetype, but colours align
-    // exactly (0.6) and the runner-up is far behind (0.3) → clear accept.
+  it("rejects a same-colour, wrong-macro deck (colour overlap alone cannot carry a match)", () => {
+    // BEHAVIOUR FIX (audit Flaw #5 / Fix 6): previously this asserted the deck
+    // was ACCEPTED at 0.6 on colour identity alone, letting a WB "Combo"
+    // homebrew inherit a WB "Midrange" netdeck's real win rate. The macro
+    // precondition now rejects it. Colours align exactly (0.6) but the macro
+    // disagrees, so no candidate is eligible.
     const ds = makeDataset({
       archetypes: [
         { id: "azorius-tempo", name: "Azorius Tempo", colors: ["W", "U"], macro: "Aggro", winRate: 52, sampleSize: 6000 },
@@ -114,10 +117,43 @@ describe("matchArchetype", () => {
       ],
     });
     const m = matchArchetype({ archetype: "Control", colors: ["W", "U"] }, ds);
-    // Best is azorius-tempo: colour 1.0·0.6 + macro 0 = 0.6.
-    // Runner-up mono-white-aggro: colour 0.5·0.6 + macro 0 = 0.3. Margin 0.3.
+    // Best overall clears the 0.5 confidence floor (0.6) but its macro is 0,
+    // so the match is rejected as macro-mismatch rather than accepted.
+    expect(m.matched).toBe(false);
+    expect(m.reason).toBe("macro-mismatch");
     expect(m.candidate?.name).toBe("Azorius Tempo");
-    expect(m.matched).toBe(true);
     expect(m.confidence).toBeCloseTo(0.6, 5);
+  });
+
+  it("still accepts a same-colour deck when the macro also agrees", () => {
+    // Control guardrail for the fix above: identical colours AND matching macro
+    // must still match (colour 1.0·0.6 + macro 1.0·0.4 = 1.0).
+    const ds = makeDataset({
+      archetypes: [
+        { id: "orzhov-midrange", name: "Orzhov Midrange", colors: ["W", "B"], macro: "Midrange", winRate: 51, sampleSize: 6000 },
+      ],
+    });
+    const m = matchArchetype({ archetype: "Midrange", colors: ["W", "B"] }, ds);
+    expect(m.matched).toBe(true);
+    expect(m.candidate?.name).toBe("Orzhov Midrange");
+    expect(m.confidence).toBeCloseTo(1.0, 5);
+  });
+
+  it("prefers a lower-colour-overlap but macro-agreeing candidate over a higher colour-only one", () => {
+    // The macro precondition means a same-colour wrong-macro deck (0.6, macro 0)
+    // is ineligible, while a partial-colour right-macro deck that still clears
+    // the floor is eligible and wins.
+    const ds = makeDataset({
+      archetypes: [
+        { id: "azorius-control", name: "Azorius Control", colors: ["W", "U"], macro: "Control", winRate: 53, sampleSize: 8000 },
+        { id: "mono-white-aggro", name: "Mono-White Aggro", colors: ["W"], macro: "Aggro", winRate: 54, sampleSize: 8000 },
+      ],
+    });
+    // Query is WU Aggro. Azorius Control: colour 1.0·0.6 + macro 0 = 0.6 (macro 0 → ineligible).
+    // Mono-White Aggro: colour 0.5·0.6 + macro 1.0·0.4 = 0.7 (macro 1 → eligible).
+    const m = matchArchetype({ archetype: "Aggro", colors: ["W", "U"] }, ds);
+    expect(m.matched).toBe(true);
+    expect(m.candidate?.name).toBe("Mono-White Aggro");
+    expect(m.confidence).toBeCloseTo(0.7, 5);
   });
 });

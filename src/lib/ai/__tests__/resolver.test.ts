@@ -106,6 +106,42 @@ describe("fuzzy fallback", () => {
   });
 });
 
+describe("prefix/substring ambiguity guards (Fix 3)", () => {
+  it("rejects a prefix shorthand that ties between two distinct cards", () => {
+    // "sacred cat" and "sacred cow" are equally specific under the prefix "sacred c".
+    const cards = [makeCard("Sacred Cat"), makeCard("Sacred Cow")];
+    const m = resolveCardMatch("Sacred C", cards);
+    expect(m).toBeNull();
+  });
+
+  it("still resolves a prefix when one distinct card is clearly more specific", () => {
+    // "Lightning Bolt" (len 14) beats "Lightning Strike" (len 16) on specificity
+    // by 2 chars — a clear winner, so the prefix tier binds it.
+    const cards = [makeCard("Lightning Bolt"), makeCard("Lightning Strike")];
+    const m = resolveCardMatch("Lightning B", cards);
+    expect(m?.card.name).toBe("Lightning Bolt");
+    expect(m?.matchKind).toBe("prefix");
+  });
+
+  it("collapses multiple printings of the same card (same oracleId) — not ambiguous", () => {
+    // Two DB rows, different printings, SAME oracleId: a real single card.
+    const printings = [
+      makeCard("Llanowar Elves", { id: "printA", oracleId: "shared-oracle" }),
+      makeCard("Llanowar Elves", { id: "printB", oracleId: "shared-oracle" }),
+    ];
+    const m = resolveCardMatch("Llanow", printings);
+    expect(m?.card.oracleId).toBe("shared-oracle");
+    expect(m?.matchKind).toBe("prefix");
+  });
+
+  it("rejects a substring shorthand that ties between two distinct cards", () => {
+    // Both contain "sun" as a substring and are equally specific (13 chars each).
+    const cards = [makeCard("Red Sun Blade"), makeCard("Big Sun Blade")];
+    const m = resolveCardMatch("sun", cards);
+    expect(m).toBeNull();
+  });
+});
+
 describe("resolveCardName (compat)", () => {
   it("returns the card or null", () => {
     expect(resolveCardName("Shock", pool)?.name).toBe("Shock");

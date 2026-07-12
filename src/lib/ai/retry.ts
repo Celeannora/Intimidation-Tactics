@@ -37,12 +37,40 @@ function errorMessage(err: unknown): string {
 }
 
 /**
- * Extract an HTTP status code from an Error message shaped like
- * `"OpenAI 429: ..."` / `"Ollama 503: ..."` / `"llama.cpp 500: ..."`, which is
- * how the provider classes surface non-ok responses.
+ * Read an HTTP status from a structured field on the error object. This is the
+ * preferred, unambiguous source: `err.status` (fetch/undici, our providers),
+ * `err.statusCode` (some HTTP libs), `err.response.status` (axios-style), or
+ * `err.cause.status` (wrapped errors).
+ */
+function structuredStatus(err: unknown): number | null {
+  if (typeof err !== "object" || err === null) return null;
+  const e = err as {
+    status?: unknown;
+    statusCode?: unknown;
+    response?: { status?: unknown } | null;
+    cause?: { status?: unknown } | null;
+  };
+  const candidates = [e.status, e.statusCode, e.response?.status, e.cause?.status];
+  for (const c of candidates) {
+    if (typeof c === "number" && Number.isFinite(c)) return c;
+    if (typeof c === "string" && /^\d{3}$/.test(c.trim())) return Number(c.trim());
+  }
+  return null;
+}
+
+/**
+ * Extract an HTTP status code from an error. Prefers a structured status field
+ * ({@link structuredStatus}); falls back ONLY to the tightly-anchored provider
+ * message shape `"<Provider> <status>: <body>"` (e.g. `"OpenAI 429: ..."`,
+ * `"llama.cpp 500: ..."`). The old implementation scraped any bare 3-digit
+ * number anywhere in the message, so an error body quoting a count or a card
+ * name containing "500" could be mis-classified as a retryable status. Anchoring
+ * to the `<name> <ddd>:` prefix removes that false-positive surface.
  */
 function statusFromError(err: unknown): number | null {
-  const m = /\b(408|425|429|500|502|503|504)\b/.exec(errorMessage(err));
+  const structured = structuredStatus(err);
+  if (structured != null) return structured;
+  const m = /^\s*[A-Za-z][\w.\- ]*?\s(\d{3})\s*:/.exec(errorMessage(err));
   return m ? Number(m[1]) : null;
 }
 

@@ -21,9 +21,9 @@ import { enforceLandFloor } from "../generator/generator";
 import { recommendLandCount } from "../manaBase";
 import type { ManaColor } from "../types";
 import { resolveLines } from "./resolver";
-import type { AIProvider, AIChatMessage as ChatMessage } from "./provider";
+import type { AIProvider, AIChatMessage as ChatMessage, AIGenerationRequest } from "./provider";
 import { DECK_JSON_SCHEMA } from "./deckSchema";
-import { checkFeasibility, type ProposedEntry } from "./feasibilityChecker";
+import { checkFeasibility, type ProposedEntry, type FeasibilityResult } from "./feasibilityChecker";
 // ── sonar.md metrics (Task B) ─────────────────────────────────────────────────
 import { computeMythicViability } from "../mythicViability";
 import { validateSynergyPairs } from "../generator/synergyConstraints";
@@ -51,6 +51,68 @@ export interface AIGenerateConfig {
   onRaw?: (raw: string) => void;
   /** Called at the start of every iteration (1-indexed) so the UI can reset its streaming buffer. */
   onPassStart?: (pass: number, totalPasses: number) => void;
+  /**
+   * Fix 7: shared ceiling on the total number of provider calls made within a
+   * single top-level generation. The one-shot path (auto-refine passes +
+   * bounded re-prompt), the sequential seed-chain (one call per step), and the
+   * chat-refine loop each create a budget if none is supplied and thread it
+   * through their nested calls, so a pathological combination of loops can never
+   * fan out into an unbounded number of provider round-trips. When the budget is
+   * exhausted the current call throws {@link CallBudgetExceededError}; callers
+   * degrade gracefully (keep the best deck so far) and surface a warning.
+   */
+  callBudget?: AICallBudget;
+}
+
+/** Fix 7: global provider-call ceiling shared across a single generation. */
+export interface AICallBudget {
+  /** Maximum number of provider calls permitted for this generation. */
+  ceiling: number;
+  /** Number of provider calls consumed so far. */
+  used: number;
+}
+
+/** Default ceiling: enough for 4 auto-refine passes + a re-prompt + refine loop, but bounded. */
+export const DEFAULT_CALL_BUDGET = 15;
+
+/** Create a fresh call budget. Ceiling is clamped to a sane minimum of 1. */
+export function createCallBudget(ceiling: number = DEFAULT_CALL_BUDGET): AICallBudget {
+  return { ceiling: Math.max(1, Math.round(ceiling)), used: 0 };
+}
+
+/** Thrown by {@link invokeProvider} when the shared call budget is exhausted. */
+export class CallBudgetExceededError extends Error {
+  constructor(public readonly ceiling: number) {
+    super(
+      `AI call budget exhausted (${ceiling} provider call${ceiling === 1 ? "" : "s"}). ` +
+      `Stopping to avoid unbounded fan-out from nested retry/refine loops.`
+    );
+    this.name = "CallBudgetExceededError";
+  }
+}
+
+/**
+ * Single choke-point for every provider round-trip. Increments the shared call
+ * budget (if one is configured) BEFORE dispatching and throws
+ * {@link CallBudgetExceededError} once the ceiling is reached, so nested loops
+ * cannot multiply provider calls without bound. Mirrors the existing
+ * "stream when a token callback is present, else plain generate" dispatch.
+ */
+async function invokeProvider(
+  provider: AIProvider,
+  req: AIGenerationRequest,
+  config: AIGenerateConfig,
+  onToken?: (chunk: string) => void
+): Promise<string> {
+  const budget = config.callBudget;
+  if (budget) {
+    if (budget.used >= budget.ceiling) throw new CallBudgetExceededError(budget.ceiling);
+    budget.used += 1;
+  }
+  if (provider.generateStream && onToken) {
+    return provider.generateStream(req, onToken);
+  }
+  return provider.generate(req);
 }
 
 /**
@@ -74,12 +136,51 @@ interface ScoredCard {
   fromDeck?: boolean;
 }
 
+/** Flaw 6 mitigation: how many tag-diverse cards to surface from below the top-N cutoff. */
+function diversityQuotaFor(digestLimit: number): number {
+  return Math.max(2, Math.round(digestLimit * 0.1));
+}
+
+/**
+ * A coarse "shape" signature for a scored card: its sorted role set plus the
+ * offline synergy signal tags. Used by the Flaw 6 diversity quota to detect
+ * card shapes NOT already represented among the offline top-N candidates.
+ */
+function cardShapeSignature(s: ScoredCard): string {
+  const roles = assignRoles(s.card).slice().sort().join(",");
+  const tags = scoreSignalTags(s.detail).slice().sort().join(",");
+  return `${roles}|${tags}`;
+}
+
+/**
+ * Flaw 6 mitigation. The LLM only ever sees the offline scorer's top-N
+ * candidates, so a systematic offline bias can silently gate entire card shapes
+ * out of the LLM's universe. From the candidates ranked BELOW the digest cutoff
+ * (never deck cards), pick up to `quota` whose role/tag signature is absent from
+ * the top-N candidate set — surfacing under-represented shapes without inflating
+ * the token budget (the caller swaps these in for marginal top-N candidates).
+ */
+function selectDiverseOverflow(topScored: ScoredCard[], overflow: ScoredCard[], quota: number): ScoredCard[] {
+  if (quota <= 0 || overflow.length === 0) return [];
+  const covered = new Set(topScored.filter((s) => !s.fromDeck).map(cardShapeSignature));
+  const picks: ScoredCard[] = [];
+  for (const s of overflow) {
+    if (picks.length >= quota) break;
+    const sig = cardShapeSignature(s);
+    if (!covered.has(sig)) {
+      picks.push(s);
+      covered.add(sig);
+    }
+  }
+  return picks;
+}
+
 function scoreNonlandPool(
   options: GenerateOptions,
   allCards: CardRecord[],
   digestLimit: number,
   deckOracleIds?: Set<string>
-): { scored: ScoredCard[]; lands: CardRecord[]; targetAvgCmc: number; fullPoolSize: number } {
+): { scored: ScoredCard[]; lands: CardRecord[]; targetAvgCmc: number; fullPoolSize: number; diverseOverflow: ScoredCard[] } {
   const fullPool = buildPool(allCards, options);
   const nonland = fullPool.filter((c) => !c.typeLine.includes("Land"));
   const lands = fullPool.filter(
@@ -88,14 +189,16 @@ function scoreNonlandPool(
   const target = blendRoleTargets(options.archetype, options.secondaryArchetypes);
   const targetAvgCmc = targetAvgCmcFor(options, target.maxAvgCmc);
   const seedEntries = options.seedEntries ?? [];
-  const scored: ScoredCard[] = nonland
+  const sortedAll: ScoredCard[] = nonland
     .map((card) => {
       const detail = cardScoreDetail(card, seedEntries, options, targetAvgCmc);
       return { card, score: detail.total, detail, fromDeck: deckOracleIds?.has(card.oracleId) ?? false };
     })
-    .sort((a, b) => b.score - a.score)
-    .slice(0, digestLimit);
-  return { scored, lands, targetAvgCmc, fullPoolSize: fullPool.length };
+    .sort((a, b) => b.score - a.score);
+  const scored = sortedAll.slice(0, digestLimit);
+  const overflow = sortedAll.slice(digestLimit).filter((s) => !s.fromDeck);
+  const diverseOverflow = selectDiverseOverflow(scored, overflow, diversityQuotaFor(digestLimit));
+  return { scored, lands, targetAvgCmc, fullPoolSize: fullPool.length, diverseOverflow };
 }
 
 function digestScoredCard(s: ScoredCard): string {
@@ -177,7 +280,7 @@ export function buildAIPrompts(
     for (const entry of entries) deckOracleIds.add(entry.card.oracleId);
   }
 
-  const { scored, lands, fullPoolSize } = scoreNonlandPool(options, allCards, digestLimit, deckOracleIds);
+  const { scored, lands, fullPoolSize, diverseOverflow } = scoreNonlandPool(options, allCards, digestLimit, deckOracleIds);
   const fullPoolIds = new Set(buildPool(allCards, options).map((card) => card.oracleId));
 
   // Separate scored cards into deck cards (user's current picks) and pool candidates.
@@ -189,7 +292,20 @@ export function buildAIPrompts(
   const DECK_SLOT_MAX = Math.max(1, Math.floor(digestLimit * 0.6));
   const deckCardsInDigest = deckCards.slice(0, DECK_SLOT_MAX);
   const remainingSlots = Math.max(0, digestLimit - deckCardsInDigest.length);
-  const poolCardsInDigest = poolCards.slice(0, remainingSlots);
+  let poolCardsInDigest = poolCards.slice(0, remainingSlots);
+
+  // Flaw 6 mitigation: swap a small tail of the candidate slots for tag-diverse
+  // cards drawn from BELOW the offline top-N cutoff, so the offline scorer can't
+  // fully gate the LLM's candidate universe. Swapping (rather than appending)
+  // keeps the digest — and therefore the token budget — the same size.
+  if (diverseOverflow.length > 0 && poolCardsInDigest.length > 0) {
+    const inDigestIds = new Set(poolCardsInDigest.map((s) => s.card.oracleId));
+    const quota = Math.min(diverseOverflow.length, Math.max(1, Math.round(poolCardsInDigest.length * 0.1)));
+    const picks = diverseOverflow.filter((s) => !inDigestIds.has(s.card.oracleId)).slice(0, quota);
+    if (picks.length > 0) {
+      poolCardsInDigest = [...poolCardsInDigest.slice(0, poolCardsInDigest.length - picks.length), ...picks];
+    }
+  }
 
   // Build the section-labeled digest text.
   const digestParts: string[] = [];
@@ -304,20 +420,35 @@ export function buildDeltaDigest(
   const spineNonland = lockedSpine.filter(
     (e) => e.board !== "side" && !e.card.typeLine.includes("Land")
   );
-  const spineSummary = spineNonland.length
-    ? spineNonland.map((e) => `${e.quantity}× ${e.card.name}`).join("; ")
-    : "(none yet)";
 
   const lockedIds = new Set(lockedSpine.map((e) => e.card.oracleId));
   // Re-score against the growing spine, then keep only fresh (un-locked) cards.
   // Over-fetch so post-filter still leaves a full candidate slate.
   const stepOptions: GenerateOptions = { ...options, seedEntries: lockedSpine };
-  const { scored } = scoreNonlandPool(
+  const { scored, targetAvgCmc } = scoreNonlandPool(
     stepOptions,
     allCards,
     candidateLimit + lockedIds.size + 40,
     lockedIds
   );
+
+  // Fix 5: enrich the spine summary with a compact per-card line (role tags,
+  // offline score, short oracle snippet) instead of bare "${qty}× ${name}".
+  // Reasoning over names alone made long sequential builds drift into redundant
+  // or anti-synergistic picks. We deliberately keep each line far leaner than a
+  // full digest line (60-char oracle vs 120, roles+score only, no full score
+  // breakdown), so the ~60–70% token reduction vs the full digest is preserved.
+  const spineSummary = spineNonland.length
+    ? spineNonland
+        .map((e) => {
+          const roles = assignRoles(e.card).join(",") || "—";
+          const detail = cardScoreDetail(e.card, lockedSpine, stepOptions, targetAvgCmc);
+          const oracle = (e.card.oracleText ?? "").replace(/\s+/g, " ").trim().slice(0, 60);
+          return `${e.quantity}× ${e.card.name} (CMC${e.card.cmc}) [${roles}] score=${detail.total.toFixed(0)}${oracle ? ` "${oracle}"` : ""}`;
+        })
+        .join("\n")
+    : "(none yet)";
+
   const candidates = scored.filter((s) => !lockedIds.has(s.card.oracleId)).slice(0, candidateLimit);
   const candidateDigest = candidates.map(digestScoredCard).join("\n");
   return { spineSummary, candidateDigest, candidateCount: candidates.length };
@@ -348,6 +479,9 @@ export async function generateDeckAI(
   const digestLimit = config.digestLimit ?? DEFAULT_DIGEST_LIMIT;
   const temperature = config.temperature ?? DEFAULT_AI_TEMPERATURE;
   const iterations = Math.max(1, Math.min(4, options.aiIterations ?? 1));
+  // Fix 7: establish (or reuse) the shared provider-call budget for this generation.
+  config = { ...config, callBudget: config.callBudget ?? createCallBudget() };
+  let budgetHit = false;
 
   const reasoning: string[] = [
     `Engine: AI feed (${provider.label})`,
@@ -378,13 +512,14 @@ export async function generateDeckAI(
     let raw: string;
     try {
       const req = { messages: [...messages], temperature, maxTokens: DEFAULT_AI_MAX_TOKENS, signal: config.signal, timeoutMs: config.timeoutMs, jsonSchema: DECK_JSON_SCHEMA };
-      if (provider.generateStream && config.onToken) {
-        raw = await provider.generateStream(req, config.onToken);
-      } else {
-        raw = await provider.generate(req);
-      }
+      raw = await invokeProvider(provider, req, config, config.onToken);
       if (i === iterations - 1) config.onRaw?.(raw);
     } catch (e) {
+      if (e instanceof CallBudgetExceededError) {
+        reasoning.push(`${passLabel}: ${e.message}`);
+        budgetHit = true;
+        break;
+      }
       reasoning.push(`${passLabel}: AI call failed (${e instanceof Error ? e.message : String(e)}).`);
       break;
     }
@@ -421,11 +556,75 @@ export async function generateDeckAI(
     );
   }
 
+  // ── Fix 1 & 4: single bounded re-prompt on a hard feasibility failure or
+  // out-of-pool card names. This turns the feasibility checker from a passive
+  // logger into a real (if lenient) gate: we feed the exact violations /
+  // unresolved names back to the model ONCE and adopt the retry only if it is
+  // strictly cleaner (or at least as high-scoring). If it still fails, we keep
+  // the original deck but the issues remain surfaced in `warnings`.
+  let transcriptMessages: ChatMessage[] = messages;
+  const signal = best.repromptSignal;
+  const needsReprompt = !!signal && (!!signal.rejectionSummary || signal.unresolvedNames.length > 0);
+  if (needsReprompt && lastRawJSON && signal) {
+    const feedbackParts: string[] = [];
+    if (signal.rejectionSummary) feedbackParts.push(signal.rejectionSummary);
+    if (signal.unresolvedNames.length > 0) {
+      feedbackParts.push(
+        `These card name(s) are NOT in the legal pool and could not be resolved — do NOT use them again; replace each with an EXACT name from the pool provided earlier: ${signal.unresolvedNames.slice(0, 20).join(", ")}.`
+      );
+    }
+    const repromptMessages: ChatMessage[] = [
+      ...messages,
+      { role: "assistant", content: lastRawJSON },
+      { role: "user", content: feedbackParts.join("\n\n") },
+    ];
+    reasoning.push("— Feasibility/out-of-pool re-prompt (1 attempt) —");
+    config.onPassStart?.(iterations + 1, iterations + 1);
+    try {
+      const req = { messages: repromptMessages, temperature, maxTokens: DEFAULT_AI_MAX_TOKENS, signal: config.signal, timeoutMs: config.timeoutMs, jsonSchema: DECK_JSON_SCHEMA };
+      const raw = await invokeProvider(provider, req, config, config.onToken);
+      config.onRaw?.(raw);
+      const passReasoning: string[] = [];
+      const retry = buildResultFromAIResponse(options, allCards, raw, passReasoning, targetMainboardSize);
+      if (retry) {
+        for (const line of passReasoning) reasoning.push(`  ${line}`);
+        const before = (signal.rejectionSummary ? 1 : 0) + signal.unresolvedNames.length;
+        const rs = retry.repromptSignal;
+        const after = (rs?.rejectionSummary ? 1 : 0) + (rs?.unresolvedNames.length ?? 0);
+        const cleaner = !rs?.rejectionSummary && (rs?.unresolvedNames.length ?? 0) <= signal.unresolvedNames.length && after < before;
+        if (cleaner || retry.diagnostics.deckScore >= best.diagnostics.deckScore) {
+          reasoning.push(`Re-prompt adopted: hard issues ${before} → ${after}, score ${best.diagnostics.deckScore.toFixed(1)} → ${retry.diagnostics.deckScore.toFixed(1)}.`);
+          best = retry;
+          lastRawJSON = stripCodeFences(raw);
+          transcriptMessages = repromptMessages;
+        } else {
+          reasoning.push(`Re-prompt did not improve construction (issues ${before} → ${after}); keeping original deck with issues surfaced as warnings.`);
+        }
+      } else {
+        reasoning.push("Re-prompt produced no usable cards; keeping original deck with issues surfaced as warnings.");
+      }
+    } catch (e) {
+      if (e instanceof CallBudgetExceededError) {
+        reasoning.push(`Re-prompt skipped: ${e.message}`);
+        budgetHit = true;
+      } else {
+        reasoning.push(`Re-prompt failed (${e instanceof Error ? e.message : String(e)}); keeping original deck with issues surfaced as warnings.`);
+      }
+    }
+  }
+
+  if (budgetHit) {
+    best.warnings = [
+      ...(best.warnings ?? []),
+      `AI generation stopped early: the provider call budget (${config.callBudget?.ceiling} calls) was reached. The returned deck may reflect fewer refinement passes than requested.`,
+    ];
+  }
+
   best.diagnostics.reasoning = [...reasoning, "— Best iteration retained —", ...best.diagnostics.reasoning];
 
   // Attach final transcript: include the latest assistant JSON response so the
   // user can chat further with full context.
-  const finalMessages: ChatMessage[] = [...messages];
+  const finalMessages: ChatMessage[] = [...transcriptMessages];
   if (lastRawJSON) finalMessages.push({ role: "assistant", content: lastRawJSON });
   (best as GenerateResult & { transcript?: AIChatTranscript }).transcript = { messages: finalMessages };
   return best;
@@ -485,6 +684,9 @@ export async function generateDeckAISequential(
   const formatRules = getFormatRules(options.format);
   const digestLimit = config.digestLimit ?? DEFAULT_DIGEST_LIMIT;
   const temperature = config.temperature ?? DEFAULT_AI_TEMPERATURE;
+  // Fix 7: establish (or reuse) the shared provider-call budget for this generation.
+  config = { ...config, callBudget: config.callBudget ?? createCallBudget() };
+  let budgetHit = false;
 
   // Nonland budget: 60 % of the mainboard (midpoint of the 55–65 % heuristic).
   const nonlandBudget = Math.round(targetMainboardSize * 0.60);
@@ -551,7 +753,8 @@ export async function generateDeckAISequential(
         role: "user",
         content: [
           `Step ${stepIndex} of ~${totalSteps}.`,
-          `Confirmed nonland spine so far (${seedNonlandCopies()} copies): ${spineSummary}.`,
+          `Confirmed nonland spine so far (${seedNonlandCopies()} copies) — each line is qty× name (CMC) [roles] score "oracle":`,
+          spineSummary,
           `Top re-scored candidates NOT yet in the spine (same column format as step 1):`,
           candidateDigest || "(no fresh candidates remain)",
           ``,
@@ -565,12 +768,13 @@ export async function generateDeckAISequential(
     let raw: string;
     try {
       const req = { messages: [...messages], temperature, maxTokens: DEFAULT_AI_MAX_TOKENS, signal: config.signal, timeoutMs: config.timeoutMs, jsonSchema: DECK_JSON_SCHEMA };
-      if (provider.generateStream && config.onToken) {
-        raw = await provider.generateStream(req, config.onToken);
-      } else {
-        raw = await provider.generate(req);
-      }
+      raw = await invokeProvider(provider, req, config, config.onToken);
     } catch (e) {
+      if (e instanceof CallBudgetExceededError) {
+        reasoning.push(`${passLabel}: ${e.message} Finalizing with the spine locked so far.`);
+        budgetHit = true;
+        break;
+      }
       reasoning.push(`${passLabel}: AI call failed (${e instanceof Error ? e.message : String(e)}); aborting chain.`);
       break;
     }
@@ -642,6 +846,13 @@ export async function generateDeckAISequential(
     reasoning.push("Sequential AI produced no usable cards; falling back to the offline engine.");
     const fallback = generateOffline({ ...options, engine: "offline" }, allCards);
     fallback.diagnostics.reasoning = [...reasoning, ...fallback.diagnostics.reasoning];
+    // Fix 8c: this is a silent-degradation seam — the user asked for an AI build
+    // and is getting a purely heuristic one. Surface it prominently, not just in
+    // the reasoning log.
+    fallback.warnings = [
+      ...(fallback.warnings ?? []),
+      "The AI produced no usable cards during the sequential build, so this deck was generated entirely by the offline heuristic engine — it is NOT an AI-authored deck.",
+    ];
     return fallback;
   }
   const syntheticJSON = JSON.stringify({
@@ -667,6 +878,12 @@ export async function generateDeckAISequential(
   }
 
   result.diagnostics.reasoning = finalPassReasoning;
+  if (budgetHit) {
+    result.warnings = [
+      ...(result.warnings ?? []),
+      `AI generation stopped early: the provider call budget (${config.callBudget?.ceiling} calls) was reached during the sequential build. The deck was finalized from the cards locked before the ceiling.`,
+    ];
+  }
 
   const finalMessages: ChatMessage[] = [...messages];
   finalMessages.push({ role: "assistant", content: syntheticJSON });
@@ -691,6 +908,8 @@ export async function refineDeckAI(
 ): Promise<GenerateResult & { transcript: AIChatTranscript }> {
   const targetMainboardSize = normalizedMainboardSize(options);
   const temperature = config.temperature ?? DEFAULT_AI_TEMPERATURE;
+  // Fix 7: establish (or reuse) the shared provider-call budget for this generation.
+  config = { ...config, callBudget: config.callBudget ?? createCallBudget() };
 
   const wrapped =
     `User feedback on the previous deck:\n${userMessage.trim()}\n\n` +
@@ -703,12 +922,7 @@ export async function refineDeckAI(
 
   config.onPassStart?.(1, 1);
   const req = { messages, temperature, maxTokens: DEFAULT_AI_MAX_TOKENS, signal: config.signal, timeoutMs: config.timeoutMs, jsonSchema: DECK_JSON_SCHEMA };
-  let raw: string;
-  if (provider.generateStream && config.onToken) {
-    raw = await provider.generateStream(req, config.onToken);
-  } else {
-    raw = await provider.generate(req);
-  }
+  const raw = await invokeProvider(provider, req, config, config.onToken);
   config.onRaw?.(raw);
 
   const passReasoning: string[] = [
@@ -794,6 +1008,9 @@ export async function runRefinementLoop(
 ): Promise<GenerateResult & { transcript?: AIChatTranscript }> {
   let current = initialResult;
   let transcript: AIChatTranscript = (current as GenerateResult & { transcript?: AIChatTranscript }).transcript ?? { messages: [] };
+  // Fix 7: one budget shared across every refine iteration in this loop so the
+  // loop cannot fan out beyond the ceiling. refineDeckAI reuses it via config.
+  config = { ...config, callBudget: config.callBudget ?? createCallBudget() };
 
   for (let i = 0; i < maxIterations; i++) {
     const mv = current.mythicViability;
@@ -806,8 +1023,16 @@ export async function runRefinementLoop(
       const refined = await refineDeckAI(options, allCards, provider, transcript, prompt, config);
       transcript = refined.transcript;
       current = refined;
-    } catch {
-      // If the AI call fails mid-loop, keep the last good result
+    } catch (e) {
+      // If the AI call fails mid-loop, keep the last good result. When the loop
+      // stops because the shared call budget ran out, surface it to the user
+      // rather than silently ending refinement.
+      if (e instanceof CallBudgetExceededError) {
+        current.warnings = [
+          ...(current.warnings ?? []),
+          `Automated refinement stopped early: the provider call budget (${config.callBudget?.ceiling} calls) was reached. Showing the best deck found so far.`,
+        ];
+      }
       break;
     }
   }
@@ -866,6 +1091,7 @@ function buildResultFromAIResponse(
   reasoning: string[],
   targetMainboardSize: number
 ): GenerateResult | null {
+  const warnings: string[] = [];
   let parsed: Parsed;
   try {
     parsed = JSON.parse(stripCodeFences(raw));
@@ -877,6 +1103,10 @@ function buildResultFromAIResponse(
       return null;
     }
     reasoning.push(`Salvaged ${salvaged.main.length} main / ${salvaged.side.length} side entries from truncated JSON.`);
+    warnings.push(
+      `The AI's response was not valid JSON; ${salvaged.main.length + salvaged.side.length} card entr` +
+      `${salvaged.main.length + salvaged.side.length === 1 ? "y was" : "ies were"} recovered by a best-effort text scraper. The deck may be missing cards the AI intended.`
+    );
     parsed = { main: salvaged.main, side: salvaged.side, summary: salvaged.summary, game_plan: salvaged.game_plan };
   }
 
@@ -910,8 +1140,12 @@ function buildResultFromAIResponse(
     options,
   });
   appendAIProposalValidationReasoning(proposalValidation, reasoning);
-  if (unresolved.length > 0) {
-    reasoning.push(`Dropped ${unresolved.length} unresolved card name(s): ${unresolved.slice(0, 6).map((u) => u.name).join(", ")}${unresolved.length > 6 ? "…" : ""}`);
+  const unresolvedNames = unresolved.map((u) => u.name);
+  if (unresolvedNames.length > 0) {
+    reasoning.push(`Dropped ${unresolvedNames.length} unresolved card name(s): ${unresolvedNames.slice(0, 6).join(", ")}${unresolvedNames.length > 6 ? "…" : ""}`);
+    warnings.push(
+      `${unresolvedNames.length} card name(s) the AI proposed could not be matched to any legal card in the pool and were dropped: ${unresolvedNames.slice(0, 8).join(", ")}${unresolvedNames.length > 8 ? `, and ${unresolvedNames.length - 8} more` : ""}.`
+    );
   }
 
   const aggregated = new Map<string, DeckEntry>();
@@ -1005,7 +1239,15 @@ function buildResultFromAIResponse(
   // — land count, interaction/threat minimums, color identity, copy limits —
   // that the score-based pipeline can otherwise mask. Only meaningful for the
   // 60-card constructed formats the checker was calibrated against.
-  appendFeasibilityReasoning(entries, options, reasoning);
+  const feasibility = appendFeasibilityReasoning(entries, options, reasoning);
+  let rejectionSummary: string | undefined;
+  if (feasibility && !feasibility.isAcceptable) {
+    const hard = feasibility.violations.filter((v) => v.severity === "hard");
+    rejectionSummary = feasibility.rejectionSummary;
+    warnings.push(
+      `This deck has ${hard.length} unresolved construction issue(s): ${hard.map((v) => v.detail).slice(0, 4).join(" ")}`.trim()
+    );
+  }
 
   reasoning.push("— Offline pipeline (AI cards as soft preferences) —");
   for (const line of offlineRun.diagnostics.reasoning) reasoning.push(line);
@@ -1093,6 +1335,8 @@ function buildResultFromAIResponse(
     tempoScore,
     cardAdvantageScore,
     synergyViolations,
+    warnings: warnings.length > 0 ? warnings : undefined,
+    repromptSignal: { rejectionSummary, unresolvedNames },
   };
 }
 
@@ -1181,28 +1425,31 @@ function appendAIProposalValidationReasoning(validation: AIProposalValidationRes
 }
 
 /**
- * Run the structural feasibility checker over the assembled mainboard and append
- * any violations to the reasoning log. Advisory only — never rejects the deck.
+ * Run the structural feasibility checker over the assembled mainboard, append
+ * any violations to the reasoning log, and RETURN the result so the generation
+ * loop can gate on hard violations (a single bounded re-prompt — see
+ * generateDeckAI). A bug in the checker must never abort generation, so any
+ * internal error degrades to "no result" rather than throwing.
+ *
  * The checker was calibrated for 60-card constructed decks, so it is skipped for
- * other mainboard sizes (e.g. Commander) to avoid noisy false positives.
+ * other mainboard sizes (e.g. Commander), returning null.
  */
 function appendFeasibilityReasoning(
   entries: DeckEntry[],
   options: GenerateOptions,
   reasoning: string[]
-): void {
+): FeasibilityResult | null {
   const mainboard = entries.filter((e) => e.board === "main");
   const totalMain = mainboard.reduce((s, e) => s + e.quantity, 0);
   // The feasibility rules (20–27 lands, ==60 deck size) only make sense for
   // standard 60-card constructed decks; skip for singleton/other sizes.
-  if (totalMain < 55 || totalMain > 65) return;
+  if (totalMain < 55 || totalMain > 65) return null;
 
   const proposed: ProposedEntry[] = mainboard.map((e) => ({ card: e.card, quantity: e.quantity }));
   const seedCards = (options.seedEntries ?? []).map((e) => e.card);
-  // Diagnostics only — a bug in the checker must never abort generation.
   try {
-    const feasibility = checkFeasibility(proposed, seedCards);
-    if (feasibility.violations.length === 0) return;
+    const feasibility = checkFeasibility(proposed, seedCards, options.format);
+    if (feasibility.violations.length === 0) return feasibility;
 
     const hard = feasibility.violations.filter((v) => v.severity === "hard");
     const soft = feasibility.violations.filter((v) => v.severity === "soft");
@@ -1216,8 +1463,10 @@ function appendFeasibilityReasoning(
         `Feasibility check: ${soft.length} soft note(s) — ${soft.map((v) => `[${v.rule}] ${v.detail}`).slice(0, 3).join(" | ")}`
       );
     }
+    return feasibility;
   } catch (e) {
     reasoning.push(`Feasibility check skipped (internal error: ${e instanceof Error ? e.message : String(e)})`);
+    return null;
   }
 }
 
@@ -1357,7 +1606,10 @@ export function salvageDeckJSON(text: string): {
 
   const parseEntries = (section: string): { name: string; qty: number; reason?: string }[] => {
     const out: { name: string; qty: number; reason?: string }[] = [];
-    const objRe = /\{[^{}]*\}/g;
+    // Match a card entry object, tolerating ONE level of nested braces (e.g. a
+    // metadata sub-object the model tucked into an entry). The previous
+    // `/\{[^{}]*\}/g` broke on any nesting and silently produced zero entries.
+    const objRe = /\{(?:[^{}]|\{[^{}]*\})*\}/g;
     let m: RegExpExecArray | null;
     while ((m = objRe.exec(section)) !== null) {
       const obj = m[0];
