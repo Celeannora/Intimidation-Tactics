@@ -14,6 +14,7 @@ import {
   type MTGKeyword,
 } from "../config/scoringConfig";
 import { computeMetaPerformance } from "../meta/metaScoring";
+import { computeCardAdvantageScore } from "../scoreEngine";
 import {
   ARCHETYPE_PROFILES,
   computeProfileLoss,
@@ -206,6 +207,31 @@ function deadCardPenalty(card: CardRecord, roles: CardRole[], options: GenerateO
   return penalty;
 }
 
+/**
+ * Reward the deck-general utility captured by broadTags (ramp/tutor/draw) when
+ * it lines up with what the archetype actually wants. broadTags were previously
+ * only consumed by engineRole classification; this surfaces their value directly
+ * in card selection.
+ *
+ * - Tutor in a Combo deck: +3 (finding the combo piece is the whole plan).
+ * - Ramp in a Ramp/Control deck: +2 (accelerates into payoffs / stabilises).
+ * - Card draw when the deck is card-starved (cardAdvantageScore < 40): +2.
+ *
+ * Capped at +3 total so a single card can't stack every bonus.
+ */
+export function broadTagBonus(
+  card: CardRecord,
+  broadTags: Set<string>,
+  deckContext: { archetype: Archetype; cardAdvantageScore: number }
+): number {
+  if (card.typeLine.includes("Land")) return 0;
+  let bonus = 0;
+  if (broadTags.has("tutor") && deckContext.archetype === "Combo") bonus += 3;
+  if (broadTags.has("ramp") && (deckContext.archetype === "Ramp" || deckContext.archetype === "Control")) bonus += 2;
+  if (broadTags.has("draw") && deckContext.cardAdvantageScore < 40) bonus += 2;
+  return Math.min(3, bonus);
+}
+
 export function cardScore(
   card: CardRecord,
   deckSoFar: DeckEntry[],
@@ -236,6 +262,7 @@ export interface CardScoreDetail {
   focusCardBonus: number;
   preferCardBonus: number;
   tribalBonus: number;
+  broadTagBonus: number;
   cmcPenalty: number;
   pricePenalty: number;
 }
@@ -260,6 +287,10 @@ export function cardScoreDetail(
     .map((e) => buildSynergyProfile(e.card));
   const deckAxes = keywordFocusToAxes(options.keywordFocus ?? []);
   const profile = buildSynergyProfile(card);
+  const broadBonus = broadTagBonus(card, profile.broadTags, {
+    archetype: options.archetype,
+    cardAdvantageScore: computeCardAdvantageScore(deckSoFar),
+  });
   const directional = axisScore(card, profile, deckAxes, deckProfiles);
   const connectionSummary = summarizeSynergyConnections(profile, deckProfiles);
   const synergyMultiplier = synergyDensityMultiplier(connectionSummary);
@@ -301,7 +332,8 @@ export function cardScoreDetail(
     focus +
     focusCard +
     preferCard +
-    tribal -
+    tribal +
+    broadBonus -
     cmcPen -
     pricePen -
     deadCardPen;
@@ -327,6 +359,7 @@ export function cardScoreDetail(
     focusCardBonus: focusCard,
     preferCardBonus: preferCard,
     tribalBonus: tribal,
+    broadTagBonus: broadBonus,
     cmcPenalty: cmcPen,
     pricePenalty: pricePen + deadCardPen,
   };
