@@ -3,7 +3,7 @@ import { searchCards, type CardFilters, type SortField } from "../lib/search";
 import type { CardRecord } from "../lib/types";
 import { useDeckStore } from "../store/deckStore";
 import { computeSynergyScoreV2 } from "../lib/generator/synergyModel";
-import { quickSynergyView } from "../lib/analysis/reasoningView";
+import { cardSynergyTags, quickSynergyView } from "../lib/analysis/reasoningView";
 
 const COLORS = ["W", "U", "B", "R", "G"];
 const COLOR_LABEL: Record<string, string> = {
@@ -25,7 +25,7 @@ function ColorBadge({ colors }: { colors: string[] }) {
   );
 }
 
-function CardRow({
+export function CardRow({
   card,
   deckCards,
   onAdd,
@@ -44,9 +44,13 @@ function CardRow({
   const synergy = deckCards.length > 0
     ? computeSynergyScoreV2(card, deckCards.map(c => ({ card: c, quantity: 1, board: "main" as const })))
     : null;
-  // Richer breakdown for the inline quick-check; only derived when the panel is open.
+  // Richer breakdown for the inline quick-check. Against a populated deck we show
+  // partner synergy; with an empty deck we fall back to the card's own axis tags.
   const synergyDetail = synergyOpen && deckCards.length > 0
     ? quickSynergyView(card, deckCards)
+    : null;
+  const cardTags = synergyOpen && deckCards.length === 0
+    ? cardSynergyTags(card)
     : null;
   const colors = JSON.parse(card.colorIdentityJson) as string[];
 
@@ -87,22 +91,20 @@ function CardRow({
           </div>
           <p className="text-xs text-zinc-500 truncate">{card.typeLine}</p>
         </button>
-        {deckCards.length > 0 && (
-          <button
-            onClick={() => setSynergyOpen((v) => !v)}
-            className={`shrink-0 rounded px-2 py-1 text-xs font-medium transition-colors ${
-              synergyOpen
-                ? "bg-teal-800 text-teal-100"
-                : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200"
-            }`}
-            aria-expanded={synergyOpen}
-            aria-controls={synergyPanelId}
-            aria-label={`${synergyOpen ? "Hide" : "Show"} synergy details for ${card.name}`}
-            title="Synergy with current deck"
-          >
-            <span aria-hidden="true">≈</span>
-          </button>
-        )}
+        <button
+          onClick={() => setSynergyOpen((v) => !v)}
+          className={`shrink-0 rounded px-2 py-1 text-xs font-medium transition-colors ${
+            synergyOpen
+              ? "bg-teal-800 text-teal-100"
+              : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200"
+          }`}
+          aria-expanded={synergyOpen}
+          aria-controls={synergyPanelId}
+          aria-label={`${synergyOpen ? "Hide" : "Show"} synergy details for ${card.name}`}
+          title="Check card synergy"
+        >
+          <span aria-hidden="true">≈</span>
+        </button>
         <button
           onClick={() => onAdd(card)}
           className="shrink-0 rounded bg-teal-700 px-2.5 py-1 text-xs font-medium text-white hover:bg-teal-500"
@@ -131,49 +133,93 @@ function CardRow({
         </div>
       )}
 
-      {synergyOpen && synergyDetail && (
+      {synergyOpen && (
         <div id={synergyPanelId} className="mt-1 border-t border-zinc-800 pt-2 text-xs">
-          <div className="mb-1.5 flex items-center gap-2">
-            <span className="font-medium text-zinc-300">Synergy with deck</span>
-            <span className="text-zinc-500">score {synergyDetail.score}/30</span>
-          </div>
+          {synergyDetail ? (
+            <>
+              <div className="mb-1.5 flex items-center gap-2">
+                <span className="font-medium text-zinc-300">Synergy with deck</span>
+                <span className="text-zinc-500">score {synergyDetail.score}/30</span>
+              </div>
 
-          {synergyDetail.sharedAxes.length > 0 ? (
-            <div className="mb-1.5 flex flex-wrap items-center gap-1">
-              <span className="text-zinc-500">Shared axes:</span>
-              {synergyDetail.sharedAxes.map((axis) => (
-                <span
-                  key={axis}
-                  className="rounded-full border border-teal-800/60 bg-teal-900/40 px-1.5 py-0.5 text-[10px] text-teal-300"
-                >
-                  {axis}
-                </span>
-              ))}
-            </div>
-          ) : (
-            <p className="mb-1.5 text-zinc-500">No shared mechanic axes with the deck.</p>
-          )}
+              {synergyDetail.sharedAxes.length > 0 ? (
+                <div className="mb-1.5 flex flex-wrap items-center gap-1">
+                  <span className="text-zinc-500">Shared axes:</span>
+                  {synergyDetail.sharedAxes.map((axis) => (
+                    <span
+                      key={axis}
+                      className="rounded-full border border-teal-800/60 bg-teal-900/40 px-1.5 py-0.5 text-[10px] text-teal-300"
+                    >
+                      {axis}
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <p className="mb-1.5 text-zinc-500">No shared mechanic axes with the deck.</p>
+              )}
 
-          {synergyDetail.feeds.length > 0 && (
-            <p className="text-[11px] leading-snug text-zinc-400">
-              <span className="text-zinc-500">Feeds:</span> {synergyDetail.feeds.join(", ")}
-            </p>
-          )}
-          {synergyDetail.fedBy.length > 0 && (
-            <p className="text-[11px] leading-snug text-zinc-400">
-              <span className="text-zinc-500">Fed by:</span> {synergyDetail.fedBy.join(", ")}
-            </p>
-          )}
-          {synergyDetail.partnerCount === 0 && (
-            <p className="text-[11px] leading-snug text-zinc-500">
-              No direct source↔payoff partners in the deck yet.
-            </p>
-          )}
-          {synergyDetail.partnerCount > 0 && (
-            <p className="mt-1 text-[10px] text-zinc-600">
-              {synergyDetail.partnerCount} synergy partner{synergyDetail.partnerCount === 1 ? "" : "s"} in deck
-            </p>
-          )}
+              {synergyDetail.feeds.length > 0 && (
+                <p className="text-[11px] leading-snug text-zinc-400">
+                  <span className="text-zinc-500">Feeds:</span> {synergyDetail.feeds.join(", ")}
+                </p>
+              )}
+              {synergyDetail.fedBy.length > 0 && (
+                <p className="text-[11px] leading-snug text-zinc-400">
+                  <span className="text-zinc-500">Fed by:</span> {synergyDetail.fedBy.join(", ")}
+                </p>
+              )}
+              {synergyDetail.partnerCount === 0 && (
+                <p className="text-[11px] leading-snug text-zinc-500">
+                  No direct source↔payoff partners in the deck yet.
+                </p>
+              )}
+              {synergyDetail.partnerCount > 0 && (
+                <p className="mt-1 text-[10px] text-zinc-600">
+                  {synergyDetail.partnerCount} synergy partner{synergyDetail.partnerCount === 1 ? "" : "s"} in deck
+                </p>
+              )}
+            </>
+          ) : cardTags ? (
+            <>
+              <div className="mb-1.5 font-medium text-zinc-300">Card synergy tags</div>
+              <p className="mb-1.5 text-[11px] leading-snug text-zinc-500">
+                Your deck is empty — add a few cards first to see partner synergy. Meanwhile, here is what this card brings on its own:
+              </p>
+
+              {cardTags.sourceAxes.length > 0 && (
+                <div className="mb-1 flex flex-wrap items-center gap-1">
+                  <span className="text-zinc-500">Produces:</span>
+                  {cardTags.sourceAxes.map((axis) => (
+                    <span
+                      key={`src-${axis}`}
+                      className="rounded-full border border-teal-800/60 bg-teal-900/40 px-1.5 py-0.5 text-[10px] text-teal-300"
+                    >
+                      {axis}
+                    </span>
+                  ))}
+                </div>
+              )}
+              {cardTags.payoffAxes.length > 0 && (
+                <div className="mb-1 flex flex-wrap items-center gap-1">
+                  <span className="text-zinc-500">Pays off:</span>
+                  {cardTags.payoffAxes.map((axis) => (
+                    <span
+                      key={`pay-${axis}`}
+                      className="rounded-full border border-amber-800/60 bg-amber-900/30 px-1.5 py-0.5 text-[10px] text-amber-300"
+                    >
+                      {axis}
+                    </span>
+                  ))}
+                </div>
+              )}
+              {cardTags.sourceAxes.length === 0 && cardTags.payoffAxes.length === 0 && (
+                <p className="mb-1 text-[11px] leading-snug text-zinc-500">
+                  No notable mechanic axes detected for this card.
+                </p>
+              )}
+              <p className="mt-1 text-[10px] text-zinc-600">Role: {cardTags.engineRole}</p>
+            </>
+          ) : null}
         </div>
       )}
     </div>
