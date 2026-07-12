@@ -10,6 +10,14 @@
 
 import type { CardScoreContribution } from "../generator/types";
 import type { SeedSynergyGraph, SynergyEdgeKind, SynergyGraphEdge } from "./synergyGraph";
+import type { CardRecord } from "../types";
+import type { MechanicAxis } from "../generator/synergyModel";
+import {
+  buildSynergyProfile,
+  computeSynergyScoreV2,
+  inferPrimaryAxes,
+  summarizeSynergyConnections,
+} from "../generator/synergyModel";
 
 // ── Card breakdown ─────────────────────────────────────────────────────────
 
@@ -148,4 +156,61 @@ export function topSynergyPairs(graph: SeedSynergyGraph | undefined, limit = 15)
     })
     .sort((x, y) => y.weight - x.weight || x.a.localeCompare(y.a) || x.b.localeCompare(y.b))
     .slice(0, limit);
+}
+
+// ── Quick synergy check (search-result affordance) ─────────────────────────
+
+/**
+ * A compact, display-ready synergy read for a single card against the current
+ * deck — powers the inline quick-check next to each search result. Relative to
+ * the bare 0–30 score badge it adds *why*: which of the deck's mechanic axes the
+ * card touches, and the specific in-deck cards it feeds or is fed by.
+ */
+export interface QuickSynergyView {
+  /** 0–30 composite synergy score (same scale as the row badge). */
+  score: number;
+  /** Deck mechanic axes this card sources or pays off, strongest deck axis first. */
+  sharedAxes: MechanicAxis[];
+  /** Up to 3 deck cards this card feeds (its source → their payoff). */
+  feeds: string[];
+  /** Up to 3 deck cards that feed this card (their source → its payoff). */
+  fedBy: string[];
+  /** Total distinct in-deck synergy partners. */
+  partnerCount: number;
+}
+
+/**
+ * Derive a {@link QuickSynergyView} for `card` against the mainboard `deckCards`.
+ * Pure and cheap: reuses the existing synergy-model primitives (profiles, axis
+ * inference, connection summary) rather than introducing new scoring. Lands in
+ * the deck are ignored as partners. Returns an empty (zeroed) view when the deck
+ * has no non-land cards to synergize with.
+ */
+export function quickSynergyView(card: CardRecord, deckCards: CardRecord[]): QuickSynergyView {
+  const deckProfiles = deckCards
+    .filter((c) => !c.typeLine.includes("Land"))
+    .map(buildSynergyProfile);
+
+  if (deckProfiles.length === 0) {
+    return { score: 0, sharedAxes: [], feeds: [], fedBy: [], partnerCount: 0 };
+  }
+
+  const profile = buildSynergyProfile(card);
+  const score = computeSynergyScoreV2(
+    card,
+    deckCards.map((c) => ({ card: c, quantity: 1, board: "main" as const })),
+  );
+
+  const deckAxes = inferPrimaryAxes(deckProfiles);
+  const cardAxes = new Set<MechanicAxis>([...profile.sourceTags, ...profile.payoffTags]);
+  const sharedAxes = deckAxes.filter((a) => cardAxes.has(a));
+
+  const conn = summarizeSynergyConnections(profile, deckProfiles);
+  return {
+    score,
+    sharedAxes,
+    feeds: conn.feeds.slice(0, 3),
+    fedBy: conn.fedBy.slice(0, 3),
+    partnerCount: conn.partners,
+  };
 }

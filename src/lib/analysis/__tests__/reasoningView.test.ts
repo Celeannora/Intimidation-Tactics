@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { CardScoreContribution } from "../../generator/types";
+import type { CardRecord } from "../../types";
 import type { SeedSynergyGraph, SynergyGraphEdge } from "../synergyGraph";
-import { buildCardBreakdown, buildCardBreakdowns, topSynergyPairs } from "../reasoningView";
+import { buildCardBreakdown, buildCardBreakdowns, quickSynergyView, topSynergyPairs } from "../reasoningView";
 
 function makeScore(overrides: Partial<CardScoreContribution> & { oracleId: string; name: string }): CardScoreContribution {
   return {
@@ -146,5 +147,89 @@ describe("topSynergyPairs", () => {
     const pairs = topSynergyPairs(graph, 2);
     expect(pairs.map((p) => p.weight)).toEqual([1.0, 0.8]);
     expect(pairs[0].kind).toBe("mutual-engine");
+  });
+});
+
+// ── Quick synergy view ──────────────────────────────────────────────────────
+
+function makeCard(name: string, oracleText: string, typeLine = "Creature — Test"): CardRecord {
+  return {
+    id: name,
+    oracleId: name,
+    name,
+    lang: "en",
+    layout: "normal",
+    cardFacesJson: null,
+    manaCost: "{1}{G}",
+    cmc: 2,
+    colorsJson: "[]",
+    colorIdentityJson: "[]",
+    typeLine,
+    oracleText,
+    keywordsJson: "[]",
+    power: "2",
+    toughness: "2",
+    loyalty: null,
+    producedManaJson: "[]",
+    legalityStandard: "legal",
+    legalityFuture: null,
+    bannedInStandard: 0,
+    setCode: "TST",
+    setName: "Test",
+    setType: null,
+    collectorNumber: null,
+    rarity: null,
+    imageNormal: null,
+    priceUsd: null,
+    priceUsdFoil: null,
+    priceEur: null,
+    edhrecRank: null,
+    gameChanger: 0,
+    flavorText: null,
+    artist: null,
+    searchText: "",
+    importedAt: "",
+  } as CardRecord;
+}
+
+describe("quickSynergyView", () => {
+  it("returns a zeroed view when the deck has no non-land cards", () => {
+    const candidate = makeCard("Token Maker", "Create a 1/1 green Saproling creature token.");
+    const view = quickSynergyView(candidate, []);
+    expect(view).toEqual({ score: 0, sharedAxes: [], feeds: [], fedBy: [], partnerCount: 0 });
+
+    // A lands-only deck also has no non-land partners.
+    const land = makeCard("Forest", "", "Basic Land — Forest");
+    expect(quickSynergyView(candidate, [land])).toEqual({ score: 0, sharedAxes: [], feeds: [], fedBy: [], partnerCount: 0 });
+  });
+
+  it("surfaces the shared axis and the in-deck payoff a source card feeds", () => {
+    const deck = [
+      makeCard("Token Maker A", "Create a 1/1 green Saproling creature token.", "Creature — Fungus"),
+      makeCard("Token Maker B", "Create a 1/1 white Soldier creature token.", "Creature — Soldier"),
+      makeCard("Token Lord", "Tokens you control get +1/+1.", "Enchantment"),
+    ];
+    const candidate = makeCard("Fresh Token Maker", "Create a 1/1 green Saproling creature token.", "Sorcery");
+
+    const view = quickSynergyView(candidate, deck);
+    expect(view.sharedAxes).toContain("tokens");
+    // Candidate's token source feeds the deck's token payoff.
+    expect(view.feeds).toContain("Token Lord");
+    expect(view.partnerCount).toBeGreaterThanOrEqual(1);
+    expect(view.score).toBeGreaterThan(0);
+  });
+
+  it("reports no shared axes for an off-theme card", () => {
+    const deck = [
+      makeCard("Token Maker A", "Create a 1/1 green Saproling creature token.", "Creature — Fungus"),
+      makeCard("Token Maker B", "Create a 1/1 white Soldier creature token.", "Creature — Soldier"),
+      makeCard("Token Lord", "Tokens you control get +1/+1.", "Enchantment"),
+    ];
+    const vanilla = makeCard("Plain Bear", "", "Creature — Bear");
+
+    const view = quickSynergyView(vanilla, deck);
+    expect(view.sharedAxes).toEqual([]);
+    expect(view.feeds).toEqual([]);
+    expect(view.fedBy).toEqual([]);
   });
 });

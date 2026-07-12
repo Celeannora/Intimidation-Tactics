@@ -1440,37 +1440,52 @@ export function GeneratorPanel() {
                 ))}
             </div>
           </details>
-          {active.deckSynergyGraph && topSynergyPairs(active.deckSynergyGraph, 15).length > 0 && (
-            <details className="mb-2">
-              <summary className="cursor-pointer text-zinc-400 hover:text-zinc-200">
-                Synergy pairs
-                <span className="ml-1 text-zinc-600">
-                  · {Math.round(active.deckSynergyGraph.weightedDensity * 100)}% weighted density
+          {/* Card synergy — promoted to an always-visible card (was a buried <details>) */}
+          <div className="mb-2 rounded-lg border border-teal-900/50 bg-teal-950/20 p-2.5">
+            <div className="mb-1 flex items-center gap-2">
+              <span className="text-sm font-medium text-teal-200">Card Synergy</span>
+              {active.deckSynergyGraph && (
+                <span className="text-[11px] text-zinc-500">
+                  {Math.round(active.deckSynergyGraph.weightedDensity * 100)}% weighted density
                 </span>
-              </summary>
-              <div className="mt-2 space-y-1">
-                <div className="mb-1 text-[11px] leading-snug text-zinc-500">
-                  Strongest card↔card relationships in the deck. Weight: mutual engine 1.0, source→payoff 0.8, shared axis 0.4.
-                </div>
-                {topSynergyPairs(active.deckSynergyGraph, 15).map((p) => (
-                  <div
-                    key={`${p.a}|${p.b}|${p.kind}|${p.axis}`}
-                    className="flex items-center gap-2 rounded border border-zinc-800 bg-zinc-950/60 p-2"
-                  >
-                    <span
-                      className="h-2 w-2 shrink-0 rounded-full"
-                      style={{ backgroundColor: `rgba(45, 212, 191, ${0.25 + p.weight * 0.75})` }}
-                      aria-hidden
-                    />
-                    <span className="flex-1 text-zinc-200">
-                      {p.a} <span className="text-zinc-500">↔</span> {p.b}
-                    </span>
-                    <span className="shrink-0 text-[10px] text-zinc-400">{p.label}</span>
+              )}
+            </div>
+            {(() => {
+              const pairs = active.deckSynergyGraph ? topSynergyPairs(active.deckSynergyGraph, 15) : [];
+              if (pairs.length === 0) {
+                return (
+                  <p className="text-[11px] leading-snug text-zinc-500">
+                    {active.deckSynergyGraph
+                      ? "This deck has no strong card-to-card synergy pairs detected."
+                      : "No synergy graph available for this deck — try regenerating."}
+                  </p>
+                );
+              }
+              return (
+                <div className="space-y-1">
+                  <div className="mb-1 text-[11px] leading-snug text-zinc-500">
+                    Strongest card↔card relationships in the deck. Weight: mutual engine 1.0, source→payoff 0.8, shared axis 0.4.
                   </div>
-                ))}
-              </div>
-            </details>
-          )}
+                  {pairs.map((p) => (
+                    <div
+                      key={`${p.a}|${p.b}|${p.kind}|${p.axis}`}
+                      className="flex items-center gap-2 rounded border border-zinc-800 bg-zinc-950/60 p-2"
+                    >
+                      <span
+                        className="h-2 w-2 shrink-0 rounded-full"
+                        style={{ backgroundColor: `rgba(45, 212, 191, ${0.25 + p.weight * 0.75})` }}
+                        aria-hidden
+                      />
+                      <span className="flex-1 text-zinc-200">
+                        {p.a} <span className="text-zinc-500">↔</span> {p.b}
+                      </span>
+                      <span className="shrink-0 text-[10px] text-zinc-400">{p.label}</span>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
+          </div>
           <details>
             <summary className="cursor-pointer text-zinc-400 hover:text-zinc-200">Reasoning log</summary>
             <ul className="mt-2 space-y-0.5 font-mono text-[11px] text-zinc-500">
