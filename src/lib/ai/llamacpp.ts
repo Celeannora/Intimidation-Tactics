@@ -12,6 +12,7 @@ export class LlamaCppProvider implements AIProvider {
   private apiKey: string;
   private defaultMaxTokens?: number;
   private defaultTimeoutMs?: number;
+  private useJsonSchema: boolean;
 
   constructor(settings: AISettings) {
     this.baseUrl = normalizeOpenAIBase(settings.llamaCppBaseUrl ?? "http://localhost:8080");
@@ -19,6 +20,7 @@ export class LlamaCppProvider implements AIProvider {
     this.apiKey = settings.llamaCppApiKey ?? "";
     this.defaultMaxTokens = settings.maxTokens;
     this.defaultTimeoutMs = settings.requestTimeoutMs;
+    this.useJsonSchema = settings.llamaCppUseJsonSchema ?? false;
   }
 
   async isReady(): Promise<boolean> {
@@ -43,20 +45,30 @@ export class LlamaCppProvider implements AIProvider {
   }
 
   private buildBody(req: AIGenerationRequest, stream: boolean): string {
-    // NOTE: response_format json_object/json_schema is intentionally NOT sent by
-    // default. Many LM Studio / llama.cpp model loadouts hang or silently refuse
-    // to emit tokens when grammar-constrained JSON mode is requested but the
-    // loaded model doesn't support it. We rely on the system prompt to request
-    // strict JSON instead. If a schema is explicitly supplied on the request we
-    // still avoid sending it here for the same safety reason; callers that know
-    // their backend supports it can extend this method.
-    return JSON.stringify({
+    // response_format json_schema is off by default: many LM Studio / llama.cpp
+    // loadouts hang or silently refuse to emit tokens when grammar-constrained
+    // JSON mode is requested but the loaded model doesn't support it, so we
+    // normally rely on the system prompt to request strict JSON. When the user
+    // opts in via the `llamaCppUseJsonSchema` setting AND a schema is supplied,
+    // send it using the OpenAI-compatible json_schema response_format.
+    const body: Record<string, unknown> = {
       model: this.model,
       messages: req.messages,
       temperature: req.temperature ?? 0.4,
       max_tokens: req.maxTokens ?? this.defaultMaxTokens ?? 2400,
       stream,
-    });
+    };
+    if (this.useJsonSchema && req.jsonSchema) {
+      body.response_format = {
+        type: "json_schema",
+        json_schema: {
+          name: req.jsonSchema.name,
+          schema: req.jsonSchema.schema,
+          strict: req.jsonSchema.strict ?? true,
+        },
+      };
+    }
+    return JSON.stringify(body);
   }
 
   async generate(req: AIGenerationRequest): Promise<string> {
