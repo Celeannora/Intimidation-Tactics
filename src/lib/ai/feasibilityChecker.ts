@@ -11,12 +11,17 @@
  *  1. Land count between 20–27 (60-card deck)
  *  2. At least 3 total removal / interaction spells
  *  3. At least 6 total threat/payoff cards
- *  4. Color identity must include all colors needed by seed cards
+ *  4. The assembled mana base must actually PRODUCE every colour the seed cards
+ *     need (checked against lands' produced mana, not colour-identity membership
+ *     of the whole list — the latter is self-satisfying because the seeds are
+ *     themselves in the list).
  *  5. No more than 4 copies of any non-basic-land card
- *  6. All cards Standard-legal (legalityStandard === 'legal' and bannedInStandard !== true)
+ *  6. All cards legal in the session's selected format (not hardcoded Standard).
  */
 
 import type { CardRecord, ManaColor } from "../types";
+import type { ConstructedFormat } from "../formats";
+import { isCardLegalInFormat, getFormatRules } from "../formats";
 import { assignRoles, isThreat } from "../roles";
 import { BASIC_LAND_NAMES } from "../legality";
 
@@ -49,7 +54,6 @@ const MAX_LANDS = 27;
 const MIN_REMOVAL = 3;
 const MIN_THREATS = 6;
 const MAX_COPIES_NON_BASIC = 4;
-const STANDARD_LEGAL_STATUS = "legal";
 
 // ── Main export ───────────────────────────────────────────────────────────────
 
@@ -57,12 +61,13 @@ const STANDARD_LEGAL_STATUS = "legal";
  * Check a proposed deck for structural feasibility violations.
  *
  * @param proposedEntries - Array of {card, quantity} pairs the LLM proposed.
- * @param seedCards - The seed cards the user originally specified (used for color-identity check).
+ * @param seedCards - The seed cards the user originally specified (used for the mana-production check).
+ * @param format - The session's selected constructed format. Defaults to Standard for back-compat.
  * @returns A FeasibilityResult with all violations found.
  *
  * @example
  * ```typescript
- * const result = checkFeasibility(proposedEntries, seedCards);
+ * const result = checkFeasibility(proposedEntries, seedCards, format);
  * if (!result.isAcceptable) {
  *   const repromptContext = result.rejectionSummary;
  *   // ... build reprompt
@@ -72,6 +77,7 @@ const STANDARD_LEGAL_STATUS = "legal";
 export function checkFeasibility(
   proposedEntries: ProposedEntry[],
   seedCards: CardRecord[],
+  format?: ConstructedFormat,
 ): FeasibilityResult {
   const violations: FeasibilityViolation[] = [];
 
@@ -124,24 +130,28 @@ export function checkFeasibility(
     });
   }
 
-  // ── Rule 4: Color identity covers all seed card requirements ─────────────
-  const deckColorIdentity = new Set<ManaColor>(
-    proposedEntries.flatMap((e) => parseColorIdentity(e.card))
-  );
+  // ── Rule 4: The mana base actually PRODUCES every seed colour ────────────
+  // We only count colours the *lands* can produce, so the check cannot be
+  // satisfied merely by the seeds being present in the list (their own colour
+  // identity used to leak into the deck-wide set, making this self-satisfying).
+  const producibleColors = new Set<ManaColor>();
+  for (const e of landEntries) {
+    for (const c of parseProducedMana(e.card)) producibleColors.add(c);
+  }
   const seedColorViolations: string[] = [];
   for (const seed of seedCards) {
     const seedColors = parseColorIdentity(seed);
-    const missing = seedColors.filter((c) => !deckColorIdentity.has(c));
+    const missing = seedColors.filter((c) => !producibleColors.has(c));
     if (missing.length > 0) {
       seedColorViolations.push(
-        `"${seed.name}" requires {${missing.join("}{")}} but deck has no ${missing.join("/")} sources`
+        `"${seed.name}" requires {${missing.join("}{")}} but the mana base produces no ${missing.join("/")}`
       );
     }
   }
   if (seedColorViolations.length > 0) {
     violations.push({
       rule: "seed-color-identity",
-      detail: `Color identity mismatch: ${seedColorViolations.join("; ")}.`,
+      detail: `Mana production mismatch: ${seedColorViolations.join("; ")}.`,
       severity: "hard",
     });
   }
@@ -168,23 +178,18 @@ export function checkFeasibility(
     }
   }
 
-  // ── Rule 6: All cards Standard-legal ─────────────────────────────────────
+  // ── Rule 6: All cards legal in the session's selected format ─────────────
+  const formatLabel = getFormatRules(format).label;
   const illegalCards: string[] = [];
   for (const entry of proposedEntries) {
-    const card = entry.card;
-    const isLegal =
-      card.legalityStandard === STANDARD_LEGAL_STATUS &&
-      !card.bannedInStandard;
-    if (!isLegal) {
-      illegalCards.push(
-        `"${card.name}" (legalityStandard=${card.legalityStandard ?? "unknown"}, banned=${!!card.bannedInStandard})`
-      );
+    if (!isCardLegalInFormat(entry.card, format)) {
+      illegalCards.push(`"${entry.card.name}"`);
     }
   }
   if (illegalCards.length > 0) {
     violations.push({
-      rule: "standard-legality",
-      detail: `${illegalCards.length} card(s) are not Standard-legal: ${illegalCards.slice(0, 5).join(", ")}${illegalCards.length > 5 ? ` ... and ${illegalCards.length - 5} more` : ""}. Replace them with legal alternatives.`,
+      rule: "format-legality",
+      detail: `${illegalCards.length} card(s) are not ${formatLabel}-legal: ${illegalCards.slice(0, 5).join(", ")}${illegalCards.length > 5 ? ` ... and ${illegalCards.length - 5} more` : ""}. Replace them with legal alternatives.`,
       severity: "hard",
     });
   }
@@ -218,8 +223,8 @@ function buildRejectionSummary(hardViolations: FeasibilityViolation[]): string {
     ...hardViolations.map((v, i) => `  ${i + 1}. [${v.rule}] ${v.detail}`),
     "",
     "Please revise the deck to fix all of the above issues before re-submitting.",
-    "Rules reminder: 20–27 lands, ≥3 interaction spells, ≥6 threats, no color-identity issues,",
-    "max 4 copies of any non-basic-land card, all cards must be Standard-legal.",
+    "Rules reminder: 20–27 lands, ≥3 interaction spells, ≥6 threats, mana base must produce all seed colours,",
+    "max 4 copies of any non-basic-land card, all cards must be legal in the selected format.",
   ];
   return lines.join("\n");
 }
@@ -229,6 +234,19 @@ function buildRejectionSummary(hardViolations: FeasibilityViolation[]): string {
 function parseColorIdentity(card: CardRecord): ManaColor[] {
   try {
     return JSON.parse(card.colorIdentityJson) as ManaColor[];
+  } catch {
+    return [];
+  }
+}
+
+// ── Helper: parse the mana colours a card can produce ────────────────────────
+
+const WUBRG: ReadonlySet<string> = new Set(["W", "U", "B", "R", "G"]);
+
+function parseProducedMana(card: CardRecord): ManaColor[] {
+  try {
+    const raw = JSON.parse(card.producedManaJson) as unknown[];
+    return raw.filter((c): c is ManaColor => typeof c === "string" && WUBRG.has(c));
   } catch {
     return [];
   }

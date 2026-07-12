@@ -80,6 +80,29 @@ describe("defaultIsRetryable", () => {
   });
 });
 
+describe("statusFromError structured fields (Fix 7)", () => {
+  it("prefers a structured status field over message text", () => {
+    expect(defaultIsRetryable({ status: 503 })).toBe(true);
+    expect(defaultIsRetryable({ status: 400 })).toBe(false);
+    expect(defaultIsRetryable({ statusCode: 429 })).toBe(true);
+  });
+
+  it("reads nested response.status and cause.status", () => {
+    expect(defaultIsRetryable({ response: { status: 429 } })).toBe(true);
+    expect(defaultIsRetryable({ cause: { status: 500 } })).toBe(true);
+    expect(defaultIsRetryable({ response: { status: 401 } })).toBe(false);
+  });
+
+  it("only treats an anchored '<Provider> <ddd>:' message as a status, not bare numbers", () => {
+    // Anchored provider prefix → real status → retryable.
+    expect(defaultIsRetryable(new Error("OpenAI 502: upstream"))).toBe(true);
+    // A bare 3-digit number inside an error body must NOT be read as a status
+    // (the old scraper misclassified these). No network keyword → not retryable.
+    expect(defaultIsRetryable(new Error("Card text: deals 500 damage to any target"))).toBe(false);
+    expect(defaultIsRetryable(new Error("resolved 429 matches in the index"))).toBe(false);
+  });
+});
+
 describe("isAbortLike", () => {
   it("detects abort and timeout errors", () => {
     expect(isAbortLike(new DOMException("x", "AbortError"))).toBe(true);

@@ -362,6 +362,28 @@ export interface GenerateResult {
   cardAdvantageScore?: number;
   /** Synergy-pair violations produced by validateSynergyPairs. */
   synergyViolations?: SynergyViolation[];
+  /**
+   * AI-engine only: prominent, user-facing warnings that must NOT be buried in
+   * diagnostics.reasoning. Surfaced when the pipeline silently degraded or could
+   * not fully satisfy construction rules — e.g. JSON salvage was used, card
+   * names were dropped as unresolved, a hard feasibility violation survived the
+   * bounded re-prompt, or sequential mode fell back to the offline engine.
+   */
+  warnings?: string[];
+  /**
+   * AI-engine only, transient: signal the generation loop uses to decide whether
+   * to spend its single bounded re-prompt (hard feasibility failure or
+   * out-of-pool card names). Not intended for UI consumption.
+   */
+  repromptSignal?: AIRepromptSignal;
+}
+
+/** Feedback the AI generation loop uses to drive a single bounded re-prompt. */
+export interface AIRepromptSignal {
+  /** Hard feasibility rejection text to feed back to the model, if any. */
+  rejectionSummary?: string;
+  /** Names the resolver could not map to the legal pool (out-of-pool / hallucinated). */
+  unresolvedNames: string[];
 }
 
 export interface GenerateMultiResult {

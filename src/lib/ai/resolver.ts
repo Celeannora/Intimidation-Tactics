@@ -123,10 +123,44 @@ function resolveCardNameFuzzy(
   return best;
 }
 
+/** A prefix/substring winner must be at least this many characters more
+ * specific than the runner-up, mirroring the fuzzy tier's ambiguity margin. */
+const NAME_AMBIGUITY_MARGIN = 1;
+
+/**
+ * Pick a single unambiguous winner from a set of prefix/substring candidates,
+ * or null when the choice is genuinely ambiguous.
+ *
+ * Previously the prefix and substring tiers used `Array.find`, silently binding
+ * a shorthand like "Elspeth" to whichever printing happened to sit first in the
+ * pool — a wrong-but-legal card indistinguishable from a correct resolution.
+ * We now (1) collapse multiple printings of the SAME card (same oracleId — not
+ * a real ambiguity) and (2) among distinct cards, require a clear winner by
+ * specificity (fewest extra characters beyond the query). A tie at best
+ * specificity is rejected so the caller can drop/flag it rather than guess.
+ */
+function pickUnambiguousByName(matches: CardRecord[], norm: string): CardRecord | null {
+  if (matches.length === 0) return null;
+
+  const byOracle = new Map<string, CardRecord>();
+  for (const c of matches) if (!byOracle.has(c.oracleId)) byOracle.set(c.oracleId, c);
+  const distinct = [...byOracle.values()];
+  if (distinct.length === 1) return distinct[0];
+
+  const ranked = distinct
+    .map((c) => ({ c, extra: normalizeCardName(c.name).length - norm.length }))
+    .sort((a, b) => a.extra - b.extra);
+  if (ranked[1].extra - ranked[0].extra < NAME_AMBIGUITY_MARGIN) return null; // tie → ambiguous
+  return ranked[0].c;
+}
+
 /**
  * Best-effort case-insensitive name resolver with match metadata. Tries exact,
  * then DFC front face, then prefix, then substring, then a bounded fuzzy
- * fallback. Returns null if nothing plausible is found.
+ * fallback. The prefix, substring, and fuzzy tiers are all ambiguity-guarded:
+ * a shorthand that plausibly maps to two or more distinct cards is rejected
+ * (returns null) rather than silently bound to an arbitrary one. Returns null
+ * if nothing unambiguous is found.
  */
 export function resolveCardMatch(name: string, allCards: CardRecord[]): CardMatch | null {
   const norm = normalizeCardName(name);
@@ -139,16 +173,25 @@ export function resolveCardMatch(name: string, allCards: CardRecord[]): CardMatc
   // DFC: try matching the front face of "Front // Back"
   const front = norm.split(/\s*\/\/\s*/)[0];
   if (front && front !== norm) {
-    const f = allCards.find((c) => normalizeCardName(c.name).startsWith(front));
+    const f = pickUnambiguousByName(
+      allCards.filter((c) => normalizeCardName(c.name).startsWith(front)),
+      front,
+    );
     if (f) return { card: f, matchKind: "prefix", matchDistance: 0 };
   }
 
-  // Prefix
-  const pref = allCards.find((c) => normalizeCardName(c.name).startsWith(norm));
+  // Prefix (ambiguity-guarded)
+  const pref = pickUnambiguousByName(
+    allCards.filter((c) => normalizeCardName(c.name).startsWith(norm)),
+    norm,
+  );
   if (pref) return { card: pref, matchKind: "prefix", matchDistance: 0 };
 
-  // Substring
-  const sub = allCards.find((c) => normalizeCardName(c.name).includes(norm));
+  // Substring (ambiguity-guarded)
+  const sub = pickUnambiguousByName(
+    allCards.filter((c) => normalizeCardName(c.name).includes(norm)),
+    norm,
+  );
   if (sub) return { card: sub, matchKind: "substring", matchDistance: 0 };
 
   // Fuzzy (bounded edit distance, ambiguity-guarded)
