@@ -1,15 +1,24 @@
 import type { AIProvider, AIGenerationRequest, AISettings } from "./provider";
 import { withTimeoutSignal } from "./provider";
+import { withRetry } from "./retry";
 
 export class OllamaProvider implements AIProvider {
   readonly id = "ollama";
   readonly label = "Ollama (local)";
   private baseUrl: string;
   private model: string;
+  private defaultMaxTokens?: number;
+  private defaultTimeoutMs?: number;
 
   constructor(settings: AISettings) {
     this.baseUrl = (settings.ollamaBaseUrl ?? "http://localhost:11434").replace(/\/+$/, "");
     this.model = settings.ollamaModel ?? "llama3.1:8b";
+    this.defaultMaxTokens = settings.maxTokens;
+    this.defaultTimeoutMs = settings.requestTimeoutMs;
+  }
+
+  private numPredict(req: AIGenerationRequest): number {
+    return req.maxTokens ?? this.defaultMaxTokens ?? 2400;
   }
 
   async isReady(): Promise<boolean> {
@@ -21,43 +30,61 @@ export class OllamaProvider implements AIProvider {
     }
   }
 
+  /**
+   * Ollama structured outputs: when a JSON schema is provided, pass it directly
+   * as `format` so the model is constrained to the deck shape. Otherwise fall
+   * back to the generic `"json"` format string.
+   */
+  private formatValue(req: AIGenerationRequest): unknown {
+    return req.jsonSchema ? req.jsonSchema.schema : "json";
+  }
+
   async generate(req: AIGenerationRequest): Promise<string> {
-    const res = await fetch(`${this.baseUrl}/api/chat`, {
-      method: "POST",
-      signal: withTimeoutSignal(req.signal, req.timeoutMs),
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: this.model,
-        messages: req.messages,
-        stream: false,
-        format: "json",
-        options: { temperature: req.temperature ?? 0.4, num_predict: req.maxTokens ?? 2400 },
-      }),
-    });
-    if (!res.ok) {
-      const txt = await res.text();
-      throw new Error(`Ollama ${res.status}: ${txt.slice(0, 240)}`);
-    }
-    const data = await res.json();
-    const content = data?.message?.content;
-    if (typeof content !== "string") throw new Error("Ollama returned no content");
-    return content;
+    return withRetry(async () => {
+      const res = await fetch(`${this.baseUrl}/api/chat`, {
+        method: "POST",
+        signal: withTimeoutSignal(req.signal, req.timeoutMs ?? this.defaultTimeoutMs),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: this.model,
+          messages: req.messages,
+          stream: false,
+          format: this.formatValue(req),
+          options: { temperature: req.temperature ?? 0.4, num_predict: this.numPredict(req) },
+        }),
+      });
+      if (!res.ok) {
+        const txt = await res.text();
+        throw new Error(`Ollama ${res.status}: ${txt.slice(0, 240)}`);
+      }
+      const data = await res.json();
+      const content = data?.message?.content;
+      if (typeof content !== "string") throw new Error("Ollama returned no content");
+      return content;
+    }, req.retry);
   }
 
   async generateStream(
     req: AIGenerationRequest,
     onToken: (chunk: string) => void
   ): Promise<string> {
+    return withRetry(() => this.streamOnce(req, onToken), req.retry);
+  }
+
+  private async streamOnce(
+    req: AIGenerationRequest,
+    onToken: (chunk: string) => void
+  ): Promise<string> {
     const res = await fetch(`${this.baseUrl}/api/chat`, {
       method: "POST",
-      signal: withTimeoutSignal(req.signal, req.timeoutMs),
+      signal: withTimeoutSignal(req.signal, req.timeoutMs ?? this.defaultTimeoutMs),
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         model: this.model,
         messages: req.messages,
         stream: true,
-        format: "json",
-        options: { temperature: req.temperature ?? 0.4, num_predict: req.maxTokens ?? 2400 },
+        format: this.formatValue(req),
+        options: { temperature: req.temperature ?? 0.4, num_predict: this.numPredict(req) },
       }),
     });
     if (!res.ok || !res.body) {

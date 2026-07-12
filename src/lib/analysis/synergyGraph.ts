@@ -27,6 +27,14 @@ export interface SynergyGraphEdge {
   axis: MechanicAxis;
   kind: SynergyEdgeKind;
   explanation: string;
+  /**
+   * Relationship strength in [0,1]. A mutual engine (both cards produce AND
+   * reward the axis) is the strongest signal; a directional source→payoff is
+   * moderate; a mere shared-axis co-occurrence is weak. Downstream consumers
+   * (prompt rendering, constraint synthesis) can weight axes by summed edge
+   * strength instead of treating every link as equal.
+   */
+  weight: number;
 }
 
 export interface SeedSynergyGraph {
@@ -43,7 +51,26 @@ export interface SeedSynergyGraph {
    */
   axisSeedCardCounts: Partial<Record<MechanicAxis, number>>;
   density: number;
+  /**
+   * Weighted density: sum of all edge weights divided by the number of possible
+   * directed edges. Unlike raw `density` (which counts every link equally), this
+   * discounts weak shared-axis links so a set wired together by real
+   * source→payoff / mutual-engine relationships scores higher than one merely
+   * sharing tags.
+   */
+  weightedDensity: number;
   narrative: string;
+}
+
+/** Relationship-strength weights per edge kind (see SynergyGraphEdge.weight). */
+const EDGE_KIND_WEIGHT: Record<SynergyEdgeKind, number> = {
+  "mutual-engine": 1.0,
+  "source-to-payoff": 0.8,
+  "shared-axis": 0.4,
+};
+
+function edgeWeight(kind: SynergyEdgeKind): number {
+  return EDGE_KIND_WEIGHT[kind];
 }
 
 // ── Module-level cache ──────────────────────────────────────────────────────
@@ -165,9 +192,11 @@ export function buildSeedSynergyGraph(seeds: CardRecord[]): SeedSynergyGraph {
 
   const possibleDirectedEdges = seeds.length * Math.max(0, seeds.length - 1);
   const density = possibleDirectedEdges > 0 ? round2(edges.length / possibleDirectedEdges) : 0;
+  const totalWeight = edges.reduce((sum, e) => sum + e.weight, 0);
+  const weightedDensity = possibleDirectedEdges > 0 ? round2(totalWeight / possibleDirectedEdges) : 0;
   const narrative = buildGraphNarrative(connectedAxes, edges.length, seeds.length);
 
-  const graph: SeedSynergyGraph = { nodes, edges, connectedAxes, axisSeedCardCounts, density, narrative };
+  const graph: SeedSynergyGraph = { nodes, edges, connectedAxes, axisSeedCardCounts, density, weightedDensity, narrative };
   _graphCache.set(key, graph);
   return graph;
 }
@@ -177,11 +206,11 @@ export function formatSynergyGraphForPrompt(graph: SeedSynergyGraph): string {
     ? graph.connectedAxes.map((axis) => `- ${axis.axis}: ${axis.edgeCount} link(s), cards: ${axis.cards.join(", ")}`).join("\n")
     : "- No direct seed-to-seed synergy edges detected.";
 
-  const edgeLines = graph.edges.slice(0, 12).map((edge) => `- [${edge.kind}] ${edge.explanation}`).join("\n") || "- None";
+  const edgeLines = graph.edges.slice(0, 12).map((edge) => `- [${edge.kind}, w=${edge.weight.toFixed(1)}] ${edge.explanation}`).join("\n") || "- None";
 
   const prose = [
     "Seed synergy graph:",
-    `- Density: ${Math.round(graph.density * 100)}%`,
+    `- Density: ${Math.round(graph.density * 100)}% (weighted ${Math.round(graph.weightedDensity * 100)}%)`,
     `- Summary: ${graph.narrative}`,
     "Connected axes:",
     axisLines,
@@ -210,6 +239,8 @@ export interface SynergyConstraints {
   supportingAxes: MechanicAxis[];
   /** Graph density 0-1: lower density = seeds don't strongly connect; treat plan as ambiguous. */
   densityScore: number;
+  /** Weighted density 0-1: discounts weak shared-axis links; better cohesion signal than raw density. */
+  weightedDensityScore: number;
   /** Confirmed pairwise links — each represents a real source→payoff relationship between seed cards. */
   confirmedLinks: Array<{
     from: string;
@@ -282,14 +313,18 @@ function buildSynergyConstraints(graph: SeedSynergyGraph): SynergyConstraints {
       `Build the most coherent competitive interpretation based on roles (interaction, threats, draw, ramp) and colour identity.`;
   }
 
-  return { requiredAxes: required, supportingAxes: supporting, densityScore: round2(graph.density), confirmedLinks, buildInstruction };
+  return { requiredAxes: required, supportingAxes: supporting, densityScore: round2(graph.density), weightedDensityScore: round2(graph.weightedDensity), confirmedLinks, buildInstruction };
 }
 
-function pushEdge(edges: SynergyGraphEdge[], seen: Set<string>, edge: SynergyGraphEdge): void {
+/**
+ * Insert an edge (deduped by from→to:axis:kind). The `weight` is derived from
+ * the edge kind here so call sites don't have to supply it.
+ */
+function pushEdge(edges: SynergyGraphEdge[], seen: Set<string>, edge: Omit<SynergyGraphEdge, "weight">): void {
   const key = `${edge.fromOracleId}->${edge.toOracleId}:${edge.axis}:${edge.kind}`;
   if (seen.has(key)) return;
   seen.add(key);
-  edges.push(edge);
+  edges.push({ ...edge, weight: edgeWeight(edge.kind) });
 }
 
 function buildGraphNarrative(

@@ -3,6 +3,33 @@ export interface AIChatMessage {
   content: string;
 }
 
+/**
+ * Structured-output schema passed to providers that support constrained JSON
+ * generation (OpenAI `json_schema`, Ollama `format`, optionally llama.cpp).
+ * When present the provider asks the model to emit JSON matching `schema`,
+ * which nearly eliminates parse failures and the regex salvage path.
+ */
+export interface AIJsonSchema {
+  /** Schema name (required by OpenAI's json_schema response_format). */
+  name: string;
+  /** JSON Schema object describing the expected response shape. */
+  schema: Record<string, unknown>;
+  /** When true, request strict adherence (OpenAI structured outputs). */
+  strict?: boolean;
+}
+
+/** Retry/backoff tuning for transient provider failures. */
+export interface RetryOptions {
+  /** Total attempts including the first (default 3). */
+  maxAttempts?: number;
+  /** Base backoff delay in ms (default 600). */
+  baseDelayMs?: number;
+  /** Maximum backoff delay in ms (default 8000). */
+  maxDelayMs?: number;
+  /** Apply full jitter to backoff delays (default true). */
+  jitter?: boolean;
+}
+
 export interface AIGenerationRequest {
   messages: AIChatMessage[];
   /** Lower = more deterministic. */
@@ -13,7 +40,12 @@ export interface AIGenerationRequest {
   signal?: AbortSignal;
   /** Provider-level timeout guard. Defaults are provider-specific. */
   timeoutMs?: number;
+  /** Optional structured-output schema for providers that support it. */
+  jsonSchema?: AIJsonSchema;
+  /** Optional per-request retry override. */
+  retry?: RetryOptions;
 }
+
 
 export interface AIProvider {
   readonly id: string;
@@ -34,6 +66,16 @@ export interface AISettings {
   llamaCppBaseUrl?: string;   // default "http://localhost:8080"
   llamaCppModel?: string;     // default "local"
   llamaCppApiKey?: string;    // optional bearer for proxied setups
+  /**
+   * Optional per-provider output-token cap. When a request does not specify
+   * `maxTokens`, providers fall back to this value (and then their own default).
+   */
+  maxTokens?: number;
+  /**
+   * Optional per-provider request timeout in ms. When a request does not
+   * specify `timeoutMs`, providers use this value (and then the 120s default).
+   */
+  requestTimeoutMs?: number;
 }
 
 const STORAGE_KEY = "mtg.ai.settings";

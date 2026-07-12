@@ -22,6 +22,8 @@ import { recommendLandCount } from "../manaBase";
 import type { ManaColor } from "../types";
 import { resolveLines } from "./resolver";
 import type { AIProvider, AIChatMessage as ChatMessage } from "./provider";
+import { DECK_JSON_SCHEMA } from "./deckSchema";
+import { checkFeasibility, type ProposedEntry } from "./feasibilityChecker";
 // ── sonar.md metrics (Task B) ─────────────────────────────────────────────────
 import { computeMythicViability } from "../mythicViability";
 import { validateSynergyPairs } from "../generator/synergyConstraints";
@@ -33,6 +35,14 @@ export const DEFAULT_AI_TEMPERATURE = 0.4;
 const DEFAULT_LAND_DIGEST_LIMIT = 30;
 const DEFAULT_AI_MAX_TOKENS = 8000;
 const LOCAL_PROVIDER_DIGEST_WARNING_LIMIT = 300;
+/**
+ * Delta-digest cap for sequential-mode steps after the first. The confirmed
+ * spine is already summarized in the prompt text each step, so re-sending the
+ * full ~220-card candidate digest every step wastes tokens and makes the
+ * transcript grow quadratically. Later steps only need enough fresh candidates
+ * to propose the next small batch.
+ */
+const SEQUENTIAL_DELTA_DIGEST_LIMIT = 80;
 
 export interface AIPrompts {
   system: string;
@@ -335,7 +345,7 @@ export async function generateDeckAI(
     config.onPassStart?.(i + 1, iterations);
     let raw: string;
     try {
-      const req = { messages: [...messages], temperature, maxTokens: DEFAULT_AI_MAX_TOKENS, signal: config.signal, timeoutMs: config.timeoutMs };
+      const req = { messages: [...messages], temperature, maxTokens: DEFAULT_AI_MAX_TOKENS, signal: config.signal, timeoutMs: config.timeoutMs, jsonSchema: DECK_JSON_SCHEMA };
       if (provider.generateStream && config.onToken) {
         raw = await provider.generateStream(req, config.onToken);
       } else {
@@ -480,8 +490,15 @@ export async function generateDeckAISequential(
     config.onPassStart?.(stepIndex, totalSteps);
 
     // Build a fresh prompt with the updated (growing) seed list.
+    // Delta digest: the first step sends the full candidate pool; later steps
+    // only need a smaller top-N slice of re-scored candidates since the locked
+    // spine is already summarized in the prompt text. This keeps the growing
+    // transcript from ballooning quadratically across steps.
+    const stepDigestLimit = stepIndex === 1
+      ? digestLimit
+      : Math.min(digestLimit, SEQUENTIAL_DELTA_DIGEST_LIMIT);
     const stepOptions: GenerateOptions = { ...options, seedEntries: currentSeeds };
-    const { system, user } = buildAIPrompts(stepOptions, allCards, digestLimit);
+    const { system, user } = buildAIPrompts(stepOptions, allCards, stepDigestLimit);
 
     if (stepIndex === 1) {
       messages.push({ role: "system", content: system });
@@ -522,7 +539,7 @@ export async function generateDeckAISequential(
 
     let raw: string;
     try {
-      const req = { messages: [...messages], temperature, maxTokens: DEFAULT_AI_MAX_TOKENS, signal: config.signal, timeoutMs: config.timeoutMs };
+      const req = { messages: [...messages], temperature, maxTokens: DEFAULT_AI_MAX_TOKENS, signal: config.signal, timeoutMs: config.timeoutMs, jsonSchema: DECK_JSON_SCHEMA };
       if (provider.generateStream && config.onToken) {
         raw = await provider.generateStream(req, config.onToken);
       } else {
@@ -660,7 +677,7 @@ export async function refineDeckAI(
   const messages: ChatMessage[] = [...transcript.messages, { role: "user", content: wrapped }];
 
   config.onPassStart?.(1, 1);
-  const req = { messages, temperature, maxTokens: DEFAULT_AI_MAX_TOKENS, signal: config.signal, timeoutMs: config.timeoutMs };
+  const req = { messages, temperature, maxTokens: DEFAULT_AI_MAX_TOKENS, signal: config.signal, timeoutMs: config.timeoutMs, jsonSchema: DECK_JSON_SCHEMA };
   let raw: string;
   if (provider.generateStream && config.onToken) {
     raw = await provider.generateStream(req, config.onToken);
@@ -954,6 +971,13 @@ function buildResultFromAIResponse(
   });
   appendAIProposalValidationReasoning(finalValidation, reasoning);
 
+  // Structural feasibility diagnostics on the assembled mainboard. These are
+  // advisory only (they do not reject the deck) but surface construction issues
+  // — land count, interaction/threat minimums, color identity, copy limits —
+  // that the score-based pipeline can otherwise mask. Only meaningful for the
+  // 60-card constructed formats the checker was calibrated against.
+  appendFeasibilityReasoning(entries, options, reasoning);
+
   reasoning.push("— Offline pipeline (AI cards as soft preferences) —");
   for (const line of offlineRun.diagnostics.reasoning) reasoning.push(line);
 
@@ -1114,6 +1138,42 @@ function appendAIProposalValidationReasoning(validation: AIProposalValidationRes
       .map((issue) => issue.cardNames?.join(", ") || issue.message)
       .join("; ");
     reasoning.push(`AI proposal validation: ${code} ×${issues.length}${examples ? ` (${examples}${issues.length > 3 ? "…" : ""})` : ""}`);
+  }
+}
+
+/**
+ * Run the structural feasibility checker over the assembled mainboard and append
+ * any violations to the reasoning log. Advisory only — never rejects the deck.
+ * The checker was calibrated for 60-card constructed decks, so it is skipped for
+ * other mainboard sizes (e.g. Commander) to avoid noisy false positives.
+ */
+function appendFeasibilityReasoning(
+  entries: DeckEntry[],
+  options: GenerateOptions,
+  reasoning: string[]
+): void {
+  const mainboard = entries.filter((e) => e.board === "main");
+  const totalMain = mainboard.reduce((s, e) => s + e.quantity, 0);
+  // The feasibility rules (20–27 lands, ==60 deck size) only make sense for
+  // standard 60-card constructed decks; skip for singleton/other sizes.
+  if (totalMain < 55 || totalMain > 65) return;
+
+  const proposed: ProposedEntry[] = mainboard.map((e) => ({ card: e.card, quantity: e.quantity }));
+  const seedCards = (options.seedEntries ?? []).map((e) => e.card);
+  const feasibility = checkFeasibility(proposed, seedCards);
+  if (feasibility.violations.length === 0) return;
+
+  const hard = feasibility.violations.filter((v) => v.severity === "hard");
+  const soft = feasibility.violations.filter((v) => v.severity === "soft");
+  if (hard.length > 0) {
+    reasoning.push(
+      `Feasibility check: ${hard.length} hard issue(s) — ${hard.map((v) => `[${v.rule}] ${v.detail}`).slice(0, 4).join(" | ")}`
+    );
+  }
+  if (soft.length > 0) {
+    reasoning.push(
+      `Feasibility check: ${soft.length} soft note(s) — ${soft.map((v) => `[${v.rule}] ${v.detail}`).slice(0, 3).join(" | ")}`
+    );
   }
 }
 
