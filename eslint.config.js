@@ -18,6 +18,17 @@ export default [
   },
   js.configs.recommended,
   {
+    // Node-based CommonJS tooling scripts (e.g. scripts/calibrate.cjs) run under
+    // Node, not the browser, so give them Node globals and CommonJS module scope.
+    files: ["**/*.cjs"],
+    languageOptions: {
+      sourceType: "commonjs",
+      globals: {
+        ...globals.node,
+      },
+    },
+  },
+  {
     files: ["src/**/*.{ts,tsx}"],
     languageOptions: {
       parser: tsParser,

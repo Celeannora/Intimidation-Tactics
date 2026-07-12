@@ -35,7 +35,7 @@ function dominantTribeFromCards(mainboard: DeckCard[]): string | null {
   const counts = new Map<string, number>();
   for (const { card, quantity } of mainboard) {
     if (!card.typeLine?.includes("Creature")) continue;
-    const parts = card.typeLine.split(/[—\-]/);
+    const parts = card.typeLine.split(/[—-]/);
     if (parts.length < 2) continue;
     for (const t of parts[1].trim().split(/\s+/).filter(Boolean)) {
       if (t.length >= 2) counts.set(t, (counts.get(t) ?? 0) + quantity);

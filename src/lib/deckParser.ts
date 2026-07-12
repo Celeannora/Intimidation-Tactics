@@ -106,12 +106,19 @@ function stripInlineComment(line: string): string {
   const hashComment = line.search(/\s#\s/);
   if (hashComment >= 0) return line.slice(0, hashComment);
 
-  // Do NOT attempt to strip " // text" here because:
-  //   • Split/double-faced cards contain " // " as part of their name ("Fire // Ice").
-  //   • Any keyword-based allowlist will always have gaps.
-  // Instead we return the full line and let fuzzyMatchCard / cardNameCandidates try the
-  // front-face alone when the full name doesn't resolve (e.g. "Duress // hand disruption"
-  // → tries "Duress // hand disruption" (fail) → "Duress" (success)).
+  // Disambiguate " // comment" from a split/double-faced card name:
+  //   • MTG split/DFC faces are always Title Case ("Fire // Ice",
+  //     "Throne of the Grim Captain // The Grim Captain"), so a segment whose
+  //     first character is lowercase ("// hand disruption") is inline prose and
+  //     is stripped.
+  //   • Title-Case segments are left intact as part of the card name; if the
+  //     full name later fails to resolve, cardNameCandidates falls back to the
+  //     front face alone.
+  const slashComment = line.match(/\s\/\/\s+(.*)$/);
+  if (slashComment && /^[a-z]/.test(slashComment[1])) {
+    return line.slice(0, slashComment.index);
+  }
+
   return line;
 }
 
