@@ -163,3 +163,66 @@ describe("CardRow real synergistic-card recommendations", () => {
     await act(async () => { root.unmount(); });
   });
 });
+
+describe("CardRow synergy format filter", () => {
+  const mockedRecommend = vi.mocked(recommendSynergyCards);
+
+  function recommendation(candidates: SynergyRecommendation["candidates"]): SynergyRecommendation {
+    return { seeds: [], candidates, detectedThemes: [], narrative: "", computedAt: "" };
+  }
+
+  afterEach(() => {
+    mockedRecommend.mockReset();
+    document.body.innerHTML = "";
+  });
+
+  async function openPanel() {
+    const seed = makeCard({ id: "seed", oracleId: "seed", name: "Seed Card" });
+    mockedRecommend.mockResolvedValue(recommendation([]));
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(<CardRow card={seed} deckCards={[]} onAdd={() => {}} />);
+    });
+    const toggle = container.querySelector<HTMLButtonElement>('[aria-label^="Show synergy details"]')!;
+    await act(async () => { toggle.click(); });
+    await act(async () => {});
+    return { container, root };
+  }
+
+  it("defaults the format selector to Standard and filters recommendations to it", async () => {
+    const { container, root } = await openPanel();
+
+    const select = container.querySelector<HTMLSelectElement>('[aria-label^="Synergy format filter"]');
+    expect(select).not.toBeNull();
+    expect(select!.value).toBe("standard");
+
+    // The recommender is called with the standard legality filter by default.
+    expect(mockedRecommend).toHaveBeenCalledTimes(1);
+    expect(mockedRecommend.mock.calls[0][1]).toMatchObject({ legalityFormat: "standard" });
+
+    await act(async () => { root.unmount(); });
+  });
+
+  it("re-runs the recommendation with the new format when the selector changes", async () => {
+    const { container, root } = await openPanel();
+    expect(mockedRecommend).toHaveBeenCalledTimes(1);
+
+    const select = container.querySelector<HTMLSelectElement>('[aria-label^="Synergy format filter"]')!;
+    await act(async () => {
+      const proto = Object.getPrototypeOf(select);
+      const setValue = Object.getOwnPropertyDescriptor(proto, "value")!.set!;
+      setValue.call(select, "modern");
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await act(async () => {});
+
+    // A fresh call fires, filtered to the newly-selected format.
+    expect(mockedRecommend).toHaveBeenCalledTimes(2);
+    expect(mockedRecommend.mock.calls[1][1]).toMatchObject({ legalityFormat: "modern" });
+    expect(select.value).toBe("modern");
+
+    await act(async () => { root.unmount(); });
+  });
+});
