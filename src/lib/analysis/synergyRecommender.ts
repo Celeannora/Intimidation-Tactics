@@ -16,6 +16,7 @@
 
 import { db } from "../db";
 import type { CardRecord, ManaColor } from "../types";
+import { isCardLegalInFormat, type ConstructedFormat } from "../formats";
 import {
   buildSynergyProfile,
   type MechanicAxis,
@@ -272,7 +273,7 @@ export async function recommendSynergyCards(
     if (card.typeLine.includes("Basic Land")) continue;
 
     // Legality filter
-    if (legalityFormat && legalityFormat !== "any" && !isCardLegalInFormat(card, legalityFormat)) continue;
+    if (legalityFormat && legalityFormat !== "any" && !isCardLegalInFormat(card, legalityFormat as ConstructedFormat)) continue;
 
     const result = scoreCandidateAgainstSeeds(card, features, rankedAxes, seeds);
     if (result.score <= 0) continue;
@@ -464,20 +465,6 @@ function scoreCandidateAgainstSeeds(
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-
-function isCardLegalInFormat(card: CardRecord, format: string): boolean {
-  if (!format || format === "any") return true;
-  if (format === "standard") return card.legalityStandard === "legal";
-  if (card.legalitiesJson) {
-    try {
-      const legalities = JSON.parse(card.legalitiesJson) as Record<string, string>;
-      const status = legalities[format];
-      return status === "legal" || status === "restricted";
-    } catch { return true; }
-  }
-  // Older DB rows without legalitiesJson: allow through rather than hiding valid cards
-  return true;
-}
 
 function addReason(list: string[], reason: string): void {
   if (!list.includes(reason) && list.length < 5) list.push(reason);

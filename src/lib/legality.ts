@@ -22,11 +22,18 @@ export function allowsAnyNumberOfCopies(card: CardRecord): boolean {
  * Returns the maximum number of copies of this card that may appear
  * across mainboard + sideboard combined:
  *   - 99  if the card is a basic land OR has the "any number" clause
- *   - 4   for all other non-basic cards
+ *   - 1   if the format is restricted-list-aware (Vintage) and this specific
+ *         card is on that format's restricted list
+ *   - rules.maxCopies otherwise
  */
 export function maxCopiesForCard(card: CardRecord, format?: ConstructedFormat): number {
   const rules = getFormatRules(format);
-  return allowsAnyNumberOfCopies(card) ? 99 : rules.maxCopies;
+  if (allowsAnyNumberOfCopies(card)) return 99;
+  // Vintage restricts specific cards to a single copy regardless of the
+  // format's blanket 4-of cap. A restricted card's own legality string is
+  // "restricted" rather than "legal".
+  if (rules.restrictedListAware && getCardLegality(card, format) === "restricted") return 1;
+  return rules.maxCopies;
 }
 
 export interface DeckEntry {
