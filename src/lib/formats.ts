@@ -76,6 +76,34 @@ export const FORMAT_RULES: Record<ConstructedFormat, FormatRules> = {
 
 export const CONSTRUCTED_FORMATS = Object.values(FORMAT_RULES);
 
+/**
+ * Formats that are fully implemented and safe to expose in the UI's format
+ * dropdowns. This is the multi-format rollout feature flag (plan Section 6
+ * item 5): every format has a row in FORMAT_RULES, but a format only becomes a
+ * selectable option once its generator/validator/UI support is complete and
+ * tested. Unlock formats here one phase at a time.
+ *
+ * Phase 1 unlocks the eternal, structurally-identical formats (Modern, Legacy,
+ * Vintage, Pioneer, Pauper) alongside Standard.
+ */
+export const SUPPORTED_FORMAT_IDS: readonly ConstructedFormat[] = [
+  "standard",
+  "modern",
+  "legacy",
+  "vintage",
+  "pioneer",
+  "pauper",
+];
+
+/** The FormatRules subset of CONSTRUCTED_FORMATS selectable by end users. */
+export const SUPPORTED_FORMATS_FOR_UI: FormatRules[] = SUPPORTED_FORMAT_IDS.map(
+  (id) => FORMAT_RULES[id],
+);
+
+export function isFormatSupportedInUI(format: ConstructedFormat): boolean {
+  return SUPPORTED_FORMAT_IDS.includes(format);
+}
+
 export function getFormatRules(format: ConstructedFormat | undefined): FormatRules {
   return FORMAT_RULES[format ?? "standard"];
 }
