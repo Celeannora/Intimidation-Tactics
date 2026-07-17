@@ -117,7 +117,8 @@ export function GeneratorPanel() {
 
   // Form state
   const [engine, setEngine] = useState<GenerationEngine>("offline");
-  const [format, setFormat] = useState<ConstructedFormat>("standard");
+  const format = useDeckStore((s) => s.activeFormat);
+  const setFormat = useDeckStore((s) => s.setActiveFormat);
   const [playEnvironment, setPlayEnvironment] = useState<PlayEnvironment>("bo1");
   const [archetype, setArchetype] = useState<Archetype>("Midrange");
   const [themes, setThemes] = useState<ThemeId[]>([]);
