@@ -7,8 +7,9 @@ Enabler 16 | Protection 18 | Consistency 14 | Payoff 12 | Lands 24
 2 Lost Jitte
 2 Battle Menu
 4 Gallant Strike
-4 Gleaming Splendor
 4 Hope Estheim
+2 Jace Reawakened
+2 Kitsa, Otterball Elite
 4 Emeritus of Truce // Swords to Plowshares
 2 Morningtide's Light
 2 Niko, Light of Hope
@@ -18,6 +19,6 @@ Enabler 16 | Protection 18 | Consistency 14 | Payoff 12 | Lands 24
 ## Lands (24)
 3 Floodfarm Verge
 3 Gleaming Bastion
-2 Hallowed Fountain
-3 Island
-13 Plains
+4 Island
+12 Plains
+2 Temple of Enlightenment

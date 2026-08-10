@@ -55,6 +55,23 @@ import { countLandSources } from "../src/lib/landSources";
 
 const POOL_DIR = join(__dirname, "..", "..", "pool_data");
 
+// Scryfall pre-marks preview/spoiler sets as standard-legal weeks before
+// they actually release (and before they exist on Arena), so a pool built
+// purely from the legality flag can select cards nobody can play yet.
+// Discovered when the generated deck included two cards from unreleased
+// sets that failed MTGA import. Only cards released on or before today
+// are eligible.
+const TODAY = new Date().toISOString().slice(0, 10);
+
+function isReleased(sc: ScryfallCard): boolean {
+  // Basic lands exist in every set; the specific printing Scryfall happens
+  // to return may be from an upcoming set, but the card itself is always
+  // available, so basics are exempt from the release-date filter.
+  if (sc.type_line?.includes("Basic Land")) return true;
+  const released = (sc as unknown as { released_at?: string }).released_at;
+  return !released || released <= TODAY;
+}
+
 function loadPool(): CardRecord[] {
   const files = ["azorius_pool.json", "colorless_artifacts.json"];
   const seen = new Set<string>();
@@ -65,6 +82,7 @@ function loadPool(): CardRecord[] {
     const raw = JSON.parse(readFileSync(join(POOL_DIR, file), "utf-8")) as ScryfallCard[];
     for (const sc of raw) {
       if (!isStandardEligible(sc)) continue;
+      if (!isReleased(sc)) continue;
       if (seen.has(sc.oracle_id)) continue;
       // Restrict artifacts file to genuinely colorless-castable cards (already filtered by query, but double check).
       seen.add(sc.oracle_id);
@@ -81,6 +99,7 @@ function loadLands(): CardRecord[] {
   const records: CardRecord[] = [];
   for (const sc of raw) {
     if (!isStandardEligible(sc)) continue;
+    if (!isReleased(sc)) continue;
     if (seen.has(sc.oracle_id)) continue;
     seen.add(sc.oracle_id);
     records.push(toCardRecord(sc, importedAt));
