@@ -5,7 +5,7 @@ Pool size after Standard-legal + seed-role filtering: 1716 cards (raw Scryfall d
 ## Role counts achieved
 
 - Existing composite engine (Control archetype, generic role/synergy axes): {"enablers":20,"protection":0,"consistency":24,"payoffs":12,"lands":0,"nonlandTotal":36}
-- Synergy-first sequential engine (seed-specific Enabler/Protection/Consistency/Payoff): {"enablers":14,"protection":24,"consistency":14,"payoffs":12,"lands":0,"nonlandTotal":36}
+- Synergy-first sequential engine (seed-specific Enabler/Protection/Consistency/Payoff): {"enablers":16,"protection":18,"consistency":14,"payoffs":12,"lands":0,"nonlandTotal":36}
 - Target bands: {"enablers":[10,14],"protection":[8,12],"consistency":[6,10],"payoffs":[6,8],"lands":24}
 
 ## Feasibility flags — existing composite engine's build
@@ -28,10 +28,12 @@ Pool size after Standard-legal + seed-role filtering: 1716 cards (raw Scryfall d
 - [SYNERGY-FIRST] Pick: Niko, Light of Hope x2 — final=51.5 (base=19.0, gapMult=2.50, satPenalty=0.0, timing=4, prevention=0) — Selected because it fills Protection, current gap is 8, and it improves early stability / payoff access / protection.
 - [SYNERGY-FIRST] Pick: Emeritus of Truce // Swords to Plowshares x4 — final=42.3 (base=18.0, gapMult=2.13, satPenalty=0.0, timing=4, prevention=0) — Selected because it fills Protection, current gap is 6, and it improves early stability / life gain density / protection.
 - [SYNERGY-FIRST] Pick: Season of the Burrow x4 — final=38.0 (base=19.0, gapMult=2.00, satPenalty=0.0, timing=0, prevention=0) — Selected because it fills Consistency, current gap is 4, and it improves payoff access / protection.
-- [SYNERGY-FIRST] Pick: Morningtide's Light x4 — final=26.0 (base=12.0, gapMult=1.00, satPenalty=0.0, timing=4, prevention=10) — Selected because it fills Protection, current gap is 0, and it improves early stability / protection.
-- [SYNERGY-FIRST] Pick: Gallant Strike x4 — final=22.0 (base=12.0, gapMult=1.00, satPenalty=0.0, timing=10, prevention=0) — Selected because it fills Consistency, current gap is 0, and it improves payoff access / protection.
-- [SYNERGY-FIRST] Pick: Long River's Pull x4 — final=22.0 (base=12.0, gapMult=1.00, satPenalty=0.0, timing=10, prevention=0) — Selected because it fills Consistency, current gap is 0, and it improves payoff access / protection.
-- [SYNERGY-FIRST] Pick: Battle Menu x2 — final=21.0 (base=11.0, gapMult=1.00, satPenalty=0.0, timing=10, prevention=0) — Selected because it fills Enabler, current gap is 0, and it improves early stability / life gain density / protection.
+- [SYNERGY-FIRST] Pick: Morningtide's Light x2 — final=26.0 (base=12.0, gapMult=1.00, satPenalty=0.0, timing=4, prevention=10) — Selected because it fills Protection, current gap is 0, and it improves early stability / protection.
+- [SYNERGY-FIRST] Pick: Gleaming Splendor x4 — final=21.0 (base=15.0, gapMult=1.00, satPenalty=0.0, timing=6, prevention=0) — Selected because it fills Consistency, current gap is 0, and it improves payoff access.
+- [SYNERGY-FIRST] Pick: Lost Jitte x2 — final=18.0 (base=12.0, gapMult=1.00, satPenalty=0.0, timing=6, prevention=0) — Selected because it fills Enabler, current gap is 0, and it improves early stability / life gain density.
+- [SYNERGY-FIRST] SHORTFALL: strict role-ceiling rule exhausted all eligible candidates at 30/36 nonland cards (roles at ceiling: Enabler, Protection, Consistency, Payoff). Topping up remaining 6 slots with best-scoring cards regardless of ceiling — see OVERFLOW picks below.
+- [SYNERGY-FIRST] OVERFLOW pick: Gallant Strike x4 — final=22.0 — added past ceiling to reach the 36-card nonland target; role counts after: {"enablers":14,"protection":16,"consistency":14,"payoffs":12,"lands":0,"nonlandTotal":34}
+- [SYNERGY-FIRST] OVERFLOW pick: Battle Menu x2 — final=21.0 — added past ceiling to reach the 36-card nonland target; role counts after: {"enablers":16,"protection":18,"consistency":14,"payoffs":12,"lands":0,"nonlandTotal":36}
 
 ## DIVERGENCE — cards picked by ONLY the existing composite engine
 (these are the standalone/composite-power shortfalls: individually strong but not seed-synergistic, or seed-synergistic in the wrong role balance)
@@ -48,6 +50,34 @@ Pool size after Standard-legal + seed-role filtering: 1716 cards (raw Scryfall d
 - Emeritus of Truce // Swords to Plowshares (CMC 3) — seed roles: Enabler, Protection
 - Season of the Burrow (CMC 5) — seed roles: Protection, Consistency
 - Morningtide's Light (CMC 4) — seed roles: Protection
+- Gleaming Splendor (CMC 2) — seed roles: Consistency
+- Lost Jitte (CMC 1) — seed roles: Enabler
 - Gallant Strike (CMC 2) — seed roles: Protection, Consistency
-- Long River's Pull (CMC 2) — seed roles: Protection, Consistency
 - Battle Menu (CMC 2) — seed roles: Enabler, Protection
+
+## Final 60-card decklist — synergy-first engine + real Azorius mana base
+
+Seed package (locked): 4x Hope Estheim, 4x Authority of the Consuls, 4x Space-Time Anomaly.
+
+### Nonland (36)
+- 4x Authority of the Consuls (CMC 1)
+- 2x Lost Jitte (CMC 1)
+- 2x Battle Menu (CMC 2)
+- 4x Gallant Strike (CMC 2)
+- 4x Gleaming Splendor (CMC 2)
+- 4x Hope Estheim (CMC 2)
+- 4x Emeritus of Truce // Swords to Plowshares (CMC 3)
+- 2x Morningtide's Light (CMC 4)
+- 2x Niko, Light of Hope (CMC 4)
+- 4x Space-Time Anomaly (CMC 4)
+- 4x Season of the Burrow (CMC 5)
+
+### Lands (24)
+- 4x Island
+- 20x Plains
+
+**Total: 60 cards** (36 nonland + 24 land)
+
+### Mana base construction log
+- Filled remaining 24 slots with 20x Plains / 4x Island (weighted 82% W / 18% U by colored-pip share).
+- Resulting color sources: W=20.0, U=4.0 (Karsten target for a 2-3 pip color at ~turn 3-4 is typically 12-14 sources).

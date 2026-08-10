@@ -160,6 +160,21 @@ export function isSeedEligible(card: CardRecord): boolean {
   return classifySeedRoles(card).length > 0;
 }
 
+/**
+ * Which target-band roles are already at or above their ceiling for the
+ * given deck state. Used by sequential fill loops to hard-skip a role
+ * once it is full, instead of relying solely on the soft multiplier fade
+ * (the fade alone still let one role dominate a fill pass in testing).
+ */
+export function rolesAtCeiling(counts: DeckRoleCounts): Set<SeedRole> {
+  const atCeiling = new Set<SeedRole>();
+  if (counts.enablers >= SEED_ROLE_TARGETS.enablers[1]) atCeiling.add("Enabler");
+  if (counts.protection >= SEED_ROLE_TARGETS.protection[1]) atCeiling.add("Protection");
+  if (counts.consistency >= SEED_ROLE_TARGETS.consistency[1]) atCeiling.add("Consistency");
+  if (counts.payoffs >= SEED_ROLE_TARGETS.payoffs[1]) atCeiling.add("Payoff");
+  return atCeiling;
+}
+
 // ── Deck role-count tracking ────────────────────────────────────────────
 
 export interface DeckRoleCounts {
