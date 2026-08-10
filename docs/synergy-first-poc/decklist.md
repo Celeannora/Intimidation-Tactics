@@ -16,5 +16,8 @@ Enabler 16 | Protection 18 | Consistency 14 | Payoff 12 | Lands 24
 4 Season of the Burrow
 
 ## Lands (24)
-4 Island
-20 Plains
+3 Floodfarm Verge
+3 Gleaming Bastion
+2 Hallowed Fountain
+3 Island
+13 Plains

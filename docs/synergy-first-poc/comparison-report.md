@@ -73,11 +73,17 @@ Seed package (locked): 4x Hope Estheim, 4x Authority of the Consuls, 4x Space-Ti
 - 4x Season of the Burrow (CMC 5)
 
 ### Lands (24)
-- 4x Island
-- 20x Plains
+- 3x Floodfarm Verge
+- 3x Gleaming Bastion
+- 2x Hallowed Fountain
+- 3x Island
+- 13x Plains
 
 **Total: 60 cards** (36 nonland + 24 land)
 
 ### Mana base construction log
-- Filled remaining 24 slots with 20x Plains / 4x Island (weighted 82% W / 18% U by colored-pip share).
-- Resulting color sources: W=20.0, U=4.0 (Karsten target for a 2-3 pip color at ~turn 3-4 is typically 12-14 sources).
+- Added 3x Floodfarm Verge (Enters untapped (conditional)) as nonbasic fixing.
+- Added 3x Gleaming Bastion (Enters untapped (conditional)) as nonbasic fixing.
+- Added 2x Hallowed Fountain (Enters tapped) as nonbasic fixing.
+- Filled remaining 16 slots with 13x Plains / 3x Island (weighted 82% W / 18% U by colored-pip share).
+- Resulting color sources: W=21.0, U=11.0 (Karsten target for a 2-3 pip color at ~turn 3-4 is typically 12-14 sources).

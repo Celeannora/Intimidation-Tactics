@@ -10,5 +10,8 @@ Deck
 2 Niko, Light of Hope (DSK) 224
 4 Space-Time Anomaly (EOE) 229
 4 Season of the Burrow (BLB) 29
-20 Plains
-4 Island
+3 Floodfarm Verge (DSK) 259
+3 Gleaming Bastion (MSH) 267
+2 Hallowed Fountain (TRK) 286
+13 Plains
+3 Island
