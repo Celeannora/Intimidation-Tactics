@@ -1,0 +1,396 @@
+/**
+ * hopeEstheimSynergy.ts — Synergy-first deckbuilding instructions for the
+ * Hope Estheim / Space-Time Anomaly / Authority of the Consuls seed.
+ *
+ * TEST BRANCH MODULE. This is intentionally isolated from the shared
+ * scoring engine (`scoreEngine.ts`, `scoringConfig.ts`) rather than
+ * rewriting those shared files in place. It exists to trial a sequential,
+ * role-gap-aware, saturation-penalized generation pass for one specific
+ * seed before any of this logic is proposed for the general-purpose
+ * generator. Nothing here is wired into the app's default pipeline.
+ *
+ * Core identity being enforced
+ * -----------------------------
+ * Build a 60-card Azorius lifegain-mill-control deck, Standard format.
+ * The deck wins by converting life gain and preserved life total into mill:
+ *
+ *  - Hope Estheim ({W}{U}, 2/2 Lifelink) — ENGINE. At your end step, each
+ *    opponent mills X cards, where X is the life *gained this turn* only.
+ *    Source: https://scryfall.com/card/fin/226/hope-estheim
+ *  - Space-Time Anomaly ({2}{W}{U} sorcery) — PAYOFF. Target player mills
+ *    cards equal to your *total life total* at resolution (not life gained
+ *    that turn — this is the key mechanical distinction from Hope).
+ *    Source: https://www.pojo.com/space-time-anomaly/
+ *  - Authority of the Consuls ({W} enchantment) — PREMIUM ENABLER. Opposing
+ *    creatures enter tapped; you gain 1 life whenever an opponent's
+ *    creature enters. This is a *reactive* trigger (fires off opponents'
+ *    plays, not a repeatable activated source), so it must be scored as
+ *    variance-reducing tempo + incidental lifegain, not as a controlled
+ *    lifegain engine on its own.
+ *    Source: https://gatherer.wizards.com/pages/card/Details.aspx?multiverseid=417578
+ *
+ * The deck should play like Azorius control with a lifegain-mill finish —
+ * not generic creature-lifegain beatdown, and not a pile of individually
+ * powerful "good stuff" cards with no engine support.
+ */
+
+import type { CardRecord } from "../types";
+import { assignRoles, deriveSecondaryTags } from "../roles";
+
+// ── Role model for this seed ────────────────────────────────────────────
+
+/**
+ * This seed's roles are a narrower, purpose-built taxonomy layered on top
+ * of (not replacing) the shared `CardRole` model in roles.ts. A card can
+ * satisfy more than one seed role; every nonland card MUST satisfy at
+ * least one, or it is rejected regardless of standalone power.
+ */
+export type SeedRole = "Enabler" | "Protection" | "Consistency" | "Payoff";
+
+export interface SeedRoleTargets {
+  enablers: [number, number];
+  protection: [number, number];
+  consistency: [number, number];
+  payoffs: [number, number];
+  lands: number;
+}
+
+export const SEED_ROLE_TARGETS: SeedRoleTargets = {
+  enablers: [10, 14],
+  protection: [8, 12],
+  consistency: [6, 10],
+  payoffs: [6, 8],
+  lands: 24,
+};
+
+export const SEED_PACKAGE: Record<string, number> = {
+  "Hope Estheim": 4,
+  "Authority of the Consuls": 4,
+  "Space-Time Anomaly": 4, // upper end of the 3-4 instructed range
+};
+
+// ── Seed role classification ────────────────────────────────────────────
+
+const LIFEGAIN_TEXT = /\bgain(?:s)?\b.*\blife\b|\blife\b.*\bgain/;
+const REPEATABLE_LIFEGAIN_HINTS = [
+  "whenever you gain life",
+  "whenever a creature enters the battlefield under your control",
+  "whenever another creature enters",
+  "at the beginning of your upkeep",
+  "lifelink",
+];
+const CANTRIP_HINT = /draws? a card/;
+const FILTER_HINT = /surveil|scry|look at the top/;
+const TUTOR_HINT = /search your library for a/;
+const RECURSION_HINT = /return .* from your graveyard to (your hand|the battlefield)/;
+const COUNTER_HINT = /counter target spell|counter that spell/;
+const SWEEPER_HINT = /destroy all creatures|each creature gets -|deals \d+ damage to each creature/;
+const REMOVAL_HINT = /destroy target creature|exile target creature|deals? \d+ damage to target creature|-\d\/-\d until end of turn/;
+// Scoped to damage prevention that protects the PLAYER's life total (what
+// Space-Time Anomaly reads and what keeps Hope's turn-gain nonzero) —
+// deliberately excludes "prevent damage to [a permanent/creature]" self
+// protection clauses, which are a different effect entirely.
+const DAMAGE_PREVENTION_HINT = /prevent (all|the next|that) damage that would be dealt to (you|a player|each player|target player)|damage that would be dealt to you is prevented|fog\b/;
+const TEMPO_TAX_HINT = /enters? (the battlefield )?tapped|can't attack|can't block|skip.*(untap|combat)/;
+
+/**
+ * Classify a card into zero or more seed roles. A card with zero seed
+ * roles is rejected from this build regardless of raw power level — this
+ * is the "hard instruction" from the brief encoded as an actual filter.
+ */
+export function classifySeedRoles(card: CardRecord): SeedRole[] {
+  const text = (card.oracleText ?? "").toLowerCase();
+  const name = card.name;
+  const roles: Set<SeedRole> = new Set();
+  const baseRoles = assignRoles(card);
+  const tags = deriveSecondaryTags(card);
+
+  // Seed payoffs are locked by name; everything else earns Payoff only if
+  // it is a very small number of redundant finishers (see feasibility gate).
+  if (SEED_PACKAGE[name] !== undefined) {
+    roles.add("Payoff");
+  }
+
+  // ENABLER: recurring lifegain, lifelink, or low-cost setup that turns on
+  // Hope (life gained *this turn*) or increases Space-Time Anomaly
+  // lethality (raises total life total).
+  if (
+    tags.includes("lifelink") ||
+    LIFEGAIN_TEXT.test(text) ||
+    REPEATABLE_LIFEGAIN_HINTS.some((h) => text.includes(h)) ||
+    TEMPO_TAX_HINT.test(text) // Authority-style tax effects that indirectly enable lifegain windows
+  ) {
+    roles.add("Enabler");
+  }
+
+  // PROTECTION: removal, counters, sweepers, or tempo plays that preserve
+  // life total and buy time. Damage prevention is explicitly treated as
+  // combo support (it directly raises the life total Space-Time Anomaly
+  // reads, and keeps Hope's turn-gain nonzero by avoiding losses).
+  if (
+    baseRoles.includes("Removal") ||
+    baseRoles.includes("Counterspell") ||
+    baseRoles.includes("BoardWipe") ||
+    baseRoles.includes("Bounce") ||
+    REMOVAL_HINT.test(text) ||
+    COUNTER_HINT.test(text) ||
+    SWEEPER_HINT.test(text) ||
+    DAMAGE_PREVENTION_HINT.test(text)
+  ) {
+    roles.add("Protection");
+  }
+
+  // CONSISTENCY: cantrips, card draw, filtering, tutoring, or recursion
+  // that finds engine pieces (Hope, Authority, Space-Time Anomaly).
+  if (
+    baseRoles.includes("CardDraw") ||
+    baseRoles.includes("Tutor") ||
+    CANTRIP_HINT.test(text) ||
+    FILTER_HINT.test(text) ||
+    TUTOR_HINT.test(text) ||
+    RECURSION_HINT.test(text)
+  ) {
+    roles.add("Consistency");
+  }
+
+  return [...roles];
+}
+
+export function isSeedEligible(card: CardRecord): boolean {
+  return classifySeedRoles(card).length > 0;
+}
+
+// ── Deck role-count tracking ────────────────────────────────────────────
+
+export interface DeckRoleCounts {
+  enablers: number;
+  protection: number;
+  consistency: number;
+  payoffs: number;
+  lands: number;
+  nonlandTotal: number;
+}
+
+export function emptyRoleCounts(): DeckRoleCounts {
+  return { enablers: 0, protection: 0, consistency: 0, payoffs: 0, lands: 0, nonlandTotal: 0 };
+}
+
+export function tallyRoleCounts(entries: { card: CardRecord; quantity: number }[]): DeckRoleCounts {
+  const counts = emptyRoleCounts();
+  for (const { card, quantity } of entries) {
+    if (card.typeLine.includes("Land")) {
+      counts.lands += quantity;
+      continue;
+    }
+    const roles = classifySeedRoles(card);
+    if (roles.includes("Enabler")) counts.enablers += quantity;
+    if (roles.includes("Protection")) counts.protection += quantity;
+    if (roles.includes("Consistency")) counts.consistency += quantity;
+    if (roles.includes("Payoff")) counts.payoffs += quantity;
+    counts.nonlandTotal += quantity;
+  }
+  return counts;
+}
+
+// ── Scoring rules ────────────────────────────────────────────────────────
+
+export interface SeedScoreBreakdown {
+  base: number;
+  roleGapMultiplier: number;
+  saturationPenalty: number;
+  curveTimingBonus: number;
+  preventionBonus: number;
+  final: number;
+  note: string;
+}
+
+/**
+ * Rule 1 — Role-gap multiplier.
+ * If the current deck is below target for a role, increase the score of
+ * cards that fill that role. The larger the deficit, the larger the
+ * multiplier. Deficit is measured against the *low* end of the target
+ * band (we want to guarantee the floor before optimizing beyond it).
+ */
+function roleGapMultiplier(role: SeedRole, counts: DeckRoleCounts): number {
+  const target = SEED_ROLE_TARGETS;
+  const [lo, hi] = role === "Enabler" ? target.enablers
+    : role === "Protection" ? target.protection
+    : role === "Consistency" ? target.consistency
+    : target.payoffs;
+  const current = role === "Enabler" ? counts.enablers
+    : role === "Protection" ? counts.protection
+    : role === "Consistency" ? counts.consistency
+    : counts.payoffs;
+
+  const deficit = Math.max(0, lo - current);
+  if (deficit > 0) {
+    // Below the floor: scale 1.0 -> up to 2.5x at a full-band deficit.
+    return 1.0 + Math.min(1.5, (deficit / lo) * 1.5);
+  }
+  // Inside or above the target band: no bonus, and a mild fade once we're
+  // past the ceiling so the engine is pushed to rotate into whichever role
+  // is still under target rather than continuing to stack the same one.
+  if (current >= hi) {
+    const overshoot = current - hi;
+    return Math.max(0.4, 1.0 - overshoot * 0.08);
+  }
+  return 1.0;
+}
+
+/**
+ * Rule 2 — Payoff saturation penalty.
+ * If payoffs exceed enablers by more than a 2:1 ratio, heavily penalize
+ * additional payoffs. Enablers/protection are prioritized until repaired.
+ */
+function saturationPenalty(role: SeedRole, counts: DeckRoleCounts): number {
+  if (role !== "Payoff") return 0;
+  const ratio = counts.enablers === 0 ? Infinity : counts.payoffs / counts.enablers;
+  if (ratio <= 2) return 0;
+  // Heavy, escalating penalty once the 2:1 ceiling is breached.
+  return Math.min(40, (ratio - 2) * 20);
+}
+
+/**
+ * Rule 3 — Turn-by-turn usability bonus.
+ * Reward cards that are useful on curve and advance the plan immediately.
+ */
+function curveTimingBonus(card: CardRecord, roles: SeedRole[]): number {
+  const cmc = card.cmc;
+  let bonus = 0;
+  if (cmc <= 2 && (roles.includes("Enabler") || roles.includes("Consistency"))) bonus += 6;
+  if (cmc >= 2 && cmc <= 4 && (roles.includes("Payoff") || roles.includes("Protection"))) bonus += 4;
+  if (cmc >= 4 && card.name === "Space-Time Anomaly") bonus += 8; // T4+ payoff turn
+  return bonus;
+}
+
+/**
+ * Rule 4 — Damage prevention as combo support, not generic utility.
+ * Prevention effects preserve/raise the life total Space-Time Anomaly
+ * reads, and keep Hope's turn-gain nonzero by avoiding net losses.
+ */
+function preventionBonus(card: CardRecord): number {
+  const text = (card.oracleText ?? "").toLowerCase();
+  return DAMAGE_PREVENTION_HINT.test(text) ? 10 : 0;
+}
+
+/**
+ * Score a candidate card against the CURRENT deck state (not in the
+ * abstract). This must be called sequentially, re-scoring the remaining
+ * pool after every pick, because role-gap and saturation terms are only
+ * meaningful relative to what has already been selected.
+ */
+export function scoreCandidate(
+  card: CardRecord,
+  counts: DeckRoleCounts,
+  basePowerScore: number,
+): SeedScoreBreakdown {
+  const roles = classifySeedRoles(card);
+  if (roles.length === 0) {
+    return {
+      base: basePowerScore,
+      roleGapMultiplier: 0,
+      saturationPenalty: 0,
+      curveTimingBonus: 0,
+      preventionBonus: 0,
+      final: -Infinity,
+      note: "Rejected: fills no seed role (Enabler/Protection/Consistency/Payoff), regardless of standalone power.",
+    };
+  }
+
+  // Use the single largest role-gap multiplier across the card's roles —
+  // a card filling the most under-filled role should get full credit.
+  const gapMultipliers = roles.map((r) => roleGapMultiplier(r, counts));
+  const gapMultiplier = Math.max(...gapMultipliers);
+  const bestGapRole = roles[gapMultipliers.indexOf(gapMultiplier)];
+
+  const satPenalty = Math.max(...roles.map((r) => saturationPenalty(r, counts)));
+  const timing = curveTimingBonus(card, roles);
+  const prevention = preventionBonus(card);
+
+  const final = basePowerScore * gapMultiplier - satPenalty + timing + prevention;
+
+  const target = SEED_ROLE_TARGETS;
+  const [lo] = bestGapRole === "Enabler" ? target.enablers
+    : bestGapRole === "Protection" ? target.protection
+    : bestGapRole === "Consistency" ? target.consistency
+    : target.payoffs;
+  const current = bestGapRole === "Enabler" ? counts.enablers
+    : bestGapRole === "Protection" ? counts.protection
+    : bestGapRole === "Consistency" ? counts.consistency
+    : counts.payoffs;
+  const gap = Math.max(0, lo - current);
+
+  const advances: string[] = [];
+  if (bestGapRole === "Enabler" || bestGapRole === "Protection") advances.push("early stability");
+  if (roles.includes("Enabler")) advances.push("life gain density");
+  if (roles.includes("Consistency")) advances.push("payoff access");
+  if (roles.includes("Protection")) advances.push("protection");
+
+  return {
+    base: basePowerScore,
+    roleGapMultiplier: gapMultiplier,
+    saturationPenalty: satPenalty,
+    curveTimingBonus: timing,
+    preventionBonus: prevention,
+    final,
+    note: `Selected because it fills ${bestGapRole}, current gap is ${gap}, and it improves ${[...new Set(advances)].join(" / ") || "role coverage"}.`,
+  };
+}
+
+// ── Feasibility gate ─────────────────────────────────────────────────────
+
+export interface FeasibilityFlag {
+  severity: "fail" | "warn";
+  message: string;
+}
+
+export function checkFeasibility(counts: DeckRoleCounts, colorSources: { w: number; u: number }): FeasibilityFlag[] {
+  const flags: FeasibilityFlag[] = [];
+
+  const payoffToEnablerRatio = counts.enablers === 0 ? Infinity : counts.payoffs / counts.enablers;
+  if (payoffToEnablerRatio > 2) {
+    flags.push({
+      severity: "fail",
+      message: `Too many payoffs relative to enablers (${counts.payoffs} payoffs vs ${counts.enablers} enablers, ratio ${payoffToEnablerRatio.toFixed(2)}:1 > 2:1 ceiling).`,
+    });
+  }
+
+  if (counts.protection < SEED_ROLE_TARGETS.protection[0]) {
+    flags.push({
+      severity: "warn",
+      message: `Too little cheap interaction to preserve life total (${counts.protection} protection cards, target ${SEED_ROLE_TARGETS.protection[0]}-${SEED_ROLE_TARGETS.protection[1]}).`,
+    });
+  }
+
+  if (counts.consistency < SEED_ROLE_TARGETS.consistency[0]) {
+    flags.push({
+      severity: "warn",
+      message: `Too little draw/filtering to assemble enabler + payoff (${counts.consistency} consistency cards, target ${SEED_ROLE_TARGETS.consistency[0]}-${SEED_ROLE_TARGETS.consistency[1]}).`,
+    });
+  }
+
+  if (counts.lands < 23 || counts.lands > 25) {
+    flags.push({
+      severity: "warn",
+      message: `Mana base size (${counts.lands}) outside the stable Azorius control band (23-25) for repeated turns and turn-4 Space-Time Anomaly access.`,
+    });
+  }
+
+  if (colorSources.w < 13 || colorSources.u < 11) {
+    flags.push({
+      severity: "warn",
+      message: `Color source count may be unstable for reliable double-pip WU casting (W sources: ${colorSources.w}, U sources: ${colorSources.u}).`,
+    });
+  }
+
+  return flags;
+}
+
+// ── Sequential pick log entry (for the "decision note" requirement) ─────
+
+export interface PickLogEntry {
+  cardName: string;
+  roles: SeedRole[];
+  score: SeedScoreBreakdown;
+  countsAfterPick: DeckRoleCounts;
+}
