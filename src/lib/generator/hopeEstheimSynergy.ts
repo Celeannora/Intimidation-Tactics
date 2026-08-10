@@ -207,6 +207,130 @@ export function tallyRoleCounts(entries: { card: CardRecord; quantity: number }[
   return counts;
 }
 
+// -- Batched re-analysis (sequential seed-chain loop) ---------------------
+
+/**
+ * Deck-level adjustments produced by re-analysis between pick batches.
+ * These recompute DERIVED state only (pip balance, curve shape); the game
+ * plan anchor -- role definitions, payoff identity, win condition, the WU
+ * color identity itself -- is locked to the original seed and is never
+ * re-inferred from the accumulated picks. Without that anchor, twenty
+ * white protection cards would eventually outvote the seed and the
+ * analyzer would start optimizing TOWARD the drift ("mono-white defensive
+ * deck") instead of correcting it.
+ */
+export interface DeckAdjustments {
+  /** Score multiplier applied to candidates whose colored pips are
+   *  predominantly this color. 1.0 = neutral, <1.0 = penalized. */
+  colorMultiplier: { w: number; u: number };
+  /** Bonus for cheap (MV<=2) candidates when the curve is top-heavy. */
+  cheapCurveBonus: number;
+  /** Human-readable checkpoint notes for the build log. */
+  notes: string[];
+}
+
+export function neutralAdjustments(): DeckAdjustments {
+  return { colorMultiplier: { w: 1.0, u: 1.0 }, cheapCurveBonus: 0, notes: [] };
+}
+
+function pipCounts(entries: { card: CardRecord; quantity: number }[]): { w: number; u: number } {
+  let w = 0;
+  let u = 0;
+  for (const { card, quantity } of entries) {
+    if (card.typeLine.includes("Land")) continue;
+    const cost = card.manaCost ?? "";
+    w += (cost.match(/\{W\}/g)?.length ?? 0) * quantity;
+    u += (cost.match(/\{U\}/g)?.length ?? 0) * quantity;
+  }
+  return { w, u };
+}
+
+/**
+ * Re-analysis checkpoint for the batched seed-chain loop: recompute
+ * deck-level properties the per-pick scorer cannot see, and emit score
+ * adjustments for the next batch.
+ *
+ * Current checks (each one exists because the straight-through build
+ * demonstrably missed it):
+ * 1. Color-pip balance -- the straight-through build drifted to ~82%
+ *    white pips because the role classifier has no color signal at all.
+ *    When one color's share of colored pips exceeds BALANCE_THRESHOLD,
+ *    candidates that would deepen the skew are penalized progressively.
+ * 2. Curve shape -- if the deck is accumulating 4-5 MV cards faster than
+ *    cheap early plays, cheap candidates get a bonus so turns 1-2 stay
+ *    covered (the brief's turn-by-turn usability requirement).
+ */
+export function reanalyzeDeck(
+  entries: { card: CardRecord; quantity: number }[],
+): DeckAdjustments {
+  const adj = neutralAdjustments();
+  const pips = pipCounts(entries);
+  const totalPips = pips.w + pips.u;
+
+  const BALANCE_THRESHOLD = 0.65;
+  if (totalPips >= 10) {
+    const wShare = pips.w / totalPips;
+    const uShare = pips.u / totalPips;
+    if (wShare > BALANCE_THRESHOLD) {
+      // Scale penalty with excess: 65% -> 1.0, 80% -> 0.7, 95% -> 0.4
+      adj.colorMultiplier.w = Math.max(0.4, 1.0 - (wShare - BALANCE_THRESHOLD) * 2);
+      adj.notes.push(
+        `Color balance: W pip share ${(wShare * 100).toFixed(0)}% exceeds ${BALANCE_THRESHOLD * 100}% threshold — ` +
+        `white-leaning candidates penalized x${adj.colorMultiplier.w.toFixed(2)} next batch.`
+      );
+    } else if (uShare > BALANCE_THRESHOLD) {
+      adj.colorMultiplier.u = Math.max(0.4, 1.0 - (uShare - BALANCE_THRESHOLD) * 2);
+      adj.notes.push(
+        `Color balance: U pip share ${(uShare * 100).toFixed(0)}% exceeds ${BALANCE_THRESHOLD * 100}% threshold — ` +
+        `blue-leaning candidates penalized x${adj.colorMultiplier.u.toFixed(2)} next batch.`
+      );
+    } else {
+      adj.notes.push(
+        `Color balance OK: W ${(wShare * 100).toFixed(0)}% / U ${((1 - wShare) * 100).toFixed(0)}% of colored pips.`
+      );
+    }
+  }
+
+  // Curve check: among nonland nonseed picks, require a healthy floor of
+  // cheap plays. Target: at least ~40% of nonland cards at MV<=2 once the
+  // deck has 8+ nonland cards.
+  let cheap = 0;
+  let nonland = 0;
+  for (const { card, quantity } of entries) {
+    if (card.typeLine.includes("Land")) continue;
+    nonland += quantity;
+    if (card.cmc <= 2) cheap += quantity;
+  }
+  if (nonland >= 8) {
+    const cheapShare = cheap / nonland;
+    if (cheapShare < 0.4) {
+      adj.cheapCurveBonus = 3;
+      adj.notes.push(
+        `Curve: only ${(cheapShare * 100).toFixed(0)}% of nonland cards are MV<=2 (target >=40%) — ` +
+        `cheap candidates get +${adj.cheapCurveBonus} next batch.`
+      );
+    } else {
+      adj.notes.push(`Curve OK: ${(cheapShare * 100).toFixed(0)}% of nonland cards are MV<=2.`);
+    }
+  }
+
+  return adj;
+}
+
+/**
+ * Which single color dominates a candidate's colored pips, if any.
+ * Used to apply the re-analysis color-balance multiplier only to cards
+ * that would actually deepen the skew (a WU gold card is neutral).
+ */
+export function dominantColor(card: CardRecord): "w" | "u" | null {
+  const cost = card.manaCost ?? "";
+  const w = cost.match(/\{W\}/g)?.length ?? 0;
+  const u = cost.match(/\{U\}/g)?.length ?? 0;
+  if (w > u) return "w";
+  if (u > w) return "u";
+  return null;
+}
+
 // ── Scoring rules ────────────────────────────────────────────────────────
 
 export interface SeedScoreBreakdown {
@@ -298,6 +422,7 @@ export function scoreCandidate(
   card: CardRecord,
   counts: DeckRoleCounts,
   basePowerScore: number,
+  adjustments?: DeckAdjustments,
 ): SeedScoreBreakdown {
   const roles = classifySeedRoles(card);
   if (roles.length === 0) {
@@ -322,7 +447,19 @@ export function scoreCandidate(
   const timing = curveTimingBonus(card, roles);
   const prevention = preventionBonus(card);
 
-  const final = basePowerScore * gapMultiplier - satPenalty + timing + prevention;
+  // Deck-level adjustments from the batched re-analysis loop (neutral when
+  // running straight-through). The color multiplier only applies to cards
+  // that would deepen the current skew; WU gold cards are neutral.
+  let colorMult = 1.0;
+  let curveBonus = 0;
+  if (adjustments) {
+    const dom = dominantColor(card);
+    if (dom === "w") colorMult = adjustments.colorMultiplier.w;
+    else if (dom === "u") colorMult = adjustments.colorMultiplier.u;
+    if (card.cmc <= 2) curveBonus = adjustments.cheapCurveBonus;
+  }
+
+  const final = (basePowerScore * gapMultiplier - satPenalty + timing + prevention + curveBonus) * colorMult;
 
   const target = SEED_ROLE_TARGETS;
   const [lo] = bestGapRole === "Enabler" ? target.enablers
@@ -348,7 +485,9 @@ export function scoreCandidate(
     curveTimingBonus: timing,
     preventionBonus: prevention,
     final,
-    note: `Selected because it fills ${bestGapRole}, current gap is ${gap}, and it improves ${[...new Set(advances)].join(" / ") || "role coverage"}.`,
+    note: `Selected because it fills ${bestGapRole}, current gap is ${gap}, and it improves ${[...new Set(advances)].join(" / ") || "role coverage"}.` +
+      (colorMult !== 1.0 ? ` [color-balance x${colorMult.toFixed(2)}]` : "") +
+      (curveBonus > 0 ? ` [cheap-curve +${curveBonus}]` : ""),
   };
 }
 

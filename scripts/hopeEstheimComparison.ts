@@ -45,8 +45,11 @@ import {
   scoreCandidate,
   checkFeasibility,
   rolesAtCeiling,
+  reanalyzeDeck,
+  neutralAdjustments,
   SEED_PACKAGE,
   SEED_ROLE_TARGETS,
+  type DeckAdjustments,
   type DeckRoleCounts,
   type SeedRole,
 } from "../src/lib/generator/hopeEstheimSynergy";
@@ -329,6 +332,194 @@ function basePowerProxy(card: CardRecord): number {
   return score;
 }
 
+// -- Batched sequential seed-chain loop (analyze -> chain n -> re-analyze) --
+
+/**
+ * Third build path: identical scoring machinery to buildWithSynergyFirstEngine,
+ * but picks are chained in BATCHES with a deck-level re-analysis checkpoint
+ * between batches. The checkpoint recomputes DERIVED deck state only (color
+ * pip balance, curve shape) and feeds the result back into the next batch's
+ * scoring as adjustments; the seed's game-plan anchor (roles, payoff
+ * identity, WU colors) is never re-inferred. This is the loop structure a
+ * user would experience as: add cards -> hit analyze -> app chains the next
+ * n picks -> re-analysis -> repeat.
+ */
+function buildWithBatchedSeedChain(pool: CardRecord[], seedCards: CardRecord[]): {
+  entries: DeckEntry[];
+  log: string[];
+  counts: DeckRoleCounts;
+} {
+  const entries: DeckEntry[] = seedCards.map((card) => ({ card, quantity: SEED_PACKAGE[card.name] ?? 1, board: "main" as const }));
+  const log: string[] = [];
+  const seedNames = new Set(seedCards.map((c) => c.name));
+  const targetNonlandCount = 36;
+  const BATCH_SLOTS = 6; // ~1-2 playsets per batch before a re-analysis checkpoint
+  let remainingPool = pool.filter((c) => !seedNames.has(c.name) && !c.typeLine.includes("Land") && classifySeedRoles(c).length > 0);
+
+  let counts = tallyRoleCounts(entries);
+  let nonlandCount = entries.reduce((s, e) => s + e.quantity, 0);
+
+  // Initial analysis: the seed package itself is the first "batch".
+  let adjustments: DeckAdjustments = reanalyzeDeck(entries);
+  let checkpoint = 1;
+  log.push(`[SEED-CHAIN] Checkpoint ${checkpoint} (seed only, ${nonlandCount} cards): ${adjustments.notes.join(" | ") || "no adjustments"}`);
+  let slotsSinceReanalysis = 0;
+
+  while (nonlandCount < targetNonlandCount && remainingPool.length > 0) {
+    if (slotsSinceReanalysis >= BATCH_SLOTS) {
+      adjustments = reanalyzeDeck(entries);
+      checkpoint++;
+      const flags = checkFeasibility(counts, { w: 0, u: 0 })
+        .filter((f) => !f.message.includes("Mana base") && !f.message.includes("Color source"))
+        .map((f) => `${f.severity.toUpperCase()}: ${f.message}`);
+      log.push(
+        `[SEED-CHAIN] Checkpoint ${checkpoint} (${nonlandCount}/${targetNonlandCount} nonland): ` +
+        `${adjustments.notes.join(" | ") || "no adjustments"}` +
+        (flags.length ? ` || Feasibility: ${flags.join(" ; ")}` : "")
+      );
+      slotsSinceReanalysis = 0;
+    }
+
+    const fullRoles = rolesAtCeiling(counts);
+    let best: { card: CardRecord; score: ReturnType<typeof scoreCandidate> } | null = null;
+    for (const card of remainingPool) {
+      const cardRoles = classifySeedRoles(card);
+      const allRolesOpen = cardRoles.every((r) => !fullRoles.has(r));
+      if (!allRolesOpen) continue;
+      const basePower = basePowerProxy(card);
+      const score = scoreCandidate(card, counts, basePower, adjustments);
+      if (!best || score.final > best.score.final) best = { card, score };
+    }
+    if (!best) {
+      for (const card of remainingPool) {
+        const cardRoles = classifySeedRoles(card);
+        const hasAnyOpenRole = cardRoles.some((r) => !fullRoles.has(r));
+        if (!hasAnyOpenRole) continue;
+        const basePower = basePowerProxy(card);
+        const score = scoreCandidate(card, counts, basePower, adjustments);
+        if (!best || score.final > best.score.final) best = { card, score };
+      }
+    }
+    if (!best) break;
+
+    const isLegendary = best.card.typeLine.includes("Legendary");
+    const suggestedQty = isLegendary ? 2 : 4;
+    const cardRoles = classifySeedRoles(best.card);
+    const roleRoomCaps = cardRoles.map((r) => roleRoomRemaining(r, counts));
+    const roleCap = roleRoomCaps.length > 0 ? Math.min(...roleRoomCaps) : suggestedQty;
+    // Also cap at the batch boundary so a playset cannot straddle a
+    // checkpoint — the re-analysis should see the deck state BEFORE the
+    // next batch commits more copies in a possibly-wrong direction.
+    const qty = Math.max(0, Math.min(suggestedQty, roleCap, targetNonlandCount - nonlandCount, BATCH_SLOTS - slotsSinceReanalysis));
+    // Anti-fragmentation: a brand-new nonlegendary card squeezed to a
+    // single copy is a consistency liability in a 60-card Standard deck
+    // (you effectively never draw it when you need it). If the caps only
+    // leave room for 1 copy of a NEW nonlegendary card, skip it for this
+    // round rather than seeding a pile of one-ofs; the consolidation pass
+    // after the main build will deepen existing picks instead.
+    if (qty === 0 || (qty === 1 && !isLegendary && targetNonlandCount - nonlandCount > 1)) {
+      remainingPool = remainingPool.filter((c) => c.name !== best!.card.name);
+      continue;
+    }
+    entries.push({ card: best.card, quantity: qty, board: "main" });
+    nonlandCount += qty;
+    slotsSinceReanalysis += qty;
+    counts = tallyRoleCounts(entries);
+    log.push(
+      `[SEED-CHAIN] Pick: ${best.card.name} x${qty} — final=${best.score.final.toFixed(1)} — ${best.score.note}`
+    );
+    remainingPool = remainingPool.filter((c) => c.name !== best!.card.name);
+  }
+
+  if (nonlandCount < targetNonlandCount && remainingPool.length > 0) {
+    log.push(
+      `[SEED-CHAIN] SHORTFALL: strict role-ceiling rule exhausted candidates at ${nonlandCount}/${targetNonlandCount} — ` +
+      `topping up with OVERFLOW picks (still color/curve-adjusted).`
+    );
+  }
+  while (nonlandCount < targetNonlandCount && remainingPool.length > 0) {
+    adjustments = reanalyzeDeck(entries);
+    let best: { card: CardRecord; score: ReturnType<typeof scoreCandidate> } | null = null;
+    for (const card of remainingPool) {
+      const basePower = basePowerProxy(card);
+      const score = scoreCandidate(card, counts, basePower, adjustments);
+      if (!best || score.final > best.score.final) best = { card, score };
+    }
+    if (!best) break;
+    const isLegendary = best.card.typeLine.includes("Legendary");
+    const qty = Math.min(isLegendary ? 2 : 4, targetNonlandCount - nonlandCount);
+    entries.push({ card: best.card, quantity: qty, board: "main" });
+    nonlandCount += qty;
+    counts = tallyRoleCounts(entries);
+    log.push(`[SEED-CHAIN] OVERFLOW pick: ${best.card.name} x${qty} — final=${best.score.final.toFixed(1)}`);
+    remainingPool = remainingPool.filter((c) => c.name !== best!.card.name);
+  }
+
+  consolidatePlaysets(entries, seedNames, log, "[SEED-CHAIN]");
+  counts = tallyRoleCounts(entries);
+
+  return { entries, log, counts };
+}
+
+/**
+ * Playset consolidation: 60-card Standard decks want 3-4 copies of fewer
+ * distinct cards, not a spread of 1-2 ofs — a 1-of is effectively a card
+ * you never see in the game where you need it. This pass trims the
+ * LOWEST-scoring fragmented picks (nonlegendary, qty <= 2) and reinvests
+ * those slots as extra copies of the HIGHEST-scoring fragmented picks,
+ * keeping the total card count identical and never touching the locked
+ * seed package. Legendary permanents are left at 2 (drawing multiples is
+ * a real cost), and role ceilings are allowed to shift slightly here —
+ * consistency of draws beats exact band adherence at the margin, and the
+ * log records every move so nothing shifts silently.
+ */
+function consolidatePlaysets(
+  entries: DeckEntry[],
+  seedNames: Set<string>,
+  log: string[],
+  tag: string,
+): void {
+  const fragmented = entries
+    .map((e, i) => ({ e, i }))
+    .filter(({ e }) =>
+      !seedNames.has(e.card.name) &&
+      !e.card.typeLine.includes("Land") &&
+      !e.card.typeLine.includes("Legendary") &&
+      e.quantity <= 2
+    );
+  if (fragmented.length <= 1) return;
+
+  // Rank fragments by the same standalone-power proxy used during the
+  // build; deepen the strong ones, cut the weak ones.
+  fragmented.sort((a, b) => basePowerProxy(b.e.card) - basePowerProxy(a.e.card));
+
+  let moved = 0;
+  let lo = fragmented.length - 1;
+  for (let hi = 0; hi < lo; hi++) {
+    const target = fragmented[hi].e;
+    while (target.quantity < 4 && hi < lo) {
+      const donor = fragmented[lo].e;
+      const take = Math.min(donor.quantity, 4 - target.quantity);
+      donor.quantity -= take;
+      target.quantity += take;
+      moved += take;
+      log.push(
+        `${tag} CONSOLIDATE: moved ${take}x from ${donor.card.name} into ${target.card.name} ` +
+        `(now ${target.quantity}x) — playset consistency over one-of spread.`
+      );
+      if (donor.quantity === 0) lo--;
+      else break;
+    }
+  }
+  // Drop zeroed-out entries.
+  for (let i = entries.length - 1; i >= 0; i--) {
+    if (entries[i].quantity === 0) entries.splice(i, 1);
+  }
+  if (moved > 0) {
+    log.push(`${tag} Consolidation complete: ${moved} slots moved into deeper playsets; distinct nonland cards reduced.`);
+  }
+}
+
 // ── Divergence detection ─────────────────────────────────────────────────
 
 // -- Land-base fill (24 lands) ------------------------------------------
@@ -425,9 +616,12 @@ function main() {
 
   const existing = buildWithExistingEngine(pool, seedCards);
   const synergyFirst = buildWithSynergyFirstEngine(pool, seedCards);
+  const seedChain = buildWithBatchedSeedChain(pool, seedCards);
 
   const allLands = loadLands();
-  const manaBase = addManaBase(synergyFirst.entries, allLands, 24);
+  // The batched seed-chain build is the most refined path, so IT gets the
+  // final mana base and decklist; the other two remain for comparison.
+  const manaBase = addManaBase(seedChain.entries, allLands, 24);
 
   const existingPicks = new Set(summarizePicks(existing.entries, new Set(seedNames)));
   const synergyPicks = new Set(summarizePicks(synergyFirst.entries, new Set(seedNames)));
@@ -448,6 +642,7 @@ function main() {
   report.push("");
   report.push(`- Existing composite engine (Control archetype, generic role/synergy axes): ${JSON.stringify(existingCounts)}`);
   report.push(`- Synergy-first sequential engine (seed-specific Enabler/Protection/Consistency/Payoff): ${JSON.stringify(synergyFirst.counts)}`);
+  report.push(`- Batched seed-chain engine (synergy-first + re-analysis checkpoints every 6 slots): ${JSON.stringify(seedChain.counts)}`);
   report.push(`- Target bands: ${JSON.stringify(SEED_ROLE_TARGETS)}`);
   report.push("");
   report.push("## Feasibility flags — existing composite engine's build");
@@ -463,6 +658,9 @@ function main() {
   report.push("");
   report.push("## Pick log — synergy-first engine");
   report.push(...synergyFirst.log.map((l) => `- ${l}`));
+  report.push("");
+  report.push("## Pick log — batched seed-chain engine (checkpoints inline)");
+  report.push(...seedChain.log.map((l) => `- ${l}`));
   report.push("");
   report.push("## DIVERGENCE — cards picked by ONLY the existing composite engine");
   report.push("(these are the standalone/composite-power shortfalls: individually strong but not seed-synergistic, or seed-synergistic in the wrong role balance)");
@@ -482,7 +680,7 @@ function main() {
   if (onlySynergy.length === 0) report.push("- none");
 
   report.push("");
-  report.push("## Final 60-card decklist — synergy-first engine + real Azorius mana base");
+  report.push("## Final 60-card decklist — batched seed-chain engine + real Azorius mana base");
   report.push("");
   report.push("Seed package (locked): 4x Hope Estheim, 4x Authority of the Consuls, 4x Space-Time Anomaly.");
   report.push("");
@@ -517,9 +715,9 @@ function main() {
 
   // Also emit a clean standalone decklist file for sharing.
   const deckLines: string[] = [];
-  deckLines.push("# Hope Estheim / Space-Time Anomaly — Synergy-First 60-Card Decklist");
+  deckLines.push("# Hope Estheim / Space-Time Anomaly — Batched Seed-Chain 60-Card Decklist");
   deckLines.push("");
-  deckLines.push(`Enabler ${synergyFirst.counts.enablers} | Protection ${synergyFirst.counts.protection} | Consistency ${synergyFirst.counts.consistency} | Payoff ${synergyFirst.counts.payoffs} | Lands ${landTotal}`);
+  deckLines.push(`Enabler ${seedChain.counts.enablers} | Protection ${seedChain.counts.protection} | Consistency ${seedChain.counts.consistency} | Payoff ${seedChain.counts.payoffs} | Lands ${landTotal}`);
   deckLines.push("");
   deckLines.push("## Nonland (36)");
   for (const e of nonlandSorted) deckLines.push(`${e.quantity} ${e.card.name}`);
@@ -527,6 +725,25 @@ function main() {
   deckLines.push("## Lands (24)");
   for (const e of landSorted) deckLines.push(`${e.quantity} ${e.card.name}`);
   writeFileSync(join(__dirname, "..", "..", "hope_estheim_decklist.md"), deckLines.join("\n"), "utf-8");
+
+  // Machine-readable summary for the synergy chart renderer.
+  const summary = {
+    targets: SEED_ROLE_TARGETS,
+    engines: {
+      "Existing composite": existingCounts,
+      "Synergy-first": synergyFirst.counts,
+      "Batched seed-chain": seedChain.counts,
+    },
+    decklist: manaBase.entries.map((e) => ({
+      name: e.card.name,
+      qty: e.quantity,
+      cmc: e.card.cmc,
+      manaCost: e.card.manaCost,
+      typeLine: e.card.typeLine,
+      roles: e.card.typeLine.includes("Land") ? [] : classifySeedRoles(e.card),
+    })),
+  };
+  writeFileSync(join(__dirname, "..", "..", "hope_estheim_summary.json"), JSON.stringify(summary, null, 2), "utf-8");
 }
 
 main();

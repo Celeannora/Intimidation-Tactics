@@ -1,0 +1,204 @@
+{
+  "targets": {
+    "enablers": [
+      10,
+      14
+    ],
+    "protection": [
+      8,
+      12
+    ],
+    "consistency": [
+      6,
+      10
+    ],
+    "payoffs": [
+      6,
+      8
+    ],
+    "lands": 24
+  },
+  "engines": {
+    "Existing composite": {
+      "enablers": 20,
+      "protection": 0,
+      "consistency": 24,
+      "payoffs": 12,
+      "lands": 0,
+      "nonlandTotal": 36
+    },
+    "Synergy-first": {
+      "enablers": 16,
+      "protection": 18,
+      "consistency": 14,
+      "payoffs": 12,
+      "lands": 0,
+      "nonlandTotal": 36
+    },
+    "Batched seed-chain": {
+      "enablers": 14,
+      "protection": 14,
+      "consistency": 14,
+      "payoffs": 12,
+      "lands": 0,
+      "nonlandTotal": 36
+    }
+  },
+  "decklist": [
+    {
+      "name": "Hope Estheim",
+      "qty": 4,
+      "cmc": 2,
+      "manaCost": "{W}{U}",
+      "typeLine": "Legendary Creature — Human Wizard",
+      "roles": [
+        "Payoff",
+        "Enabler"
+      ]
+    },
+    {
+      "name": "Authority of the Consuls",
+      "qty": 4,
+      "cmc": 1,
+      "manaCost": "{W}",
+      "typeLine": "Enchantment",
+      "roles": [
+        "Payoff",
+        "Enabler"
+      ]
+    },
+    {
+      "name": "Space-Time Anomaly",
+      "qty": 4,
+      "cmc": 4,
+      "manaCost": "{2}{W}{U}",
+      "typeLine": "Sorcery",
+      "roles": [
+        "Payoff"
+      ]
+    },
+    {
+      "name": "Niko, Light of Hope",
+      "qty": 2,
+      "cmc": 4,
+      "manaCost": "{2}{W}{U}",
+      "typeLine": "Legendary Creature — Human Wizard",
+      "roles": [
+        "Protection",
+        "Consistency"
+      ]
+    },
+    {
+      "name": "Emeritus of Truce // Swords to Plowshares",
+      "qty": 4,
+      "cmc": 3,
+      "manaCost": "{1}{W}{W} // {W}",
+      "typeLine": "Creature — Cat Cleric // Instant",
+      "roles": [
+        "Enabler",
+        "Protection"
+      ]
+    },
+    {
+      "name": "Jace Reawakened",
+      "qty": 2,
+      "cmc": 2,
+      "manaCost": "{U}{U}",
+      "typeLine": "Legendary Planeswalker — Jace",
+      "roles": [
+        "Consistency"
+      ]
+    },
+    {
+      "name": "Kitsa, Otterball Elite",
+      "qty": 2,
+      "cmc": 2,
+      "manaCost": "{1}{U}",
+      "typeLine": "Legendary Creature — Otter Wizard",
+      "roles": [
+        "Consistency"
+      ]
+    },
+    {
+      "name": "Morningtide's Light",
+      "qty": 4,
+      "cmc": 4,
+      "manaCost": "{3}{W}",
+      "typeLine": "Sorcery",
+      "roles": [
+        "Protection"
+      ]
+    },
+    {
+      "name": "Loch Mare",
+      "qty": 4,
+      "cmc": 2,
+      "manaCost": "{1}{U}",
+      "typeLine": "Creature — Horse Serpent",
+      "roles": [
+        "Consistency"
+      ]
+    },
+    {
+      "name": "Lost Jitte",
+      "qty": 2,
+      "cmc": 1,
+      "manaCost": "{1}",
+      "typeLine": "Legendary Artifact — Equipment",
+      "roles": [
+        "Enabler"
+      ]
+    },
+    {
+      "name": "Gallant Strike",
+      "qty": 4,
+      "cmc": 2,
+      "manaCost": "{1}{W}",
+      "typeLine": "Instant",
+      "roles": [
+        "Protection",
+        "Consistency"
+      ]
+    },
+    {
+      "name": "Floodfarm Verge",
+      "qty": 3,
+      "cmc": 0,
+      "manaCost": "",
+      "typeLine": "Land",
+      "roles": []
+    },
+    {
+      "name": "Gleaming Bastion",
+      "qty": 3,
+      "cmc": 0,
+      "manaCost": "",
+      "typeLine": "Land",
+      "roles": []
+    },
+    {
+      "name": "Temple of Enlightenment",
+      "qty": 2,
+      "cmc": 0,
+      "manaCost": "",
+      "typeLine": "Land",
+      "roles": []
+    },
+    {
+      "name": "Plains",
+      "qty": 10,
+      "cmc": 0,
+      "manaCost": "",
+      "typeLine": "Basic Land — Plains",
+      "roles": []
+    },
+    {
+      "name": "Island",
+      "qty": 6,
+      "cmc": 0,
+      "manaCost": "",
+      "typeLine": "Basic Land — Island",
+      "roles": []
+    }
+  ]
+}

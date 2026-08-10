@@ -145,3 +145,53 @@ Hope Estheim's {U} pip stay reliably castable on curve.
   compare nonland card *selection*, not to also land-base the composite
   engine's output.
 - Not wired into the UI or the AI provider layer.
+
+## Update: Batched Seed-Chain Loop + Playset Consolidation
+
+Two issues surfaced when running the branch end-to-end:
+
+1. **One-off fragmentation.** The role-room quantity caps, the legendary-2 rule, and batch-boundary
+   clipping could each squeeze a pick down to 1 copy, producing a spread of one-ofs that hurts draw
+   consistency. Fixes on this branch:
+   - **Min-2 rule** — a new nonlegendary pick squeezed to 1 copy is skipped (unless it is the literal
+     last slot); the slot goes to deepening an existing playset instead.
+   - **`consolidatePlaysets()`** — a final pass that trims the weakest 1-2x nonlegendary fragments and
+     reinvests those slots into the highest-scoring fragments up to 4x. Every move is logged as a
+     `CONSOLIDATE` line. Seeds, lands, and legendaries are exempt (2x legendaries are intentional —
+     extra copies of a legend in hand are dead draws).
+
+2. **No deck-level feedback during generation.** Per-pick role re-scoring existed, but nothing looked
+   at the *deck* as a whole mid-build. The batched seed-chain loop (`buildWithBatchedSeedChain`) fixes
+   this: every 6 slots it runs `reanalyzeDeck()` — color-pip balance (multiplier floor 0.4 once one
+   color exceeds 65% of pips) and curve health (+3 bonus to MV<=2 picks once cheap share drops below
+   40% of an 8+ card deck) — and feeds those adjustments into every subsequent `scoreCandidate` call.
+   The game-plan anchor stays locked to the original 3-card seed, so re-analysis corrects *derived*
+   state (pips, curve, feasibility) without seed drift.
+
+### Measured result (three-way comparison, same 1,638-card pool)
+
+| Engine | Enablers | Protection | Consistency | Payoffs |
+| --- | --- | --- | --- | --- |
+| Target band | 10-14 | 8-12 | 6-10 | 6-8 (+seed) |
+| Existing composite | 20 | **0** | 24 | 12 |
+| Synergy-first (strict) | 16 | 18 | 14 | 12 |
+| **Batched seed-chain** | **14** | **14** | **14** | **12** |
+
+The batched loop is the only build that lands every role at or near its band, and its color-balance
+checkpoint pulled white-pip share from ~82% down to 58% (blue mana sources 4 -> 14), organically
+pulling a new blue engine card (Loch Mare) into the deck that neither earlier build found.
+
+![Synergy chart](./synergy-chart.png)
+
+### Loop design (universal, not deck-specific)
+
+```
+seed(3 cards) -> analyze -> pick batch of 6 -> re-analyze derived state -> adjust scoring -> next batch
+                                   ^                                                            |
+                                   +------------------- consolidate playsets <----- final ------+
+```
+
+- Batch size 6 balances feedback frequency against churn; per-pick re-scoring still runs inside batches.
+- Re-analysis only touches *derived* signals (pips, curve, feasibility) — the seed identity is immutable,
+  preventing the "seed dilution" failure mode where mid-build additions redefine the game plan.
+- All thresholds (65% pip share, 40% cheap share, batch size) live in one place and are seed-agnostic.
