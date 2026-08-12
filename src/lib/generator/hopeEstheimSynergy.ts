@@ -266,7 +266,7 @@ export interface DeckAdjustments {
    * artifacts can feed a "sacrifice another artifact" cost). undefined =
    * dependency checking disabled (neutral / straight-through builds).
    */
-  supportCounts?: { artifacts: number; creatures: number };
+  supportCounts?: { artifacts: number; creatures: number; allies: number };
 }
 
 export function neutralAdjustments(): DeckAdjustments {
@@ -357,6 +357,13 @@ export function reanalyzeDeck(
   adj.supportCounts = {
     artifacts: entries.reduce((n, e) => n + (!e.card.typeLine.includes("Land") && e.card.typeLine.includes("Artifact") ? e.quantity : 0), 0),
     creatures: entries.reduce((n, e) => n + (e.card.typeLine.includes("Creature") ? e.quantity : 0), 0),
+    // Tribal subtype count, not just "Creature" -- cards whose trigger reads
+    // "another Ally you control" only fire from OTHER Allies specifically,
+    // not from any creature. Found via South Pole Voyager scoring as a
+    // repeatable-proactive Enabler in a deck with zero other Ally creatures,
+    // where its actual trigger ("this creature or another Ally... enters")
+    // can in practice only ever fire once (on itself) all game.
+    allies: entries.reduce((n, e) => n + (e.card.typeLine.includes("Ally") ? e.quantity : 0), 0),
   };
 
   return adj;
@@ -544,9 +551,17 @@ export const HOPE_ESTHEIM_RESOURCE: ResourceSpec = {
 // bulk-DB pool: Technodrome ("{T}, Sacrifice another artifact: Draw a card")
 // scored as a Consistency engine in a deck with zero other artifacts — a dead
 // ability. Patterns are seed-agnostic and extensible.
-const COST_DEPENDENCIES: { pattern: RegExp; resource: "artifacts" | "creatures"; minimum: number }[] = [
+const COST_DEPENDENCIES: { pattern: RegExp; resource: "artifacts" | "creatures" | "allies"; minimum: number }[] = [
   { pattern: /sacrifice (another|an) artifact/i, resource: "artifacts", minimum: 6 },
   { pattern: /sacrifice (another|a) creature/i, resource: "creatures", minimum: 8 },
+  // Tribal-count dependency, not a sacrifice cost: a trigger gated on
+  // "another Ally you control" entering is only as repeatable as the
+  // deck's Ally density. With 0-1 other Allies, "this creature or another
+  // Ally... enters" can only ever fire off itself -- a one-shot, not the
+  // repeatable-proactive cadence the raw regex match implied. Minimum of 4
+  // chosen so at least a light Ally sub-theme (not just the card itself)
+  // must be present before crediting repeatable value.
+  { pattern: /another ally you control/i, resource: "allies", minimum: 4 },
 ];
 
 function costDependencyPenalty(
@@ -558,9 +573,10 @@ function costDependencyPenalty(
   const text = card.oracleText ?? "";
   for (const dep of COST_DEPENDENCIES) {
     if (dep.pattern.test(text) && support[dep.resource] < dep.minimum) {
+      const verb = dep.resource === "allies" ? "needs other Allies to trigger repeatably" : "needs";
       return {
         mult: 0.25,
-        note: `cost-dependency penalty x0.25: needs ${dep.resource} to sacrifice, deck has ${support[dep.resource]} (min ${dep.minimum})`,
+        note: `cost-dependency penalty x0.25: ${verb} ${dep.resource}, deck has ${support[dep.resource]} (min ${dep.minimum})`,
       };
     }
   }

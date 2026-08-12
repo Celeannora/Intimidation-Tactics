@@ -555,3 +555,73 @@ so cards earn fewer simultaneous roles (more precise, single-role
 classification), not another OVERFLOW-loop patch — the loop-level fixes in
 this section already minimize overshoot about as well as a greedy
 (non-backtracking) algorithm can.
+
+## Bug found by user inspection: South Pole Voyager scored as repeatable despite being a dead Ally trigger
+
+After sharing the build above, manual inspection of the decklist caught a
+real scoring bug: **South Pole Voyager** ("Whenever this creature or another
+Ally you control enters, you gain 1 life. If this is the second time this
+ability has resolved this turn, draw a card.") was picked and scored with
+the full `repeatable-proactive` lifegain cadence bonus (+6), identical to
+what a static lifelink creature would earn — despite the deck containing
+**zero other Ally creatures**. With no other Allies, its trigger can in
+practice only ever fire once per game (off itself), making it functionally
+a one-shot "gain 1 life" ETB, not a repeatable engine piece.
+
+### Root cause
+
+`resourceCadence()`'s trigger-matching only checks whether the life-gain
+TEXT pattern (`/gain[^.]*life/`) appears inside a `whenever`/`at the
+beginning` clause, and whether that clause mentions "opponent"/"each player"
+(which would make it `repeatable-conditional`). It has no way to see that the
+trigger's own CONDITION ("another Ally you control enters") is itself gated
+on a tribal count the deck may not actually provide — the classifier only
+reasons about the resource being produced, never about what has to be true
+for the trigger to fire at all.
+
+The codebase already had the right pattern for this exact class of problem:
+`COST_DEPENDENCIES` (added in an earlier session for Technodrome's "sacrifice
+another artifact" ability scoring as a live Consistency engine in a deck with
+no other artifacts) penalizes any card whose ability text requires a support
+resource the deck doesn't have enough of. South Pole Voyager's "another Ally
+you control" clause is structurally identical — a trigger-condition
+dependency, not a cost dependency — but wasn't covered by the existing table.
+
+### Fix
+
+- Added an `allies` count to `DeckAdjustments.supportCounts` in
+  `reanalyzeDeck()`, computed the same way as `artifacts`/`creatures`
+  (counts entries whose `typeLine` includes "Ally").
+- Added `{ pattern: /another ally you control/i, resource: "allies",
+  minimum: 4 }` to `COST_DEPENDENCIES`. Minimum of 4 requires at least a
+  light Ally sub-theme (not just the card scoring itself) before the trigger
+  is credited as reliably repeatable.
+- `costDependencyPenalty()` already multiplied a matching card's ENTIRE
+  final score (including the cadence bonus) by 0.25x when the dependency
+  isn't met, so no change was needed there — extending the pattern table was
+  sufcient to flow through correctly.
+
+### Verified result
+
+Rerunning after the fix (`comparison_run6.log` in the workspace) removes
+South Pole Voyager from the seed-chain engine's final decklist entirely —
+Sheltered by Ghosts grew to 3x and Jace Reawakened (a genuine repeatable
+card-selection engine, verified by its own oracle text, not another
+false-positive) filled the freed slot instead. Role counts are unchanged
+(17/15/11/12 against the same target bands), confirming this was a pure
+which-cards-fill-the-slots correction, not a rebalancing of the aggregate
+role math.
+
+**Important caveat about the synergy-first (non-batched) engine**: this fix
+only takes effect where `adjustments` (built by `reanalyzeDeck()`) is passed
+into `scoreCandidate()`. The synergy-first engine's main pick loop never
+passes `adjustments` at all (only the batched seed-chain engine's periodic
+checkpoints do), so South Pole Voyager still scores at full (uncorrected)
+value in that engine's pick log and comparison-only output. This is
+acceptable because the seed-chain engine is the one whose output becomes the
+actual delivered decklist, but it does mean the two engines' comparison
+numbers in this report are not fully apples-to-apples for any future
+tribal/cost-dependency case — a true universal fix would thread
+`adjustments` (or at minimum `supportCounts`) into the synergy-first engine's
+main loop too, which is flagged here as a known follow-up rather than fixed
+in this pass, since it does not affect the delivered decklist.
