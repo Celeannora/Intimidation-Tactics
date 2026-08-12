@@ -1,15 +1,15 @@
 # Hope Estheim / Space-Time Anomaly — Batched Seed-Chain 60-Card Decklist
 
-Enabler 14 | Protection 14 | Consistency 14 | Payoff 12 | Lands 24
+Enabler 12 | Protection 16 | Consistency 16 | Payoff 12 | Lands 24
 
 ## Nonland (36)
 4 Authority of the Consuls
-2 Lost Jitte
 4 Gallant Strike
 4 Hope Estheim
-2 Jace Reawakened
 2 Kitsa, Otterball Elite
 4 Loch Mare
+2 Long River's Pull
+2 Wan Shi Tong, Librarian
 4 Emeritus of Truce // Swords to Plowshares
 4 Morningtide's Light
 2 Niko, Light of Hope
@@ -18,6 +18,6 @@ Enabler 14 | Protection 14 | Consistency 14 | Payoff 12 | Lands 24
 ## Lands (24)
 3 Floodfarm Verge
 3 Gleaming Bastion
-6 Island
-10 Plains
+7 Island
+9 Plains
 2 Temple of Enlightenment

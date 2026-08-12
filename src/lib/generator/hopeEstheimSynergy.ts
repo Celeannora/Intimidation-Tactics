@@ -92,6 +92,16 @@ const REMOVAL_HINT = /destroy target creature|exile target creature|deals? \d+ d
 // protection clauses, which are a different effect entirely.
 const DAMAGE_PREVENTION_HINT = /prevent (all|the next|that) damage that would be dealt to (you|a player|each player|target player)|damage that would be dealt to you is prevented|fog\b/;
 const TEMPO_TAX_HINT = /enters? (the battlefield )?tapped|can't attack|can't block|skip.*(untap|combat)/;
+// A tax effect only supports the seed plan when it constrains the OPPONENT
+// (Authority of the Consuls, Ghostly Prison, etc.). Cards with self-imposed
+// drawbacks ("this creature can't attack unless...") must not earn Enabler —
+// checked sentence-by-sentence so an opponent clause elsewhere in the card
+// can't validate a self-restriction sentence.
+function isOpponentTax(text: string): boolean {
+  return text
+    .split(/[\n.]/)
+    .some((s) => TEMPO_TAX_HINT.test(s) && /opponent|attack you|block you|each player/.test(s));
+}
 
 /**
  * Classify a card into zero or more seed roles. A card with zero seed
@@ -118,7 +128,7 @@ export function classifySeedRoles(card: CardRecord): SeedRole[] {
     tags.includes("lifelink") ||
     LIFEGAIN_TEXT.test(text) ||
     REPEATABLE_LIFEGAIN_HINTS.some((h) => text.includes(h)) ||
-    TEMPO_TAX_HINT.test(text) // Authority-style tax effects that indirectly enable lifegain windows
+    isOpponentTax(text) // Authority-style tax effects that indirectly enable lifegain windows
   ) {
     roles.add("Enabler");
   }
@@ -227,6 +237,12 @@ export interface DeckAdjustments {
   cheapCurveBonus: number;
   /** Human-readable checkpoint notes for the build log. */
   notes: string[];
+  /**
+   * Deck-level resource counts for cost-dependency checks (e.g. how many
+   * artifacts can feed a "sacrifice another artifact" cost). undefined =
+   * dependency checking disabled (neutral / straight-through builds).
+   */
+  supportCounts?: { artifacts: number; creatures: number };
 }
 
 export function neutralAdjustments(): DeckAdjustments {
@@ -313,6 +329,11 @@ export function reanalyzeDeck(
       adj.notes.push(`Curve OK: ${(cheapShare * 100).toFixed(0)}% of nonland cards are MV<=2.`);
     }
   }
+
+  adj.supportCounts = {
+    artifacts: entries.reduce((n, e) => n + (!e.card.typeLine.includes("Land") && e.card.typeLine.includes("Artifact") ? e.quantity : 0), 0),
+    creatures: entries.reduce((n, e) => n + (e.card.typeLine.includes("Creature") ? e.quantity : 0), 0),
+  };
 
   return adj;
 }
@@ -418,6 +439,34 @@ function preventionBonus(card: CardRecord): number {
  * pool after every pick, because role-gap and saturation terms are only
  * meaningful relative to what has already been selected.
  */
+// Activation-cost dependencies: a card whose ability needs OTHER resources is
+// only worth its text if the deck can actually pay the cost. Found via the
+// bulk-DB pool: Technodrome ("{T}, Sacrifice another artifact: Draw a card")
+// scored as a Consistency engine in a deck with zero other artifacts — a dead
+// ability. Patterns are seed-agnostic and extensible.
+const COST_DEPENDENCIES: { pattern: RegExp; resource: "artifacts" | "creatures"; minimum: number }[] = [
+  { pattern: /sacrifice (another|an) artifact/i, resource: "artifacts", minimum: 6 },
+  { pattern: /sacrifice (another|a) creature/i, resource: "creatures", minimum: 8 },
+];
+
+function costDependencyPenalty(
+  card: CardRecord,
+  adjustments?: DeckAdjustments
+): { mult: number; note: string | null } {
+  const support = adjustments?.supportCounts;
+  if (!support) return { mult: 1, note: null };
+  const text = card.oracleText ?? "";
+  for (const dep of COST_DEPENDENCIES) {
+    if (dep.pattern.test(text) && support[dep.resource] < dep.minimum) {
+      return {
+        mult: 0.25,
+        note: `cost-dependency penalty x0.25: needs ${dep.resource} to sacrifice, deck has ${support[dep.resource]} (min ${dep.minimum})`,
+      };
+    }
+  }
+  return { mult: 1, note: null };
+}
+
 export function scoreCandidate(
   card: CardRecord,
   counts: DeckRoleCounts,
@@ -459,7 +508,8 @@ export function scoreCandidate(
     if (card.cmc <= 2) curveBonus = adjustments.cheapCurveBonus;
   }
 
-  const final = (basePowerScore * gapMultiplier - satPenalty + timing + prevention + curveBonus) * colorMult;
+  const dependency = costDependencyPenalty(card, adjustments);
+  const final = (basePowerScore * gapMultiplier - satPenalty + timing + prevention + curveBonus) * colorMult * dependency.mult;
 
   const target = SEED_ROLE_TARGETS;
   const [lo] = bestGapRole === "Enabler" ? target.enablers
@@ -485,7 +535,7 @@ export function scoreCandidate(
     curveTimingBonus: timing,
     preventionBonus: prevention,
     final,
-    note: `Selected because it fills ${bestGapRole}, current gap is ${gap}, and it improves ${[...new Set(advances)].join(" / ") || "role coverage"}.` +
+    note: `Selected because it fills ${bestGapRole}, current gap is ${gap}, and it improves ${[...new Set(advances)].join(" / ") || "role coverage"}.${dependency.note ? ` [${dependency.note}]` : ""}` +
       (colorMult !== 1.0 ? ` [color-balance x${colorMult.toFixed(2)}]` : "") +
       (curveBonus > 0 ? ` [cheap-curve +${curveBonus}]` : ""),
   };

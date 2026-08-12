@@ -195,3 +195,55 @@ seed(3 cards) -> analyze -> pick batch of 6 -> re-analyze derived state -> adjus
 - Re-analysis only touches *derived* signals (pips, curve, feasibility) — the seed identity is immutable,
   preventing the "seed dilution" failure mode where mid-build additions redefine the game plan.
 - All thresholds (65% pip share, 40% cheap share, batch size) live in one place and are seed-agnostic.
+
+## Update: Pool now sourced from the app's own bulk database
+
+The earlier PoC pools were fetched with targeted Scryfall *search-API queries*
+(`f:standard (id<=wu) -t:land`), which bypassed the app's real data path. The
+pool is now built by `scripts/fetchBulkPool.ts`, a Node-side mirror of
+`src/lib/scryfallUpdate.ts`: it downloads the full `oracle_cards` bulk dataset
+(38,626 cards) and filters it with the app's OWN ingest functions
+(`isStandardEligible` from `src/lib/scryfall.ts`) — the exact gate
+`importWorker.ts` applies — yielding 1,714 WU/colorless candidates + 110 lands.
+
+Running on the real database immediately surfaced cards the narrow queries had
+missed (Wan Shi Tong, Technodrome, Long River's Pull) AND exposed three
+app-level shortfalls:
+
+1. **No release-date guard in the app ingest.** `toCardRecord` does not store
+   `released_at` and nothing gates on it, while Scryfall pre-marks preview
+   cards as `standard: legal`. The app itself would import unreleased cards
+   (e.g. Gleaming Splendor before 2026-08-14) as playable. Durable fix: store
+   `released_at` in `CardRecord` and filter in `isStandardEligible`.
+
+2. **`scryfallUpdate.ts` is broken against the live manifest.** Scryfall's
+   bulk manifest no longer exposes a plain-JSON `download_uri`; entries now
+   provide `jsonl_download_uri` (gzipped JSONL) behind a per-entry `uri`. The
+   controller's `manifest.data.find(...).download_uri` path fetches
+   `undefined`. `fetchBulkPool.ts` handles both shapes; the app controller
+   needs the same fix.
+
+3. **Classifier false positive (tempo-tax).** `TEMPO_TAX_HINT` matched
+   `can't attack|can't block` anywhere in a card's text, so Technodrome's own
+   drawback ("can't attack or block unless its power is 6 or greater") earned
+   it Enabler. Fixed: tax patterns now only count when the same sentence is
+   opponent-directed (`isOpponentTax`).
+
+### New: cost-dependency feasibility check
+
+The bulk pool also exposed a deeper scoring hole: Technodrome
+("{T}, Sacrifice another artifact: Draw a card") scored as a Consistency
+engine in a deck with ZERO other artifacts — a dead ability in context.
+`scoreCandidate` now applies a **cost-dependency penalty** (x0.25) via the
+re-analysis loop's `supportCounts`: cards whose activation costs consume
+other artifacts/creatures are only credited when the deck actually contains
+enough of them. This is exactly the class of error per-card composite scoring
+can never catch — the card's value depends on the rest of the deck — and the
+batched re-analysis loop is the natural place to enforce it. After the fix,
+the seed-chain build correctly swapped Technodrome out for Loch Mare.
+
+### Post-build validation gate (why it matters)
+
+Legality was previously inherited from the pool query. The pool is now
+bulk-derived and every card re-checked (Standard-legal, released, max-4,
+60 total) before export — the final decklist passes cleanly.
