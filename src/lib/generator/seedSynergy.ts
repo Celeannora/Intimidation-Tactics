@@ -512,11 +512,58 @@ export function resourceCadence(card: CardRecord, spec: ResourceSpec): ResourceC
     !TEMPORARY_GRANT_HINT.test(text);
   if ((isCreature || grantsStaticProducer) && hasStaticProducer) return "repeatable-proactive";
   for (const sentence of text.split(/(?<=\.)\s+/)) {
-    if (/(whenever|at the beginning)/.test(sentence) && spec.triggerProductionPattern.test(sentence)) {
-      return /opponent|each player/.test(sentence) ? "repeatable-conditional" : "repeatable-proactive";
+    if (!/(whenever|at the beginning)/.test(sentence)) continue;
+    if (!spec.triggerProductionPattern.test(sentence)) continue;
+    // Reject reactive triggers where the resource only appears in the
+    // CONDITION clause ("whenever you gain life, <effect>") rather than the
+    // EFFECT clause. A trigger conditioned on the resource already having
+    // been produced by something else is a payoff/consumer, not a producer
+    // of that resource -- e.g. "Whenever you gain life, put a +1/+1 counter
+    // on this creature" never causes any life gain itself. Split on the
+    // first comma (the conventional trigger/effect boundary in Magic
+    // templating) and require the production pattern to still match the
+    // effect side; a trigger that produces the resource directly ("At the
+    // beginning of your upkeep, you gain 2 life") keeps matching normally.
+    const wheneverMatch = /\bwhenever\b/.exec(sentence);
+    const commaIndex = wheneverMatch ? sentence.indexOf(",", wheneverMatch.index) : -1;
+    if (wheneverMatch && commaIndex !== -1) {
+      const condition = sentence.slice(wheneverMatch.index, commaIndex);
+      const effect = sentence.slice(commaIndex + 1);
+      // If the resource/production pattern only matches inside the trigger's
+      // own CONDITION clause, and not in the EFFECT clause that follows the
+      // comma, then this card is reacting to the resource (already produced
+      // by something else) rather than producing it. Only the effect clause
+      // counts as evidence of real production.
+      if (spec.triggerProductionPattern.test(condition) && !spec.triggerProductionPattern.test(effect)) {
+        continue;
+      }
     }
+    return /opponent|each player/.test(sentence) ? "repeatable-conditional" : "repeatable-proactive";
   }
-  if (spec.oneShotProductionPattern.test(text) || hasStaticProducer) return "one-shot";
+  // The one-shot fallback below scans raw card text for the production
+  // pattern, so it needs the same reactive-condition-clause exclusion as the
+  // trigger loop above -- otherwise a card like "Whenever you gain life, put
+  // a +1/+1 counter on this creature" (condition-only reference, no actual
+  // production) would fall through and re-trigger the same false positive
+  // here even after being correctly rejected as a repeatable trigger.
+  const oneShotEvidenceText = text
+    .split(/(?<=\.)\s+/)
+    .map((sentence) => {
+      const wheneverMatch = /\bwhenever\b/.exec(sentence);
+      const commaIndex = wheneverMatch ? sentence.indexOf(",", wheneverMatch.index) : -1;
+      if (wheneverMatch && commaIndex !== -1) {
+        const condition = sentence.slice(wheneverMatch.index, commaIndex);
+        const effect = sentence.slice(commaIndex + 1);
+        if (spec.triggerProductionPattern.test(condition) && !spec.triggerProductionPattern.test(effect)) {
+          // Drop only the reactive condition clause; keep the effect clause
+          // (and the rest of the sentence) in play for one-shot detection.
+          return sentence.slice(0, wheneverMatch.index) + effect;
+        }
+      }
+      return sentence;
+    })
+    .join(" ");
+  if (spec.oneShotProductionPattern.test(oneShotEvidenceText) || hasStaticProducer) return "one-shot";
   return null;
 }
 
