@@ -16,7 +16,7 @@ is currently missing for *this seed's specific two-clock mechanic*
 Anomaly).
 
 This proof of concept adds a second, deliberately narrow scorer
-(`src/lib/generator/hopeEstheimSynergy.ts`) that classifies every card into
+(`src/lib/generator/seedSynergy.ts`) that classifies every card into
 seed-specific roles (Enabler / Protection / Consistency / Payoff — as
 defined by how it actually interacts with Hope, Space-Time Anomaly, and
 Authority of the Consuls' Oracle text) and re-scores the *entire remaining
@@ -435,7 +435,7 @@ change.
 ### The target change itself
 
 `SEED_ROLE_TARGETS.consistency` moved from `[6, 10]` to `[4, 8]` in
-`src/lib/generator/hopeEstheimSynergy.ts`. The floor/ceiling were both the
+`src/lib/generator/seedSynergy.ts`. The floor/ceiling were both the
 original spec's numbers already at `[6, 10]` — "tightening" here means
 lowering the ceiling further (Consistency should be a supporting role for
 this deck's lifegain-mill plan, not a role that can casually absorb nearly a

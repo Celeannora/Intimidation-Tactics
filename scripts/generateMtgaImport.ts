@@ -14,8 +14,17 @@
 // the decklist changes.
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import type { SeedPackage } from "../src/lib/generator/seedSynergy";
 
 const POOL_DIR = "/home/user/workspace/pool_data";
+
+// Script-level build configuration. Change this package when exporting a
+// different seed build; the generic engine never owns card-specific data.
+const SEED_PACKAGE: SeedPackage = [
+  { name: "Hope Estheim", quantity: 4 },
+  { name: "Authority of the Consuls", quantity: 4 },
+  { name: "Space-Time Anomaly", quantity: 4 },
+];
 
 interface ScryfallCard {
   name: string;
@@ -44,11 +53,10 @@ const PRINTING_OVERRIDE: Record<string, { set: string; number: string }> = {
 };
 
 const DECKLIST: { qty: number; name: string }[] = [
-  { qty: 4, name: "Authority of the Consuls" },
+  ...SEED_PACKAGE.map(({ quantity, name }) => ({ qty: quantity, name })),
   { qty: 2, name: "Excalibur II" },
   { qty: 2, name: "Stiltzkin, Moogle Merchant" },
   { qty: 2, name: "Agatha's Soul Cauldron" },
-  { qty: 4, name: "Hope Estheim" },
   { qty: 1, name: "Jace Reawakened" },
   { qty: 2, name: "Kitsa, Otterball Elite" },
   { qty: 3, name: "Sheltered by Ghosts" },
@@ -56,7 +64,6 @@ const DECKLIST: { qty: number; name: string }[] = [
   { qty: 2, name: "Venat, Heart of Hydaelyn // Hydaelyn, the Mothercrystal" },
   { qty: 2, name: "Morningtide's Light" },
   { qty: 2, name: "Niko, Light of Hope" },
-  { qty: 4, name: "Space-Time Anomaly" },
   { qty: 4, name: "Season of the Burrow" },
 ];
 

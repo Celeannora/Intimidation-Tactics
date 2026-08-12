@@ -18,7 +18,7 @@
  *      (graveyard/tokens/etc.), not "does this feed Hope/Space-Time
  *      Anomaly specifically."
  *
- *   2. SYNERGY-FIRST ENGINE — hopeEstheimSynergy.ts::scoreCandidate,
+ *   2. SYNERGY-FIRST ENGINE — seedSynergy.ts::scoreCandidate,
  *      re-scored after every single pick against the CURRENT role-gap
  *      state (Enabler/Protection/Consistency/Payoff), with payoff
  *      saturation penalties and turn-usability bonuses specific to this
@@ -47,16 +47,64 @@ import {
   rolesAtCeiling,
   reanalyzeDeck,
   neutralAdjustments,
-  SEED_PACKAGE,
+  inferResourceSpec,
   SEED_ROLE_TARGETS,
   type DeckAdjustments,
   type DeckRoleCounts,
+  type ResourceSpec,
   type SeedRole,
-} from "../src/lib/generator/hopeEstheimSynergy";
+  type SeedPackage,
+} from "../src/lib/generator/seedSynergy";
 import { recommendDualLands } from "../src/lib/manaBase";
 import { countLandSources } from "../src/lib/landSources";
 
 const POOL_DIR = join(__dirname, "..", "..", "pool_data");
+
+// Script-level build configuration: swap this package to evaluate another
+// seed without changing the generic scoring engine.
+const SEED_PACKAGE: SeedPackage = [
+  { name: "Hope Estheim", quantity: 4 },
+  { name: "Authority of the Consuls", quantity: 4 },
+  { name: "Space-Time Anomaly", quantity: 4 },
+];
+const SEED_QUANTITIES = new Map(SEED_PACKAGE.map((card) => [card.name, card.quantity]));
+let activeResourceSpec: ResourceSpec | null = null;
+
+// All engine calls receive the script's explicit seed configuration. The
+// inferred spec remains null only when a payoff does not expose a clear
+// countable resource, in which case cadence scoring is intentionally skipped.
+function classify(card: CardRecord): SeedRole[] {
+  return classifySeedRoles(card, SEED_PACKAGE, activeResourceSpec);
+}
+
+function tally(entries: { card: CardRecord; quantity: number }[]): DeckRoleCounts {
+  return tallyRoleCounts(entries, SEED_PACKAGE, activeResourceSpec);
+}
+
+function atCeiling(counts: DeckRoleCounts): Set<SeedRole> {
+  return rolesAtCeiling(counts, SEED_ROLE_TARGETS);
+}
+
+function scoreWithSeed(
+  card: CardRecord,
+  counts: DeckRoleCounts,
+  basePowerScore: number,
+  adjustments?: DeckAdjustments,
+) {
+  return scoreCandidate(
+    card,
+    counts,
+    basePowerScore,
+    SEED_PACKAGE,
+    activeResourceSpec,
+    SEED_ROLE_TARGETS,
+    adjustments,
+  );
+}
+
+function feasibility(counts: DeckRoleCounts, colorSources: { w: number; u: number }) {
+  return checkFeasibility(counts, colorSources, SEED_ROLE_TARGETS);
+}
 
 // Scryfall pre-marks preview/spoiler sets as standard-legal weeks before
 // they actually release (and before they exist on Arena), so a pool built
@@ -116,7 +164,7 @@ function buildWithExistingEngine(pool: CardRecord[], seedCards: CardRecord[]): {
   entries: DeckEntry[];
   log: string[];
 } {
-  const entries: DeckEntry[] = seedCards.map((card) => ({ card, quantity: SEED_PACKAGE[card.name] ?? 1, board: "main" as const }));
+  const entries: DeckEntry[] = seedCards.map((card) => ({ card, quantity: SEED_QUANTITIES.get(card.name) ?? 1, board: "main" as const }));
   const log: string[] = [];
   const seedNames = new Set(seedCards.map((c) => c.name));
   const targetNonlandCount = 36; // 60 - 24 lands
@@ -193,7 +241,7 @@ function roleOvershoot(role: SeedRole, counts: DeckRoleCounts): number {
  * multi-role card is judged by its most-saturated role, not its least.
  */
 function projectedOvershoot(card: CardRecord, counts: DeckRoleCounts, qty: number): number {
-  const roles = classifySeedRoles(card);
+  const roles = classify(card);
   if (roles.length === 0) return 0;
   return Math.max(...roles.map((r) => roleOvershoot(r, counts) + Math.max(0, qty - roleRoomRemaining(r, counts))));
 }
@@ -203,13 +251,13 @@ function buildWithSynergyFirstEngine(pool: CardRecord[], seedCards: CardRecord[]
   log: string[];
   counts: DeckRoleCounts;
 } {
-  const entries: DeckEntry[] = seedCards.map((card) => ({ card, quantity: SEED_PACKAGE[card.name] ?? 1, board: "main" as const }));
+  const entries: DeckEntry[] = seedCards.map((card) => ({ card, quantity: SEED_QUANTITIES.get(card.name) ?? 1, board: "main" as const }));
   const log: string[] = [];
   const seedNames = new Set(seedCards.map((c) => c.name));
   const targetNonlandCount = 36;
-  let remainingPool = pool.filter((c) => !seedNames.has(c.name) && !c.typeLine.includes("Land") && classifySeedRoles(c).length > 0);
+  let remainingPool = pool.filter((c) => !seedNames.has(c.name) && !c.typeLine.includes("Land") && classify(c).length > 0);
 
-  let counts = tallyRoleCounts(entries);
+  let counts = tally(entries);
   let nonlandCount = entries.reduce((s, e) => s + e.quantity, 0);
 
   while (nonlandCount < targetNonlandCount && remainingPool.length > 0) {
@@ -223,10 +271,10 @@ function buildWithSynergyFirstEngine(pool: CardRecord[], seedCards: CardRecord[]
     // ALSO matched a still-open role could still win on its Protection
     // score. Excluding cards whose only open role is already full forces
     // rotation once a band is satisfied.
-    const fullRoles = rolesAtCeiling(counts);
+    const fullRoles = atCeiling(counts);
     let best: { card: CardRecord; score: ReturnType<typeof scoreCandidate> } | null = null;
     for (const card of remainingPool) {
-      const cardRoles = classifySeedRoles(card);
+      const cardRoles = classify(card);
       // A card is only eligible if EVERY role it touches still has room.
       // Requiring just "at least one open role" (the original version of
       // this check) let a dual-tagged card such as a Protection+Enabler
@@ -242,7 +290,7 @@ function buildWithSynergyFirstEngine(pool: CardRecord[], seedCards: CardRecord[]
       // so both engines start from a comparable power baseline; the seed
       // module then applies role-gap/saturation/timing on top of it.
       const basePower = basePowerProxy(card);
-      const score = scoreCandidate(card, counts, basePower);
+      const score = scoreWithSeed(card, counts, basePower);
       if (!best || score.final > best.score.final) {
         best = { card, score };
       }
@@ -260,11 +308,11 @@ function buildWithSynergyFirstEngine(pool: CardRecord[], seedCards: CardRecord[]
       // below by roleRoomRemaining so it cannot push any role past
       // ceiling by more than the cap allows.
       for (const card of remainingPool) {
-        const cardRoles = classifySeedRoles(card);
+        const cardRoles = classify(card);
         const hasAnyOpenRole = cardRoles.some((r) => !fullRoles.has(r));
         if (!hasAnyOpenRole) continue;
         const basePower = basePowerProxy(card);
-        const score = scoreCandidate(card, counts, basePower);
+        const score = scoreWithSeed(card, counts, basePower);
         if (!best || score.final > best.score.final) best = { card, score };
       }
     }
@@ -285,7 +333,7 @@ function buildWithSynergyFirstEngine(pool: CardRecord[], seedCards: CardRecord[]
     // version of this script and is why Protection overshot to 24/12.
     const isLegendary = best.card.typeLine.includes("Legendary");
     const suggestedQty = isLegendary ? 2 : 4;
-    const cardRoles = classifySeedRoles(best.card);
+    const cardRoles = classify(best.card);
     const roleRoomCaps = cardRoles.map((r) => roleRoomRemaining(r, counts));
     // A genuine zero-room role must clamp qty to zero, not floor at 1 —
     // flooring at 1 is exactly what let single-copy picks push Protection
@@ -301,7 +349,7 @@ function buildWithSynergyFirstEngine(pool: CardRecord[], seedCards: CardRecord[]
     }
     entries.push({ card: best.card, quantity: qty, board: "main" });
     nonlandCount += qty;
-    counts = tallyRoleCounts(entries);
+    counts = tally(entries);
     log.push(
       `[SYNERGY-FIRST] Pick: ${best.card.name} x${qty} — final=${best.score.final.toFixed(1)} ` +
       `(base=${best.score.base.toFixed(1)}, gapMult=${best.score.roleGapMultiplier.toFixed(2)}, ` +
@@ -323,7 +371,7 @@ function buildWithSynergyFirstEngine(pool: CardRecord[], seedCards: CardRecord[]
   if (nonlandCount < targetNonlandCount && remainingPool.length > 0) {
     log.push(
       `[SYNERGY-FIRST] SHORTFALL: strict role-ceiling rule exhausted all eligible candidates at ` +
-      `${nonlandCount}/${targetNonlandCount} nonland cards (roles at ceiling: ${[...rolesAtCeiling(counts)].join(", ")}). ` +
+      `${nonlandCount}/${targetNonlandCount} nonland cards (roles at ceiling: ${[...atCeiling(counts)].join(", ")}). ` +
       `Topping up remaining ${targetNonlandCount - nonlandCount} slots with best-scoring cards regardless of ceiling — see OVERFLOW picks below.`
     );
   }
@@ -341,7 +389,7 @@ function buildWithSynergyFirstEngine(pool: CardRecord[], seedCards: CardRecord[]
       if (entry.quantity >= cap) continue;
       const room = Math.min(cap - entry.quantity, targetNonlandCount - nonlandCount);
       if (room < 1) continue;
-      const countsWithout = tallyRoleCounts(entries.map((e, j) => (j === i ? { ...e, quantity: e.quantity - entry.quantity } : e)));
+      const countsWithout = tally(entries.map((e, j) => (j === i ? { ...e, quantity: e.quantity - entry.quantity } : e)));
       const overshoot = projectedOvershoot(entry.card, countsWithout, entry.quantity + room);
       if (!topUp || overshoot < topUp.overshoot || (overshoot === topUp.overshoot && room > topUp.addQty)) {
         topUp = { entryIdx: i, addQty: room, overshoot };
@@ -360,7 +408,7 @@ function buildWithSynergyFirstEngine(pool: CardRecord[], seedCards: CardRecord[]
       const isLegendary = card.typeLine.includes("Legendary");
       const maxQty = Math.min(isLegendary ? 2 : 4, targetNonlandCount - nonlandCount);
       const basePower = basePowerProxy(card);
-      const score = scoreCandidate(card, counts, basePower);
+      const score = scoreWithSeed(card, counts, basePower);
       // Find THIS card's own best (largest-quantity, minimal-overshoot) pick
       // first — iterate qty from max down to 1 and keep the largest qty that
       // achieves this card's personal minimum overshoot. This avoids the
@@ -389,7 +437,7 @@ function buildWithSynergyFirstEngine(pool: CardRecord[], seedCards: CardRecord[]
       const entry = entries[topUp.entryIdx];
       entry.quantity += topUp.addQty;
       nonlandCount += topUp.addQty;
-      counts = tallyRoleCounts(entries);
+      counts = tally(entries);
       log.push(
         `[SYNERGY-FIRST] OVERFLOW top-up: ${entry.card.name} +${topUp.addQty} (now ${entry.quantity}x) — ` +
         `depth on an existing pick preferred over a new singleton (overshoot=${topUp.overshoot}).`
@@ -399,7 +447,7 @@ function buildWithSynergyFirstEngine(pool: CardRecord[], seedCards: CardRecord[]
     if (!best) break;
     entries.push({ card: best.card, quantity: best.qty, board: "main" });
     nonlandCount += best.qty;
-    counts = tallyRoleCounts(entries);
+    counts = tally(entries);
     log.push(
       `[SYNERGY-FIRST] OVERFLOW pick: ${best.card.name} x${best.qty} — final=${best.score.final.toFixed(1)} ` +
       `(min-overshoot=${best.overshoot}) — added past ceiling to reach the 36-card nonland target; role counts after: ${JSON.stringify(counts)}`
@@ -482,14 +530,14 @@ function buildWithBatchedSeedChain(pool: CardRecord[], seedCards: CardRecord[]):
   log: string[];
   counts: DeckRoleCounts;
 } {
-  const entries: DeckEntry[] = seedCards.map((card) => ({ card, quantity: SEED_PACKAGE[card.name] ?? 1, board: "main" as const }));
+  const entries: DeckEntry[] = seedCards.map((card) => ({ card, quantity: SEED_QUANTITIES.get(card.name) ?? 1, board: "main" as const }));
   const log: string[] = [];
   const seedNames = new Set(seedCards.map((c) => c.name));
   const targetNonlandCount = 36;
   const BATCH_SLOTS = 6; // ~1-2 playsets per batch before a re-analysis checkpoint
-  let remainingPool = pool.filter((c) => !seedNames.has(c.name) && !c.typeLine.includes("Land") && classifySeedRoles(c).length > 0);
+  let remainingPool = pool.filter((c) => !seedNames.has(c.name) && !c.typeLine.includes("Land") && classify(c).length > 0);
 
-  let counts = tallyRoleCounts(entries);
+  let counts = tally(entries);
   let nonlandCount = entries.reduce((s, e) => s + e.quantity, 0);
 
   // Initial analysis: the seed package itself is the first "batch".
@@ -502,7 +550,7 @@ function buildWithBatchedSeedChain(pool: CardRecord[], seedCards: CardRecord[]):
     if (slotsSinceReanalysis >= BATCH_SLOTS) {
       adjustments = reanalyzeDeck(entries);
       checkpoint++;
-      const flags = checkFeasibility(counts, { w: 0, u: 0 })
+      const flags = feasibility(counts, { w: 0, u: 0 })
         .filter((f) => !f.message.includes("Mana base") && !f.message.includes("Color source"))
         .map((f) => `${f.severity.toUpperCase()}: ${f.message}`);
       log.push(
@@ -513,24 +561,24 @@ function buildWithBatchedSeedChain(pool: CardRecord[], seedCards: CardRecord[]):
       slotsSinceReanalysis = 0;
     }
 
-    const fullRoles = rolesAtCeiling(counts);
+    const fullRoles = atCeiling(counts);
     let best: { card: CardRecord; score: ReturnType<typeof scoreCandidate>; basePower: number } | null = null;
     for (const card of remainingPool) {
-      const cardRoles = classifySeedRoles(card);
+      const cardRoles = classify(card);
       const allRolesOpen = cardRoles.every((r) => !fullRoles.has(r));
       if (!allRolesOpen) continue;
       const basePower = basePowerProxy(card);
-      const score = scoreCandidate(card, counts, basePower, adjustments);
+      const score = scoreWithSeed(card, counts, basePower, adjustments);
       const challenger = { card, score, basePower };
       if (isStrictlyBetter(challenger, best)) best = challenger;
     }
     if (!best) {
       for (const card of remainingPool) {
-        const cardRoles = classifySeedRoles(card);
+        const cardRoles = classify(card);
         const hasAnyOpenRole = cardRoles.some((r) => !fullRoles.has(r));
         if (!hasAnyOpenRole) continue;
         const basePower = basePowerProxy(card);
-        const score = scoreCandidate(card, counts, basePower, adjustments);
+        const score = scoreWithSeed(card, counts, basePower, adjustments);
         const challenger = { card, score, basePower };
         if (isStrictlyBetter(challenger, best)) best = challenger;
       }
@@ -539,7 +587,7 @@ function buildWithBatchedSeedChain(pool: CardRecord[], seedCards: CardRecord[]):
 
     const isLegendary = best.card.typeLine.includes("Legendary");
     const suggestedQty = isLegendary ? 2 : 4;
-    const cardRoles = classifySeedRoles(best.card);
+    const cardRoles = classify(best.card);
     const roleRoomCaps = cardRoles.map((r) => roleRoomRemaining(r, counts));
     const roleCap = roleRoomCaps.length > 0 ? Math.min(...roleRoomCaps) : suggestedQty;
     // Also cap at the batch boundary so a playset cannot straddle a
@@ -559,7 +607,7 @@ function buildWithBatchedSeedChain(pool: CardRecord[], seedCards: CardRecord[]):
     entries.push({ card: best.card, quantity: qty, board: "main" });
     nonlandCount += qty;
     slotsSinceReanalysis += qty;
-    counts = tallyRoleCounts(entries);
+    counts = tally(entries);
     log.push(
       `[SEED-CHAIN] Pick: ${best.card.name} x${qty} — final=${best.score.final.toFixed(1)} — ${best.score.note}`
     );
@@ -591,7 +639,7 @@ function buildWithBatchedSeedChain(pool: CardRecord[], seedCards: CardRecord[]):
       if (entry.quantity >= cap) continue;
       const room = Math.min(cap - entry.quantity, targetNonlandCount - nonlandCount);
       for (let add = room; add >= 1; add--) {
-        const countsWithout = tallyRoleCounts(entries.map((e, j) => (j === i ? { ...e, quantity: e.quantity - entry.quantity } : e)));
+        const countsWithout = tally(entries.map((e, j) => (j === i ? { ...e, quantity: e.quantity - entry.quantity } : e)));
         const overshoot = projectedOvershoot(entry.card, countsWithout, entry.quantity + add);
         if (!topUp || overshoot < topUp.overshoot || (overshoot === topUp.overshoot && add > topUp.addQty)) {
           topUp = { entryIdx: i, addQty: add, overshoot };
@@ -603,7 +651,7 @@ function buildWithBatchedSeedChain(pool: CardRecord[], seedCards: CardRecord[]):
       const entry = entries[topUp.entryIdx];
       entry.quantity += topUp.addQty;
       nonlandCount += topUp.addQty;
-      counts = tallyRoleCounts(entries);
+      counts = tally(entries);
       log.push(
         `[SEED-CHAIN] OVERFLOW top-up: ${entry.card.name} +${topUp.addQty} (now ${entry.quantity}x) — ` +
         `zero-overshoot depth added to an existing pick instead of a new singleton.`
@@ -622,7 +670,7 @@ function buildWithBatchedSeedChain(pool: CardRecord[], seedCards: CardRecord[]):
       const isLegendary = card.typeLine.includes("Legendary");
       const maxQty = Math.min(isLegendary ? 2 : 4, targetNonlandCount - nonlandCount);
       const basePower = basePowerProxy(card);
-      const score = scoreCandidate(card, counts, basePower, adjustments);
+      const score = scoreWithSeed(card, counts, basePower, adjustments);
       // Same largest-quantity-at-minimal-overshoot rule as the synergy-first
       // engine's overflow pass: avoids locking a card in at x1 just because
       // x1 happens to hit zero overshoot when x4 would ALSO hit zero.
@@ -650,7 +698,7 @@ function buildWithBatchedSeedChain(pool: CardRecord[], seedCards: CardRecord[]):
       const entry = entries[topUp.entryIdx];
       entry.quantity += topUp.addQty;
       nonlandCount += topUp.addQty;
-      counts = tallyRoleCounts(entries);
+      counts = tally(entries);
       log.push(
         `[SEED-CHAIN] OVERFLOW top-up: ${entry.card.name} +${topUp.addQty} (now ${entry.quantity}x) — ` +
         `matched or beat the best new-card overshoot, so depth was preferred over fragmentation.`
@@ -660,13 +708,13 @@ function buildWithBatchedSeedChain(pool: CardRecord[], seedCards: CardRecord[]):
     if (!best) break;
     entries.push({ card: best.card, quantity: best.qty, board: "main" });
     nonlandCount += best.qty;
-    counts = tallyRoleCounts(entries);
+    counts = tally(entries);
     log.push(`[SEED-CHAIN] OVERFLOW pick: ${best.card.name} x${best.qty} — final=${best.score.final.toFixed(1)} (min-overshoot=${best.overshoot})`);
     remainingPool = remainingPool.filter((c) => c.name !== best!.card.name);
   }
 
   consolidatePlaysets(entries, seedNames, log, "[SEED-CHAIN]");
-  counts = tallyRoleCounts(entries);
+  counts = tally(entries);
 
   return { entries, log, counts };
 }
@@ -719,9 +767,9 @@ function consolidatePlaysets(
     while (target.quantity < 4 && hi < lo) {
       const donor = fragmented[lo].e;
       let take = Math.min(donor.quantity, 4 - target.quantity);
-      const counts = tallyRoleCounts(entries);
-      const targetRoles = classifySeedRoles(target.card);
-      const donorRoles = classifySeedRoles(donor.card);
+      const counts = tally(entries);
+      const targetRoles = classify(target.card);
+      const donorRoles = classify(donor.card);
       // A role R's count changes by +take if the target fills R but the
       // donor doesn't, -take if the donor fills R but the target doesn't,
       // and 0 if both or neither fill R (moving copies between two cards
@@ -856,12 +904,21 @@ function main() {
   const pool = loadPool();
   console.log(`Loaded ${pool.length} Standard-legal, non-seed-excluded WU/colorless candidate cards from Scryfall data.\n`);
 
-  const seedNames = ["Hope Estheim", "Authority of the Consuls", "Space-Time Anomaly"];
+  const seedNames = SEED_PACKAGE.map((seedCard) => seedCard.name);
   const seedCards = seedNames.map((name) => {
     const found = pool.find((c) => c.name === name);
     if (!found) throw new Error(`Seed card not found in pool data: ${name}`);
     return found;
   });
+  const seedPayoffCards = seedCards.filter((card) =>
+    classifySeedRoles(card, SEED_PACKAGE).includes("Payoff")
+  );
+  activeResourceSpec = inferResourceSpec(seedPayoffCards);
+  if (!activeResourceSpec) {
+    console.warn("[comparison] No seed resource inferred; cadence scoring is disabled for this run.");
+  } else {
+    console.log(`[comparison] Inferred payoff resource: ${activeResourceSpec.name}.`);
+  }
 
   const existing = buildWithExistingEngine(pool, seedCards);
   const synergyFirst = buildWithSynergyFirstEngine(pool, seedCards);
@@ -878,9 +935,9 @@ function main() {
   const onlyExisting = [...existingPicks].filter((n) => !synergyPicks.has(n));
   const onlySynergy = [...synergyPicks].filter((n) => !existingPicks.has(n));
 
-  const existingCounts = tallyRoleCounts(existing.entries);
-  const feasibilityExisting = checkFeasibility(existingCounts, { w: 14, u: 12 });
-  const feasibilitySynergy = checkFeasibility(synergyFirst.counts, { w: 14, u: 12 });
+  const existingCounts = tally(existing.entries);
+  const feasibilityExisting = feasibility(existingCounts, { w: 14, u: 12 });
+  const feasibilitySynergy = feasibility(synergyFirst.counts, { w: 14, u: 12 });
 
   const report: string[] = [];
   report.push("# Hope Estheim / Space-Time Anomaly — Composite vs. Synergy-First Scoring Comparison");
@@ -915,7 +972,7 @@ function main() {
   report.push("(these are the standalone/composite-power shortfalls: individually strong but not seed-synergistic, or seed-synergistic in the wrong role balance)");
   for (const name of onlyExisting) {
     const card = pool.find((c) => c.name === name)!;
-    const roles = classifySeedRoles(card);
+    const roles = classify(card);
     report.push(`- ${name} (CMC ${card.cmc}) — seed roles: ${roles.length ? roles.join(", ") : "NONE (would be rejected outright by synergy-first filter)"}`);
   }
   if (onlyExisting.length === 0) report.push("- none");
@@ -923,7 +980,7 @@ function main() {
   report.push("## DIVERGENCE — cards picked by ONLY the synergy-first engine");
   for (const name of onlySynergy) {
     const card = pool.find((c) => c.name === name)!;
-    const roles = classifySeedRoles(card);
+    const roles = classify(card);
     report.push(`- ${name} (CMC ${card.cmc}) — seed roles: ${roles.join(", ")}`);
   }
   if (onlySynergy.length === 0) report.push("- none");
@@ -989,7 +1046,7 @@ function main() {
       cmc: e.card.cmc,
       manaCost: e.card.manaCost,
       typeLine: e.card.typeLine,
-      roles: e.card.typeLine.includes("Land") ? [] : classifySeedRoles(e.card),
+      roles: e.card.typeLine.includes("Land") ? [] : classify(e.card),
     })),
   };
   writeFileSync(join(__dirname, "..", "..", "hope_estheim_summary.json"), JSON.stringify(summary, null, 2), "utf-8");
