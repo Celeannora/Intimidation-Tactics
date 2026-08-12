@@ -247,3 +247,40 @@ the seed-chain build correctly swapped Technodrome out for Loch Mare.
 Legality was previously inherited from the pool query. The pool is now
 bulk-derived and every card re-checked (Standard-legal, released, max-4,
 60 total) before export — the final decklist passes cleanly.
+
+## Update: seed-agnostic resource-cadence weighting
+
+User feedback on the bulk-DB build: the deck classified role COVERAGE but not
+role QUALITY — the enabler bucket held one-shot tricks and opponent-dependent
+taxes while 75 lifelink / repeatable-gain creatures sat unused in the pool.
+Hope Estheim reads life gained THIS TURN at YOUR end step, so a lifelink
+attacker (gains in combat, before end step, every turn) is categorically
+better than an equal-power one-shot gain spell. Per-card composite scoring
+cannot express this; it is a property of how the card feeds the seed engine.
+
+**This is implemented as a general mechanism, not a Hope Estheim rule.** The
+engine half is seed-agnostic:
+
+- `ResourceSpec` — pure DATA a seed module declares: what resource its payoff
+  consumes, which static keywords produce it every combat, what a repeatable
+  production trigger looks like, what one-shot production looks like, and
+  which role the cadence weighting applies to.
+- `resourceCadence(card, spec)` — generic classifier: sentence-scoped, returns
+  `repeatable-proactive` (produces every turn on the controller's initiative),
+  `repeatable-conditional` (recurs but needs opponent action), or `one-shot`.
+- Scoring: proactive +6, conditional +2, one-shot +0, applied only to cards
+  filling the spec's weighted role.
+
+For this seed the spec is four lines: resource "lifegain", static keyword
+`Lifelink`, trigger pattern `/gain[^.]*life/`, weighted role Enabler. A
+graveyard-payoff seed would instead declare keyword `Mill` and a
+`/put.*into.*graveyard/` trigger — zero engine changes. Same shape as the
+cost-dependency and opponent-directed-tax checks: generic engine, seed data.
+
+Effect on the test build: Gallant Strike (one-shot trick), Loch Mare and Long
+River's Pull (no lifegain) were displaced by Stiltzkin, Moogle Merchant and
+Shattered Acolyte (lifelink bodies that double as removal/card advantage) and
+South Pole Voyager (repeatable ETB gain + draw). Enabler tally rises to 22 of
+36 (multi-role tagged) — intentionally above the generic [10-14] band, because
+cadence weighting expresses that this seed's engine IS its enabler density.
+A follow-up improvement would let the seed spec also override role bands.

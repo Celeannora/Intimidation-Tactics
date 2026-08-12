@@ -5,8 +5,8 @@ Pool size after Standard-legal + seed-role filtering: 1636 cards (raw Scryfall d
 ## Role counts achieved
 
 - Existing composite engine (Control archetype, generic role/synergy axes): {"enablers":20,"protection":0,"consistency":24,"payoffs":12,"lands":0,"nonlandTotal":36}
-- Synergy-first sequential engine (seed-specific Enabler/Protection/Consistency/Payoff): {"enablers":16,"protection":18,"consistency":14,"payoffs":12,"lands":0,"nonlandTotal":36}
-- Batched seed-chain engine (synergy-first + re-analysis checkpoints every 6 slots): {"enablers":12,"protection":16,"consistency":16,"payoffs":12,"lands":0,"nonlandTotal":36}
+- Synergy-first sequential engine (seed-specific Enabler/Protection/Consistency/Payoff): {"enablers":20,"protection":16,"consistency":12,"payoffs":12,"lands":0,"nonlandTotal":36}
+- Batched seed-chain engine (synergy-first + re-analysis checkpoints every 6 slots): {"enablers":22,"protection":14,"consistency":12,"payoffs":12,"lands":0,"nonlandTotal":36}
 - Target bands: {"enablers":[10,14],"protection":[8,12],"consistency":[6,10],"payoffs":[6,8],"lands":24}
 
 ## Feasibility flags — existing composite engine's build
@@ -28,14 +28,14 @@ Pool size after Standard-legal + seed-role filtering: 1636 cards (raw Scryfall d
 ## Pick log — synergy-first engine
 - [SYNERGY-FIRST] Pick: Niko, Light of Hope x2 — final=51.5 (base=19.0, gapMult=2.50, satPenalty=0.0, timing=4, prevention=0) — Selected because it fills Protection, current gap is 8, and it improves early stability / payoff access / protection.
 - [SYNERGY-FIRST] Pick: Emeritus of Truce // Swords to Plowshares x4 — final=42.3 (base=18.0, gapMult=2.13, satPenalty=0.0, timing=4, prevention=0) — Selected because it fills Protection, current gap is 6, and it improves early stability / life gain density / protection.
-- [SYNERGY-FIRST] Pick: Season of the Burrow x4 — final=38.0 (base=19.0, gapMult=2.00, satPenalty=0.0, timing=0, prevention=0) — Selected because it fills Consistency, current gap is 4, and it improves payoff access / protection.
-- [SYNERGY-FIRST] Pick: Morningtide's Light x2 — final=26.0 (base=12.0, gapMult=1.00, satPenalty=0.0, timing=4, prevention=10) — Selected because it fills Protection, current gap is 0, and it improves early stability / protection.
-- [SYNERGY-FIRST] Pick: Kitsa, Otterball Elite x2 — final=21.0 (base=15.0, gapMult=1.00, satPenalty=0.0, timing=6, prevention=0) — Selected because it fills Consistency, current gap is 0, and it improves payoff access.
+- [SYNERGY-FIRST] Pick: South Pole Voyager x2 — final=40.0 (base=14.0, gapMult=2.00, satPenalty=0.0, timing=6, prevention=0) — Selected because it fills Consistency, current gap is 4, and it improves life gain density / payoff access. [lifegain cadence: repeatable-proactive +6]
+- [SYNERGY-FIRST] Pick: Morningtide's Light x4 — final=30.5 (base=12.0, gapMult=1.38, satPenalty=0.0, timing=4, prevention=10) — Selected because it fills Protection, current gap is 2, and it improves early stability / protection.
+- [SYNERGY-FIRST] Pick: Kitsa, Otterball Elite x2 — final=28.5 (base=15.0, gapMult=1.50, satPenalty=0.0, timing=6, prevention=0) — Selected because it fills Consistency, current gap is 2, and it improves payoff access.
+- [SYNERGY-FIRST] Pick: Gallant Strike x2 — final=22.0 (base=12.0, gapMult=1.00, satPenalty=0.0, timing=10, prevention=0) — Selected because it fills Protection, current gap is 0, and it improves early stability / payoff access / protection.
 - [SYNERGY-FIRST] Pick: Wan Shi Tong, Librarian x2 — final=21.0 (base=15.0, gapMult=1.00, satPenalty=0.0, timing=6, prevention=0) — Selected because it fills Consistency, current gap is 0, and it improves payoff access.
-- [SYNERGY-FIRST] Pick: Case of the Uneaten Feast x2 — final=17.0 (base=11.0, gapMult=1.00, satPenalty=0.0, timing=6, prevention=0) — Selected because it fills Enabler, current gap is 0, and it improves early stability / life gain density.
 - [SYNERGY-FIRST] SHORTFALL: strict role-ceiling rule exhausted all eligible candidates at 30/36 nonland cards (roles at ceiling: Enabler, Protection, Consistency, Payoff). Topping up remaining 6 slots with best-scoring cards regardless of ceiling — see OVERFLOW picks below.
-- [SYNERGY-FIRST] OVERFLOW pick: Gallant Strike x4 — final=22.0 — added past ceiling to reach the 36-card nonland target; role counts after: {"enablers":14,"protection":16,"consistency":14,"payoffs":12,"lands":0,"nonlandTotal":34}
-- [SYNERGY-FIRST] OVERFLOW pick: Bumbleflower's Sharepot x2 — final=21.0 — added past ceiling to reach the 36-card nonland target; role counts after: {"enablers":16,"protection":18,"consistency":14,"payoffs":12,"lands":0,"nonlandTotal":36}
+- [SYNERGY-FIRST] OVERFLOW pick: Shattered Acolyte x4 — final=25.0 — added past ceiling to reach the 36-card nonland target; role counts after: {"enablers":18,"protection":16,"consistency":10,"payoffs":12,"lands":0,"nonlandTotal":34}
+- [SYNERGY-FIRST] OVERFLOW pick: Stiltzkin, Moogle Merchant x2 — final=24.0 — added past ceiling to reach the 36-card nonland target; role counts after: {"enablers":20,"protection":16,"consistency":12,"payoffs":12,"lands":0,"nonlandTotal":36}
 
 ## Pick log — batched seed-chain engine (checkpoints inline)
 - [SEED-CHAIN] Checkpoint 1 (seed only, 12 cards): Color balance OK: W 60% / U 40% of colored pips. | Curve OK: 67% of nonland cards are MV<=2.
@@ -47,12 +47,12 @@ Pool size after Standard-legal + seed-role filtering: 1636 cards (raw Scryfall d
 - [SEED-CHAIN] Pick: Long River's Pull x2 — final=26.5 — Selected because it fills Protection, current gap is 2, and it improves early stability / payoff access / protection.
 - [SEED-CHAIN] Checkpoint 3 (24/36 nonland): Color balance OK: W 57% / U 43% of colored pips. | Curve OK: 58% of nonland cards are MV<=2.
 - [SEED-CHAIN] Pick: Morningtide's Light x4 — final=26.0 — Selected because it fills Protection, current gap is 0, and it improves early stability / protection.
-- [SEED-CHAIN] Pick: Loch Mare x2 — final=21.0 — Selected because it fills Consistency, current gap is 0, and it improves payoff access.
-- [SEED-CHAIN] Checkpoint 4 (30/36 nonland): Color balance OK: W 58% / U 42% of colored pips. | Curve OK: 53% of nonland cards are MV<=2.
-- [SEED-CHAIN] Pick: Case of the Uneaten Feast x2 — final=17.0 — Selected because it fills Enabler, current gap is 0, and it improves early stability / life gain density.
-- [SEED-CHAIN] SHORTFALL: strict role-ceiling rule exhausted candidates at 32/36 — topping up with OVERFLOW picks (still color/curve-adjusted).
-- [SEED-CHAIN] OVERFLOW pick: Gallant Strike x4 — final=22.0
-- [SEED-CHAIN] CONSOLIDATE: moved 2x from Case of the Uneaten Feast into Loch Mare (now 4x) — playset consistency over one-of spread.
+- [SEED-CHAIN] Pick: South Pole Voyager x2 — final=26.0 — Selected because it fills Enabler, current gap is 0, and it improves early stability / life gain density / payoff access. [lifegain cadence: repeatable-proactive +6]
+- [SEED-CHAIN] Checkpoint 4 (30/36 nonland): Color balance OK: W 62% / U 38% of colored pips. | Curve OK: 53% of nonland cards are MV<=2.
+- [SEED-CHAIN] SHORTFALL: strict role-ceiling rule exhausted candidates at 30/36 — topping up with OVERFLOW picks (still color/curve-adjusted).
+- [SEED-CHAIN] OVERFLOW pick: Shattered Acolyte x4 — final=25.0
+- [SEED-CHAIN] OVERFLOW pick: Stiltzkin, Moogle Merchant x2 — final=24.0
+- [SEED-CHAIN] CONSOLIDATE: moved 2x from Long River's Pull into South Pole Voyager (now 4x) — playset consistency over one-of spread.
 - [SEED-CHAIN] Consolidation complete: 2 slots moved into deeper playsets; distinct nonland cards reduced.
 
 ## DIVERGENCE — cards picked by ONLY the existing composite engine
@@ -68,13 +68,13 @@ Pool size after Standard-legal + seed-role filtering: 1636 cards (raw Scryfall d
 ## DIVERGENCE — cards picked by ONLY the synergy-first engine
 - Niko, Light of Hope (CMC 4) — seed roles: Protection, Consistency
 - Emeritus of Truce // Swords to Plowshares (CMC 3) — seed roles: Enabler, Protection
-- Season of the Burrow (CMC 5) — seed roles: Protection, Consistency
+- South Pole Voyager (CMC 2) — seed roles: Enabler, Consistency
 - Morningtide's Light (CMC 4) — seed roles: Protection
 - Kitsa, Otterball Elite (CMC 2) — seed roles: Consistency
-- Wan Shi Tong, Librarian (CMC 2) — seed roles: Consistency
-- Case of the Uneaten Feast (CMC 1) — seed roles: Enabler
 - Gallant Strike (CMC 2) — seed roles: Protection, Consistency
-- Bumbleflower's Sharepot (CMC 2) — seed roles: Enabler, Protection
+- Wan Shi Tong, Librarian (CMC 2) — seed roles: Consistency
+- Shattered Acolyte (CMC 2) — seed roles: Enabler, Protection
+- Stiltzkin, Moogle Merchant (CMC 1) — seed roles: Enabler, Consistency
 
 ## Final 60-card decklist — batched seed-chain engine + real Azorius mana base
 
@@ -82,11 +82,11 @@ Seed package (locked): 4x Hope Estheim, 4x Authority of the Consuls, 4x Space-Ti
 
 ### Nonland (36)
 - 4x Authority of the Consuls (CMC 1)
-- 4x Gallant Strike (CMC 2)
+- 2x Stiltzkin, Moogle Merchant (CMC 1)
 - 4x Hope Estheim (CMC 2)
 - 2x Kitsa, Otterball Elite (CMC 2)
-- 4x Loch Mare (CMC 2)
-- 2x Long River's Pull (CMC 2)
+- 4x Shattered Acolyte (CMC 2)
+- 4x South Pole Voyager (CMC 2)
 - 2x Wan Shi Tong, Librarian (CMC 2)
 - 4x Emeritus of Truce // Swords to Plowshares (CMC 3)
 - 4x Morningtide's Light (CMC 4)
@@ -96,8 +96,8 @@ Seed package (locked): 4x Hope Estheim, 4x Authority of the Consuls, 4x Space-Ti
 ### Lands (24)
 - 3x Floodfarm Verge
 - 3x Gleaming Bastion
-- 7x Island
-- 9x Plains
+- 5x Island
+- 11x Plains
 - 2x Temple of Enlightenment
 
 **Total: 60 cards** (36 nonland + 24 land)
@@ -106,5 +106,5 @@ Seed package (locked): 4x Hope Estheim, 4x Authority of the Consuls, 4x Space-Ti
 - Added 3x Floodfarm Verge (Enters untapped (conditional)) as nonbasic fixing.
 - Added 3x Gleaming Bastion (Enters untapped (conditional)) as nonbasic fixing.
 - Added 2x Temple of Enlightenment (Enters tapped) as nonbasic fixing.
-- Filled remaining 16 slots with 9x Plains / 7x Island (weighted 59% W / 41% U by colored-pip share).
-- Resulting color sources: W=17.0, U=15.0 (Karsten target for a 2-3 pip color at ~turn 3-4 is typically 12-14 sources).
+- Filled remaining 16 slots with 11x Plains / 5x Island (weighted 71% W / 29% U by colored-pip share).
+- Resulting color sources: W=19.0, U=13.0 (Karsten target for a 2-3 pip color at ~turn 3-4 is typically 12-14 sources).

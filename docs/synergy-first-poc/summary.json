@@ -28,17 +28,17 @@
       "nonlandTotal": 36
     },
     "Synergy-first": {
-      "enablers": 16,
-      "protection": 18,
-      "consistency": 14,
+      "enablers": 20,
+      "protection": 16,
+      "consistency": 12,
       "payoffs": 12,
       "lands": 0,
       "nonlandTotal": 36
     },
     "Batched seed-chain": {
-      "enablers": 12,
-      "protection": 16,
-      "consistency": 16,
+      "enablers": 22,
+      "protection": 14,
+      "consistency": 12,
       "payoffs": 12,
       "lands": 0,
       "nonlandTotal": 36
@@ -120,17 +120,6 @@
       ]
     },
     {
-      "name": "Long River's Pull",
-      "qty": 2,
-      "cmc": 2,
-      "manaCost": "{U}{U}",
-      "typeLine": "Instant",
-      "roles": [
-        "Protection",
-        "Consistency"
-      ]
-    },
-    {
       "name": "Morningtide's Light",
       "qty": 4,
       "cmc": 4,
@@ -141,23 +130,35 @@
       ]
     },
     {
-      "name": "Loch Mare",
+      "name": "South Pole Voyager",
       "qty": 4,
       "cmc": 2,
-      "manaCost": "{1}{U}",
-      "typeLine": "Creature — Horse Serpent",
+      "manaCost": "{1}{W}",
+      "typeLine": "Creature — Human Scout Ally",
       "roles": [
+        "Enabler",
         "Consistency"
       ]
     },
     {
-      "name": "Gallant Strike",
+      "name": "Shattered Acolyte",
       "qty": 4,
       "cmc": 2,
       "manaCost": "{1}{W}",
-      "typeLine": "Instant",
+      "typeLine": "Creature — Dwarf Warlock",
       "roles": [
-        "Protection",
+        "Enabler",
+        "Protection"
+      ]
+    },
+    {
+      "name": "Stiltzkin, Moogle Merchant",
+      "qty": 2,
+      "cmc": 1,
+      "manaCost": "{W}",
+      "typeLine": "Legendary Creature — Moogle",
+      "roles": [
+        "Enabler",
         "Consistency"
       ]
     },
@@ -187,7 +188,7 @@
     },
     {
       "name": "Plains",
-      "qty": 9,
+      "qty": 11,
       "cmc": 0,
       "manaCost": "",
       "typeLine": "Basic Land — Plains",
@@ -195,7 +196,7 @@
     },
     {
       "name": "Island",
-      "qty": 7,
+      "qty": 5,
       "cmc": 0,
       "manaCost": "",
       "typeLine": "Basic Land — Island",

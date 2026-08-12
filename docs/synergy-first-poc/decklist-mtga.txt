@@ -1,10 +1,10 @@
 Deck
 4 Authority of the Consuls
-4 Gallant Strike
+2 Stiltzkin, Moogle Merchant
 4 Hope Estheim
 2 Kitsa, Otterball Elite
-4 Loch Mare
-2 Long River's Pull
+4 Shattered Acolyte
+4 South Pole Voyager
 2 Wan Shi Tong, Librarian
 4 Emeritus of Truce
 4 Morningtide's Light
@@ -13,5 +13,5 @@ Deck
 3 Floodfarm Verge
 3 Gleaming Bastion
 2 Temple of Enlightenment
-9 Plains
-7 Island
+11 Plains
+5 Island

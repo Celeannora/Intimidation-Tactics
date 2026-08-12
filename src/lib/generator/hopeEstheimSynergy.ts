@@ -439,6 +439,69 @@ function preventionBonus(card: CardRecord): number {
  * pool after every pick, because role-gap and saturation terms are only
  * meaningful relative to what has already been selected.
  */
+// ── Resource cadence (seed-agnostic engine) ─────────────────────────────
+// A seed\'s payoff consumes some RESOURCE (life gained this turn, artifacts,
+// tokens, cards in graveyard, ...). Enabler quality is about the CADENCE of
+// producing that resource, not the mere presence of matching text:
+//   repeatable-proactive  — the card produces the resource every turn on the
+//                           controller\'s own initiative (static combat
+//                           keywords like lifelink, self-driven per-turn
+//                           triggers).
+//   repeatable-conditional — recurring production that depends on opponent
+//                           actions.
+//   one-shot              — a single burst; fuels the payoff once, then is
+//                           spent.
+// The ENGINE below is generic; each seed module supplies only DATA (a
+// ResourceSpec) describing how its resource is produced. For a graveyard
+// seed the spec would list keywords like "mill" and a /put.*into.*graveyard/
+// trigger pattern instead — no engine change needed.
+export type ResourceCadence = "repeatable-proactive" | "repeatable-conditional" | "one-shot" | null;
+
+export interface ResourceSpec {
+  /** Human-readable resource name for build-log notes. */
+  name: string;
+  /** Static keywords on creatures that produce the resource every combat. */
+  staticProducerKeywords: string[];
+  /** Resource production inside a repeatable trigger clause. */
+  triggerProductionPattern: RegExp;
+  /** One-time production text (spells, ETB bursts). */
+  oneShotProductionPattern: RegExp;
+  /** Role whose candidates are scored by production cadence. */
+  weightedRole: SeedRole;
+}
+
+export function resourceCadence(card: CardRecord, spec: ResourceSpec): ResourceCadence {
+  const text = (card.oracleText ?? "").toLowerCase();
+  const isCreature = card.typeLine.includes("Creature");
+  const hasStaticProducer = spec.staticProducerKeywords.some(
+    (k) => new RegExp(`\\b${k.toLowerCase()}\\b`).test(text) || (card.keywordsJson ?? "").includes(k)
+  );
+  if (isCreature && hasStaticProducer) return "repeatable-proactive";
+  for (const sentence of text.split(/(?<=\.)\s+/)) {
+    if (/(whenever|at the beginning)/.test(sentence) && spec.triggerProductionPattern.test(sentence)) {
+      return /opponent|each player/.test(sentence) ? "repeatable-conditional" : "repeatable-proactive";
+    }
+  }
+  if (spec.oneShotProductionPattern.test(text) || hasStaticProducer) return "one-shot";
+  return null;
+}
+
+const CADENCE_BONUS: Record<Exclude<ResourceCadence, null>, number> = {
+  "repeatable-proactive": 6,
+  "repeatable-conditional": 2,
+  "one-shot": 0,
+};
+
+// Seed DATA for Hope Estheim / Space-Time Anomaly: the payoff consumes
+// "life gained this turn", produced statically by lifelink combat damage.
+export const HOPE_ESTHEIM_RESOURCE: ResourceSpec = {
+  name: "lifegain",
+  staticProducerKeywords: ["Lifelink"],
+  triggerProductionPattern: /gain[^.]*life/,
+  oneShotProductionPattern: /gain(s)?\s+(\d+|x|that much)\s+life/,
+  weightedRole: "Enabler",
+};
+
 // Activation-cost dependencies: a card whose ability needs OTHER resources is
 // only worth its text if the deck can actually pay the cost. Found via the
 // bulk-DB pool: Technodrome ("{T}, Sacrifice another artifact: Draw a card")
@@ -509,7 +572,15 @@ export function scoreCandidate(
   }
 
   const dependency = costDependencyPenalty(card, adjustments);
-  const final = (basePowerScore * gapMultiplier - satPenalty + timing + prevention + curveBonus) * colorMult * dependency.mult;
+
+  // Resource-cadence bonus — only for cards filling the seed's weighted
+  // role; a repeatable proactive producer feeds the payoff EVERY turn, so it
+  // outranks equal-power one-shot or opponent-conditional production.
+  const spec = HOPE_ESTHEIM_RESOURCE;
+  const cadence = roles.includes(spec.weightedRole) ? resourceCadence(card, spec) : null;
+  const cadenceBonus = cadence ? CADENCE_BONUS[cadence] : 0;
+
+  const final = (basePowerScore * gapMultiplier - satPenalty + timing + prevention + curveBonus + cadenceBonus) * colorMult * dependency.mult;
 
   const target = SEED_ROLE_TARGETS;
   const [lo] = bestGapRole === "Enabler" ? target.enablers
@@ -535,7 +606,7 @@ export function scoreCandidate(
     curveTimingBonus: timing,
     preventionBonus: prevention,
     final,
-    note: `Selected because it fills ${bestGapRole}, current gap is ${gap}, and it improves ${[...new Set(advances)].join(" / ") || "role coverage"}.${dependency.note ? ` [${dependency.note}]` : ""}` +
+    note: `Selected because it fills ${bestGapRole}, current gap is ${gap}, and it improves ${[...new Set(advances)].join(" / ") || "role coverage"}.${cadence ? ` [${spec.name} cadence: ${cadence} +${cadenceBonus}]` : ""}${dependency.note ? ` [${dependency.note}]` : ""}` +
       (colorMult !== 1.0 ? ` [color-balance x${colorMult.toFixed(2)}]` : "") +
       (curveBonus > 0 ? ` [cheap-curve +${curveBonus}]` : ""),
   };
