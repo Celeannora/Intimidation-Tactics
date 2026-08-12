@@ -80,6 +80,15 @@ const REPEATABLE_LIFEGAIN_HINTS = [
   "lifelink",
 ];
 const CANTRIP_HINT = /draws? a card/;
+// A "draw a card" clause only supports Consistency when the CONTROLLER draws
+// as the upside. Cards that route the draw through giving an opponent a
+// permanent, life, or control of something ("if they do, you draw a card"
+// gated on the opponent gaining something) are a net loss dressed as
+// card draw and must not earn Consistency credit.
+const ANTI_SYNERGY_DRAW_HINT = /opponent (gains? control|creates?|gains?)[^.]*you draw a card|target opponent[^.]*\. if they do, you draw a card/;
+function isGenuineCardDraw(text: string): boolean {
+  return CANTRIP_HINT.test(text) && !ANTI_SYNERGY_DRAW_HINT.test(text);
+}
 const FILTER_HINT = /surveil|scry|look at the top/;
 const TUTOR_HINT = /search your library for a/;
 const RECURSION_HINT = /return .* from your graveyard to (your hand|the battlefield)/;
@@ -152,10 +161,18 @@ export function classifySeedRoles(card: CardRecord): SeedRole[] {
 
   // CONSISTENCY: cantrips, card draw, filtering, tutoring, or recursion
   // that finds engine pieces (Hope, Authority, Space-Time Anomaly).
+  // NOTE: baseRoles.includes("CardDraw") is intentionally NOT used standalone
+  // here. The shared engine's CardDraw tag (src/lib/roles.ts) is a bare
+  // substring match on "draws a card" with no read on cost — it does not
+  // distinguish real card advantage from a card that pays for the draw by
+  // giving an opponent one of your permanents (Stiltzkin, Moogle Merchant:
+  // "target opponent gains control of another target permanent you control.
+  // if they do, you draw a card"). That is a net loss for THIS seed's plan
+  // (fewer permanents to convert into lifegain/mill), not Consistency, even
+  // though the shared engine's generic tag treats it as card draw.
   if (
-    baseRoles.includes("CardDraw") ||
+    (baseRoles.includes("CardDraw") && isGenuineCardDraw(text)) ||
     baseRoles.includes("Tutor") ||
-    CANTRIP_HINT.test(text) ||
     FILTER_HINT.test(text) ||
     TUTOR_HINT.test(text) ||
     RECURSION_HINT.test(text)
@@ -470,13 +487,26 @@ export interface ResourceSpec {
   weightedRole: SeedRole;
 }
 
+// Attach-and-grant permanents (Auras, Equipment) that give a creature a
+// static producer keyword ("Enchanted/equipped creature ... has lifelink")
+// are just as repeatable as printing the keyword directly on a creature —
+// the keyword still fires every combat once attached. Only fall through to
+// one-shot when the keyword is a truly single-use grant (e.g. "gains
+// lifelink until end of turn" from an instant).
+const TEMPORARY_GRANT_HINT = /until end of turn|this turn\b/;
+
 export function resourceCadence(card: CardRecord, spec: ResourceSpec): ResourceCadence {
   const text = (card.oracleText ?? "").toLowerCase();
   const isCreature = card.typeLine.includes("Creature");
+  const isAttachment = card.typeLine.includes("Aura") || card.typeLine.includes("Equipment");
   const hasStaticProducer = spec.staticProducerKeywords.some(
     (k) => new RegExp(`\\b${k.toLowerCase()}\\b`).test(text) || (card.keywordsJson ?? "").includes(k)
   );
-  if (isCreature && hasStaticProducer) return "repeatable-proactive";
+  const grantsStaticProducer =
+    isAttachment &&
+    spec.staticProducerKeywords.some((k) => new RegExp(`has ${k.toLowerCase()}\\b`).test(text)) &&
+    !TEMPORARY_GRANT_HINT.test(text);
+  if ((isCreature || grantsStaticProducer) && hasStaticProducer) return "repeatable-proactive";
   for (const sentence of text.split(/(?<=\.)\s+/)) {
     if (/(whenever|at the beginning)/.test(sentence) && spec.triggerProductionPattern.test(sentence)) {
       return /opponent|each player/.test(sentence) ? "repeatable-conditional" : "repeatable-proactive";

@@ -152,11 +152,11 @@
       ]
     },
     {
-      "name": "Stiltzkin, Moogle Merchant",
+      "name": "Basri, Tomorrow's Champion",
       "qty": 2,
       "cmc": 1,
       "manaCost": "{W}",
-      "typeLine": "Legendary Creature — Moogle",
+      "typeLine": "Legendary Creature — Human Knight",
       "roles": [
         "Enabler",
         "Consistency"

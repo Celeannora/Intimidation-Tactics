@@ -4,7 +4,7 @@ Enabler 22 | Protection 14 | Consistency 12 | Payoff 12 | Lands 24
 
 ## Nonland (36)
 4 Authority of the Consuls
-2 Stiltzkin, Moogle Merchant
+2 Basri, Tomorrow's Champion
 4 Hope Estheim
 2 Kitsa, Otterball Elite
 4 Shattered Acolyte

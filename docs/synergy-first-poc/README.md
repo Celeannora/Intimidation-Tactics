@@ -284,3 +284,41 @@ South Pole Voyager (repeatable ETB gain + draw). Enabler tally rises to 22 of
 36 (multi-role tagged) — intentionally above the generic [10-14] band, because
 cadence weighting expresses that this seed's engine IS its enabler density.
 A follow-up improvement would let the seed spec also override role bands.
+
+## Update: two oracle-text synergy bugs found and fixed
+
+User spot-check ("why not Sheltered by Ghosts, why Stiltzkin?") caught two
+real gaps in reading oracle text, not stylistic nitpicks:
+
+1. **Cadence engine only checked `isCreature`.** Sheltered by Ghosts (Aura:
+   "Enchanted creature ... has lifelink") grants a static keyword exactly
+   like a printed creature ability, but `resourceCadence` required the card
+   ITSELF to be a Creature, so every Aura/Equipment lifelink-granter was
+   scored as one-shot and lost the repeatable-proactive bonus. Fixed:
+   `resourceCadence` now also credits Auras/Equipment whose text contains
+   "has \<keyword\>" as long as the grant is not textually temporary
+   ("until end of turn"). This is a generic engine fix, not a card-specific
+   patch — it benefits any seed with a keyword-based ResourceSpec.
+
+2. **Anti-synergy card draw was invisible to the seed classifier.** Stiltzkin,
+   Moogle Merchant ("target opponent gains control of another target
+   permanent you control. if they do, you draw a card") earned Consistency
+   because the shared engine's generic `CardDraw` tag
+   (`src/lib/roles.ts`, off-limits on this branch) is a bare substring match
+   on "draws a card" with no read on cost. Giving away a permanent is a net
+   loss for this seed's plan (fewer permanents to turn into board presence/
+   lifegain), not real card advantage. Fixed at the seed layer (the only
+   layer this branch is allowed to touch): `classifySeedRoles` now gates the
+   shared engine's `CardDraw` signal behind `isGenuineCardDraw()`, which
+   excludes "if they do, you draw a card" patterns gated on the opponent
+   gaining a permanent/life/control. Stiltzkin now classifies as Enabler
+   only (lifelink), matching what the card actually does for this deck.
+
+Net effect on the test build: Stiltzkin was naturally displaced by Basri,
+Tomorrow's Champion (lifelink token generator, no anti-synergy clause).
+Sheltered by Ghosts still narrowly misses the final 60 even after the
+cadence fix — a fair result, not a bug: it is a 2-mana Aura tied to one
+target and dies to removal on the creature, while 2-mana creatures like
+Shattered Acolyte carry their own body plus the same lifelink-plus-removal
+package. Confirms the fixes surfaced a genuine near-miss rather than a
+persisting blind spot.

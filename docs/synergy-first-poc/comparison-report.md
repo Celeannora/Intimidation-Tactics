@@ -35,7 +35,7 @@ Pool size after Standard-legal + seed-role filtering: 1636 cards (raw Scryfall d
 - [SYNERGY-FIRST] Pick: Wan Shi Tong, Librarian x2 — final=21.0 (base=15.0, gapMult=1.00, satPenalty=0.0, timing=6, prevention=0) — Selected because it fills Consistency, current gap is 0, and it improves payoff access.
 - [SYNERGY-FIRST] SHORTFALL: strict role-ceiling rule exhausted all eligible candidates at 30/36 nonland cards (roles at ceiling: Enabler, Protection, Consistency, Payoff). Topping up remaining 6 slots with best-scoring cards regardless of ceiling — see OVERFLOW picks below.
 - [SYNERGY-FIRST] OVERFLOW pick: Shattered Acolyte x4 — final=25.0 — added past ceiling to reach the 36-card nonland target; role counts after: {"enablers":18,"protection":16,"consistency":10,"payoffs":12,"lands":0,"nonlandTotal":34}
-- [SYNERGY-FIRST] OVERFLOW pick: Stiltzkin, Moogle Merchant x2 — final=24.0 — added past ceiling to reach the 36-card nonland target; role counts after: {"enablers":20,"protection":16,"consistency":12,"payoffs":12,"lands":0,"nonlandTotal":36}
+- [SYNERGY-FIRST] OVERFLOW pick: Basri, Tomorrow's Champion x2 — final=24.0 — added past ceiling to reach the 36-card nonland target; role counts after: {"enablers":20,"protection":16,"consistency":12,"payoffs":12,"lands":0,"nonlandTotal":36}
 
 ## Pick log — batched seed-chain engine (checkpoints inline)
 - [SEED-CHAIN] Checkpoint 1 (seed only, 12 cards): Color balance OK: W 60% / U 40% of colored pips. | Curve OK: 67% of nonland cards are MV<=2.
@@ -51,7 +51,7 @@ Pool size after Standard-legal + seed-role filtering: 1636 cards (raw Scryfall d
 - [SEED-CHAIN] Checkpoint 4 (30/36 nonland): Color balance OK: W 62% / U 38% of colored pips. | Curve OK: 53% of nonland cards are MV<=2.
 - [SEED-CHAIN] SHORTFALL: strict role-ceiling rule exhausted candidates at 30/36 — topping up with OVERFLOW picks (still color/curve-adjusted).
 - [SEED-CHAIN] OVERFLOW pick: Shattered Acolyte x4 — final=25.0
-- [SEED-CHAIN] OVERFLOW pick: Stiltzkin, Moogle Merchant x2 — final=24.0
+- [SEED-CHAIN] OVERFLOW pick: Basri, Tomorrow's Champion x2 — final=24.0
 - [SEED-CHAIN] CONSOLIDATE: moved 2x from Long River's Pull into South Pole Voyager (now 4x) — playset consistency over one-of spread.
 - [SEED-CHAIN] Consolidation complete: 2 slots moved into deeper playsets; distinct nonland cards reduced.
 
@@ -74,7 +74,7 @@ Pool size after Standard-legal + seed-role filtering: 1636 cards (raw Scryfall d
 - Gallant Strike (CMC 2) — seed roles: Protection, Consistency
 - Wan Shi Tong, Librarian (CMC 2) — seed roles: Consistency
 - Shattered Acolyte (CMC 2) — seed roles: Enabler, Protection
-- Stiltzkin, Moogle Merchant (CMC 1) — seed roles: Enabler, Consistency
+- Basri, Tomorrow's Champion (CMC 1) — seed roles: Enabler, Consistency
 
 ## Final 60-card decklist — batched seed-chain engine + real Azorius mana base
 
@@ -82,7 +82,7 @@ Seed package (locked): 4x Hope Estheim, 4x Authority of the Consuls, 4x Space-Ti
 
 ### Nonland (36)
 - 4x Authority of the Consuls (CMC 1)
-- 2x Stiltzkin, Moogle Merchant (CMC 1)
+- 2x Basri, Tomorrow's Champion (CMC 1)
 - 4x Hope Estheim (CMC 2)
 - 2x Kitsa, Otterball Elite (CMC 2)
 - 4x Shattered Acolyte (CMC 2)
