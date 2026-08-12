@@ -322,3 +322,105 @@ target and dies to removal on the creature, while 2-mana creatures like
 Shattered Acolyte carry their own body plus the same lifelink-plus-removal
 package. Confirms the fixes surfaced a genuine near-miss rather than a
 persisting blind spot.
+
+## Update: deterministic tiebreak bug + Arena-availability false exclusion (Sheltered by Ghosts, round 2)
+
+The prior section's conclusion — "Sheltered by Ghosts fairly misses the final
+60" — was itself wrong, caught by direct user pushback ("Sheltered by Ghosts
+is legal, your validation chain is broken"). Two independent bugs stacked to
+produce that false conclusion:
+
+### Bug 1: silent array-order tiebreak (real, engine-level, kept regardless of bug 2)
+
+The batched seed-chain engine's `best`-tracking blocks used a strict
+`score.final > best.score.final` comparison. When two candidates tied exactly
+on `final` (Sheltered by Ghosts and Shattered Acolyte scored identically for
+5+ consecutive rounds in live debug logging), the strict `>` never fires, so
+the winner was whichever card the `for (const card of remainingPool)` loop
+reached first — decided purely by `azorius_pool.json` array order (Shattered
+Acolyte at index 574, Sheltered by Ghosts at index 1393). A tied card could
+**never** win regardless of deck state. Fixed with `isStrictlyBetter()`: tie
+on `final` falls through to `basePowerProxy`, then alphabetical name, so ties
+resolve deterministically instead of by incidental array position.
+
+### Bug 2: Arena-availability check read the wrong printing
+
+After fixing bug 1, Sheltered by Ghosts *did* win its ties and entered the
+deck — at which point its Scryfall record was checked directly and its
+`games` field showed `["paper", "mtgo"]`, no `"arena"` entry. That looked like
+solid evidence of a real Arena-availability gap, so `fetchBulkPool.ts` grew a
+filter: drop any card whose `games` lacks `"arena"`. Re-running the pool
+fetch dropped 39 cards and Sheltered by Ghosts vanished again — but this
+filter was checking the WRONG printing's data.
+
+**Root cause**: Scryfall's `oracle_cards` bulk file intentionally returns
+exactly ONE "most recognizable" printing per oracle card, not the full print
+history. For Sheltered by Ghosts, that representative happens to be the
+*Secrets of Strixhaven Commander* reprint (`soc`, paper/MTGO only) — but the
+card's ORIGINAL printing in *Duskmourn: House of Horror* (`dsk`, collector
+number 30, released 2024-09-27) has `"games": ["paper", "mtgo", "arena"]` and
+IS Arena-legal. Confirmed via Scryfall's `prints_search_uri` for the card's
+`oracle_id`, which lists every printing:
+
+```
+Sheltered by Ghosts | sld  | Secret Lair Drop                 | ['paper']
+Sheltered by Ghosts | soc  | Secrets of Strixhaven Commander   | ['paper','mtgo']   <- oracle_cards' pick
+Sheltered by Ghosts | pjsc | Japan Standard Cup                | ['paper']
+Sheltered by Ghosts | dsk  | Duskmourn: House of Horror         | ['paper','mtgo','arena']  <- the Arena printing
+```
+
+Arena availability is a **printing-level** fact, not an oracle-card-level
+fact, so checking it against `oracle_cards`' single collapsed printing was
+guaranteed to misfire for any card whose Arena print isn't the one Scryfall
+chose to bundle.
+
+### Fix: cross-printing Arena index from `default_cards`
+
+`fetchBulkPool.ts` now also downloads Scryfall's `default_cards` bulk dataset
+(every English printing of every card, ~77 MB compressed) and builds a
+`Set<oracle_id>` of every oracle card that has AT LEAST ONE printing with
+`"arena"` in its `games` field (`ensureArenaIndex()`). `derivePools()` gates
+on `arenaOracleIds.has(card.oracle_id)` instead of reading `games` off the
+single `oracle_cards` representative. Re-running the pool fetch after the fix
+recovers all 39 previously-dropped cards (`droppedNonArena: 0` on this seed's
+color pair) and restores the pool to its pre-filter size (1,714 nonland / 110
+lands) — confirming the original blanket filter was net-wrong, not merely
+imprecise for one card.
+
+Note the decompressed `default_cards` JSONL is large enough to exceed
+Node's `Buffer.toString()` max string length when materialized as one string
+(`ERR_STRING_TOO_LONG`), so the index builder stream-scans the raw decompressed
+buffer for newlines and JSON-parses one line at a time rather than converting
+the whole payload to a string or array up front.
+
+### Corrected app-level gap #4
+
+Gap #4 is **not** "Arena availability is unchecked" (the app never claimed
+otherwise) — it's narrower and still real: **any single-printing Arena check
+against `oracle_cards` is unsound**, because that bulk file deliberately
+collapses each oracle card to one representative printing, which may not be
+its Arena printing even when one exists. A correct Arena-availability check
+needs `default_cards` (or `all_cards`) cross-referenced by `oracle_id`, not a
+`games` lookup on whatever printing `oracle_cards` happened to choose. This
+branch's `fetchBulkPool.ts` now does this correctly for the PoC pipeline; the
+main app's ingest path does not check Arena availability at all (unchanged
+from the original gap #4 framing) and would need the same cross-printing
+index if that check is ever added there.
+
+### Corrected final decklist (Sheltered by Ghosts restored, tiebreak fix retained)
+
+With both fixes in place, Sheltered by Ghosts (2x) is back in the final 60,
+identical to the pre-Arena-filter build documented earlier in this file. The
+MTGA-import text for this card correctly cites its actual Arena-legal
+printing (`DSK` 30), not the Commander-only printing that `oracle_cards`
+carries as pool metadata — the pool/scoring pipeline only needs oracle-level
+data (text, legality, color identity), but the human-facing import file must
+reference a printing MTGA can actually resolve.
+
+**Lesson for the universal pipeline**: legality and availability are
+different axes, each with their own bulk-data subtlety — Standard legality
+lives in `legalities.standard` (already handled), but availability
+(paper/MTGO/Arena) must be checked across ALL printings, not the one
+convenience printing a "one card per oracle ID" dataset chooses to surface.
+Any future platform-availability filter (Arena, MTGO, paper-only) must use
+this same cross-printing pattern.

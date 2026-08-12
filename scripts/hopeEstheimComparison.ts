@@ -321,15 +321,55 @@ function basePowerProxy(card: CardRecord): number {
   // Lightweight standalone-power proxy independent of the shared engine's
   // Control-archetype role multiplier, so this isn't just re-deriving the
   // same number under a different name.
+  //
+  // NOTE: this proxy is coarse by design (a handful of keyword bonuses), so
+  // near-ties ARE expected — e.g. Sheltered by Ghosts ("exile target
+  // nonland permanent... until this leaves, +1/+0, lifelink, ward 2") and
+  // Shattered Acolyte ("lifelink, {1}, sacrifice: destroy target artifact
+  // or enchantment") both hit "exile/destroy target" and land on the same
+  // score despite being different effects (unconditional exile-any-permanent
+  // vs. a narrower, sacrifice-costed destroy limited to artifact/enchantment,
+  // and a removal effect gated behind staying attached vs. one on a
+  // standalone body). Distinguishing them further below; remaining ties are
+  // intentional and must be broken deterministically by the caller, never
+  // silently by pool array order.
   let score = 5;
   const text = (card.oracleText ?? "").toLowerCase();
   if (card.rarity === "rare") score += 4;
   if (card.rarity === "mythic") score += 7;
   if (/draws? a card/.test(text)) score += 3;
   if (/destroy target|exile target/.test(text)) score += 4;
+  // Unconditional exile of ANY nonland permanent (not just artifact/
+  // enchantment) is a materially wider removal effect.
+  if (/exile target nonland permanent/.test(text)) score += 2;
+  // A removal effect that costs a sacrifice (consumes the source) is
+  // narrower than one that leaves the source's body/attachment intact.
+  if (/sacrifice[^.]*: destroy|sacrifice[^.]*: exile/.test(text)) score -= 1;
   if (/counter target spell/.test(text)) score += 4;
   if (/gain.*life/.test(text)) score += 2;
+  // A static combat-stat buff (+X/+Y) stacked on top of a keyword grant is
+  // extra standalone value an aura/equipment carries beyond the keyword.
+  if (/gets? \+\d\/\+\d/.test(text)) score += 1;
+  // Ward taxes protect the whole value package (the attached creature +
+  // exiled permanent), which a plain removal spell does not.
+  if (/\bward\b/.test(text)) score += 1;
   return score;
+}
+
+// Deterministic tiebreak when two candidates land on the exact same final
+// score. Silent pool-array-order tiebreaking previously meant a card seen
+// later in the bulk-DB pool (e.g. Sheltered by Ghosts) could NEVER win a
+// true tie against an earlier one (Shattered Acolyte), regardless of how
+// many rounds were run. Break ties by higher basePower (rewards the sharper
+// proxy above), then alphabetically for full stability.
+function isStrictlyBetter(
+  challenger: { card: CardRecord; score: ReturnType<typeof scoreCandidate>; basePower: number },
+  incumbent: { card: CardRecord; score: ReturnType<typeof scoreCandidate>; basePower: number } | null
+): boolean {
+  if (!incumbent) return true;
+  if (challenger.score.final !== incumbent.score.final) return challenger.score.final > incumbent.score.final;
+  if (challenger.basePower !== incumbent.basePower) return challenger.basePower > incumbent.basePower;
+  return challenger.card.name < incumbent.card.name;
 }
 
 // -- Batched sequential seed-chain loop (analyze -> chain n -> re-analyze) --
@@ -381,14 +421,15 @@ function buildWithBatchedSeedChain(pool: CardRecord[], seedCards: CardRecord[]):
     }
 
     const fullRoles = rolesAtCeiling(counts);
-    let best: { card: CardRecord; score: ReturnType<typeof scoreCandidate> } | null = null;
+    let best: { card: CardRecord; score: ReturnType<typeof scoreCandidate>; basePower: number } | null = null;
     for (const card of remainingPool) {
       const cardRoles = classifySeedRoles(card);
       const allRolesOpen = cardRoles.every((r) => !fullRoles.has(r));
       if (!allRolesOpen) continue;
       const basePower = basePowerProxy(card);
       const score = scoreCandidate(card, counts, basePower, adjustments);
-      if (!best || score.final > best.score.final) best = { card, score };
+      const challenger = { card, score, basePower };
+      if (isStrictlyBetter(challenger, best)) best = challenger;
     }
     if (!best) {
       for (const card of remainingPool) {
@@ -397,7 +438,8 @@ function buildWithBatchedSeedChain(pool: CardRecord[], seedCards: CardRecord[]):
         if (!hasAnyOpenRole) continue;
         const basePower = basePowerProxy(card);
         const score = scoreCandidate(card, counts, basePower, adjustments);
-        if (!best || score.final > best.score.final) best = { card, score };
+        const challenger = { card, score, basePower };
+        if (isStrictlyBetter(challenger, best)) best = challenger;
       }
     }
     if (!best) break;
@@ -439,11 +481,12 @@ function buildWithBatchedSeedChain(pool: CardRecord[], seedCards: CardRecord[]):
   }
   while (nonlandCount < targetNonlandCount && remainingPool.length > 0) {
     adjustments = reanalyzeDeck(entries);
-    let best: { card: CardRecord; score: ReturnType<typeof scoreCandidate> } | null = null;
+    let best: { card: CardRecord; score: ReturnType<typeof scoreCandidate>; basePower: number } | null = null;
     for (const card of remainingPool) {
       const basePower = basePowerProxy(card);
       const score = scoreCandidate(card, counts, basePower, adjustments);
-      if (!best || score.final > best.score.final) best = { card, score };
+      const challenger = { card, score, basePower };
+      if (isStrictlyBetter(challenger, best)) best = challenger;
     }
     if (!best) break;
     const isLegendary = best.card.typeLine.includes("Legendary");

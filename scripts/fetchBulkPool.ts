@@ -39,6 +39,17 @@ const POOL_DIR = join(__dirname, "..", "..", "pool_data");
 const SCRYFALL_BULK_MANIFEST = "https://api.scryfall.com/bulk-data";
 const BULK_CACHE = join(POOL_DIR, "oracle_cards.json");
 const META_CACHE = join(POOL_DIR, "oracle_cards.meta.json");
+// default_cards holds EVERY English printing (not just oracle_cards' single
+// "most recognizable" pick per card). Needed because Arena availability is a
+// PRINTING-level fact, not an oracle-card-level fact: Sheltered by Ghosts'
+// oracle_cards representative is its Secrets of Strixhaven Commander reprint
+// (paper/mtgo only), but its original Duskmourn printing (2024-09-27) IS on
+// Arena. Checking only the bulk file's single representative card silently
+// drops any card whose Arena printing isn't the one Scryfall happened to
+// choose as "most recognizable" -- this file builds a cross-printing index
+// instead of trusting one printing's `games` field.
+const ARENA_INDEX_CACHE = join(POOL_DIR, "arena_oracle_ids.json");
+const ARENA_INDEX_META_CACHE = join(POOL_DIR, "arena_oracle_ids.meta.json");
 
 interface BulkEntry {
   type: string;
@@ -56,14 +67,14 @@ type RawCard = ScryfallCard & {
   card_faces?: { oracle_text?: string; mana_cost?: string }[];
 };
 
-async function fetchManifestEntry(): Promise<BulkEntry> {
+async function fetchManifestEntry(bulkType: string): Promise<BulkEntry> {
   const res = await fetch(SCRYFALL_BULK_MANIFEST, {
     headers: { "User-Agent": "intimidation-tactics-poc/1.0", Accept: "application/json" },
   });
   if (!res.ok) throw new Error(`Manifest fetch failed: ${res.status}`);
   const manifest = (await res.json()) as { data: BulkEntry[] };
-  const entry = manifest.data.find((d) => d.type === "oracle_cards");
-  if (!entry) throw new Error("No oracle_cards entry found in Scryfall bulk manifest.");
+  const entry = manifest.data.find((d) => d.type === bulkType);
+  if (!entry) throw new Error(`No ${bulkType} entry found in Scryfall bulk manifest.`);
   if (!entry.download_uri && entry.uri) {
     // Newer manifest shape: the top-level list omits download_uri; follow the
     // per-entry uri to resolve it (same dataset the app's controller targets).
@@ -77,25 +88,29 @@ async function fetchManifestEntry(): Promise<BulkEntry> {
   return entry;
 }
 
-async function ensureBulkFile(): Promise<void> {
-  const entry = await fetchManifestEntry();
+async function ensureBulkFile(
+  bulkType: string,
+  cachePath: string,
+  metaPath: string
+): Promise<void> {
+  const entry = await fetchManifestEntry(bulkType);
 
-  if (existsSync(BULK_CACHE) && existsSync(META_CACHE)) {
-    const meta = JSON.parse(readFileSync(META_CACHE, "utf-8")) as { updated_at?: string };
+  if (existsSync(cachePath) && existsSync(metaPath)) {
+    const meta = JSON.parse(readFileSync(metaPath, "utf-8")) as { updated_at?: string };
     if (meta.updated_at && entry.updated_at && meta.updated_at >= entry.updated_at) {
-      console.log(`[BULK] Cache is current (updated_at ${meta.updated_at}); skipping download.`);
+      console.log(`[BULK] ${bulkType} cache is current (updated_at ${meta.updated_at}); skipping download.`);
       return;
     }
   }
 
-  console.log(`[BULK] Downloading oracle_cards (${((entry.size ?? 0) / 1_000_000).toFixed(1)} MB) ...`);
+  console.log(`[BULK] Downloading ${bulkType} (${((entry.size ?? 0) / 1_000_000).toFixed(1)} MB) ...`);
   // NOTE (documented shortfall #2): Scryfall's bulk manifest no longer exposes
   // a plain-JSON download_uri — entries now provide jsonl_download_uri
   // (gzipped JSONL). The app's ScryfallUpdateController still expects
   // download_uri, so the in-app "refresh database" flow is broken against the
   // live manifest until it is updated to handle the JSONL format.
   const dlUri = entry.download_uri ?? entry.jsonl_download_uri;
-  if (!dlUri) throw new Error("Could not resolve oracle_cards download uri.");
+  if (!dlUri) throw new Error(`Could not resolve ${bulkType} download uri.`);
   const res = await fetch(dlUri, {
     headers: { "User-Agent": "intimidation-tactics-poc/1.0" },
   });
@@ -116,21 +131,100 @@ async function ensureBulkFile(): Promise<void> {
       .map((l) => JSON.parse(l) as unknown);
     text = JSON.stringify(cards);
   }
-  writeFileSync(BULK_CACHE, text, "utf-8");
-  writeFileSync(META_CACHE, JSON.stringify({ updated_at: entry.updated_at, size: entry.size, fetched_at: new Date().toISOString() }), "utf-8");
-  console.log(`[BULK] Saved ${(statSync(BULK_CACHE).size / 1_000_000).toFixed(1)} MB to ${BULK_CACHE}`);
+  writeFileSync(cachePath, text, "utf-8");
+  writeFileSync(metaPath, JSON.stringify({ updated_at: entry.updated_at, size: entry.size, fetched_at: new Date().toISOString() }), "utf-8");
+  console.log(`[BULK] Saved ${(statSync(cachePath).size / 1_000_000).toFixed(1)} MB to ${cachePath}`);
 }
 
-function derivePools(): void {
+/**
+ * Build (and cache) the set of oracle_ids that have AT LEAST ONE Arena
+ * printing, from default_cards (every English printing) rather than
+ * oracle_cards (one representative printing per card). Arena availability is
+ * a printing-level fact; relying on oracle_cards' single representative
+ * printing silently misses any card whose Arena print isn't the one Scryfall
+ * chose to bundle (see Sheltered by Ghosts, module header note).
+ */
+async function ensureArenaIndex(): Promise<Set<string>> {
+  const entry = await fetchManifestEntry("default_cards");
+
+  if (existsSync(ARENA_INDEX_CACHE) && existsSync(ARENA_INDEX_META_CACHE)) {
+    const meta = JSON.parse(readFileSync(ARENA_INDEX_META_CACHE, "utf-8")) as { updated_at?: string };
+    if (meta.updated_at && entry.updated_at && meta.updated_at >= entry.updated_at) {
+      console.log(`[ARENA-INDEX] Cache is current (updated_at ${meta.updated_at}); skipping rebuild.`);
+      return new Set(JSON.parse(readFileSync(ARENA_INDEX_CACHE, "utf-8")) as string[]);
+    }
+  }
+
+  // default_cards decompressed is large enough (every English printing of
+  // every card) to exceed Node's max string length via the generic
+  // ensureBulkFile() path (buf.toString() on the full gunzipped payload).
+  // We only need two fields per printing (oracle_id, games), so stream-parse
+  // the raw JSONL directly instead of materializing the whole file as one
+  // string or one parsed array.
+  console.log(`[ARENA-INDEX] Downloading default_cards (${((entry.size ?? 0) / 1_000_000).toFixed(1)} MB) to build cross-printing Arena index ...`);
+  const dlUri = entry.download_uri ?? entry.jsonl_download_uri;
+  if (!dlUri) throw new Error("Could not resolve default_cards download uri.");
+  const res = await fetch(dlUri, { headers: { "User-Agent": "intimidation-tactics-poc/1.0" } });
+  if (!res.ok) throw new Error(`default_cards download failed: ${res.status}`);
+  const buf = Buffer.from(await res.arrayBuffer());
+  const { gunzipSync } = await import("zlib");
+  const decompressed: Buffer = dlUri.endsWith(".gz") ? gunzipSync(buf) : buf;
+
+  const arenaOracleIds = new Set<string>();
+  let lineStart = 0;
+  let linesParsed = 0;
+  for (let i = 0; i < decompressed.length; i++) {
+    if (decompressed[i] !== 0x0a /* \n */) continue;
+    const line = decompressed.subarray(lineStart, i);
+    lineStart = i + 1;
+    if (line.length === 0) continue;
+    try {
+      const printing = JSON.parse(line.toString("utf-8")) as { oracle_id?: string; games?: string[] };
+      linesParsed++;
+      if (printing.oracle_id && (printing.games ?? []).includes("arena")) {
+        arenaOracleIds.add(printing.oracle_id);
+      }
+    } catch {
+      // Skip malformed lines (e.g. a stray non-JSON leading/trailing bracket
+      // if the source ever ships as a JSON array instead of JSONL).
+    }
+  }
+
+  writeFileSync(ARENA_INDEX_CACHE, JSON.stringify([...arenaOracleIds]), "utf-8");
+  writeFileSync(ARENA_INDEX_META_CACHE, JSON.stringify({ updated_at: entry.updated_at, builtAt: new Date().toISOString(), linesParsed, count: arenaOracleIds.size }), "utf-8");
+  console.log(`[ARENA-INDEX] Parsed ${linesParsed} printings; ${arenaOracleIds.size} oracle cards have at least one Arena printing.`);
+  return arenaOracleIds;
+}
+
+function derivePools(arenaOracleIds: Set<string>): void {
   console.log("[BULK] Parsing bulk file ...");
-  const all = JSON.parse(readFileSync(BULK_CACHE, "utf-8")) as RawCard[];
+  const all = JSON.parse(readFileSync(BULK_CACHE, "utf-8")) as (RawCard & { oracle_id?: string })[];
   console.log(`[BULK] ${all.length} total oracle cards.`);
 
   const wuOnly = (ci: string[] | undefined) => (ci ?? []).every((c) => c === "W" || c === "U");
+  // App-level gap #3 (found via Sheltered by Ghosts, printed only in Secrets
+  // of Strixhaven Commander): Scryfall's `standard: legal` legality field is
+  // about the PAPER/MTGO Standard format and is entirely independent of
+  // Arena print availability. `isStandardEligible` (and the app's importer)
+  // has no Arena gate at all, so Commander-only reprints of otherwise
+  // Standard-legal cards pass through even though they cannot be imported
+  // into an MTGA decklist. Filtered here since the deliverable is an MTGA
+  // import; documented in docs/synergy-first-poc/README.md as a fourth
+  // app-level ingest gap alongside the release-date and manifest-shape bugs.
+  //
+  // IMPORTANT: checked by oracle_id against the cross-printing arenaOracleIds
+  // index (built from default_cards), NOT by reading `games` off this single
+  // oracle_cards representative printing. oracle_cards intentionally keeps
+  // only one "most recognizable" printing per card, which for a card like
+  // Sheltered by Ghosts is its non-Arena Commander reprint even though its
+  // original Duskmourn printing IS on Arena. Any card that has EVER had an
+  // Arena printing (under any set) passes.
+  const arenaAvailable = (oracleId: string | undefined) => !!oracleId && arenaOracleIds.has(oracleId);
 
   const nonland: RawCard[] = [];
   const lands: RawCard[] = [];
   let standardLegal = 0;
+  let droppedNonArena = 0;
 
   for (const card of all) {
     // Same gate the app's importWorker applies (isImportEligible) plus the
@@ -138,6 +232,10 @@ function derivePools(): void {
     if (!isStandardEligible(card)) continue;
     standardLegal++;
     if (!wuOnly(card.color_identity)) continue;
+    if (!arenaAvailable(card.oracle_id)) {
+      droppedNonArena++;
+      continue;
+    }
     if ((card.type_line ?? "").includes("Land")) lands.push(card);
     else nonland.push(card);
   }
@@ -149,12 +247,14 @@ function derivePools(): void {
   writeFileSync(join(POOL_DIR, "colorless_artifacts.json"), "[]", "utf-8");
 
   console.log(`[BULK] Standard-legal (app ingest rules): ${standardLegal}`);
-  console.log(`[BULK] Derived pools — nonland WU/colorless: ${nonland.length}, lands: ${lands.length}`);
+  console.log(`[BULK] Dropped for no Arena printing (Standard-legal on paper/MTGO only): ${droppedNonArena}`);
+  console.log(`[BULK] Derived pools — nonland WU/colorless (Arena-available): ${nonland.length}, lands: ${lands.length}`);
 }
 
 async function main() {
-  await ensureBulkFile();
-  derivePools();
+  await ensureBulkFile("oracle_cards", BULK_CACHE, META_CACHE);
+  const arenaOracleIds = await ensureArenaIndex();
+  derivePools(arenaOracleIds);
 }
 
 main().catch((e) => {
