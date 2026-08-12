@@ -424,3 +424,134 @@ lives in `legalities.standard` (already handled), but availability
 convenience printing a "one card per oracle ID" dataset chooses to surface.
 Any future platform-availability filter (Arena, MTGO, paper-only) must use
 this same cross-printing pattern.
+
+## Consistency target tightening + OVERFLOW/consolidation fragmentation fix
+
+A later request asked to "tighten the Consistency role target and rerun the
+deck generation." This surfaced (and then required fixing) three separate,
+compounding bugs in the OVERFLOW/top-up machinery, not just a target-value
+change.
+
+### The target change itself
+
+`SEED_ROLE_TARGETS.consistency` moved from `[6, 10]` to `[4, 8]` in
+`src/lib/generator/hopeEstheimSynergy.ts`. The floor/ceiling were both the
+original spec's numbers already at `[6, 10]` — "tightening" here means
+lowering the ceiling further (Consistency should be a supporting role for
+this deck's lifegain-mill plan, not a role that can casually absorb nearly a
+third of the nonland slots).
+
+### Bug #1 (fixed in the prior session): naive OVERFLOW picked by raw score
+
+Once the strict per-role ceiling loop runs out of eligible candidates before
+36 nonland cards are filled, both build engines fall back to an OVERFLOW pass
+that tops up the remaining slots regardless of ceiling. The original OVERFLOW
+loop picked whichever remaining card scored highest, with **zero regard for
+which role it would push over ceiling** — letting Consistency (the role most
+pool cards happen to double-tag) silently absorb nearly the entire overflow
+and run to 20/36 against a 10-card ceiling. Fixed by adding
+`roleOvershoot()`/`projectedOvershoot()` and rewriting both engines' OVERFLOW
+loops to minimize projected worst-case role overshoot first, using score only
+as a tiebreak among equal-overshoot candidates.
+
+### Bug #2: minimizing overshoot per-card, independently, doesn't bound the AGGREGATE
+
+Bug #1's fix minimizes overshoot for each individual OVERFLOW pick, but nothing
+stops the *sum* of 8+ independently-locally-optimal picks from still pushing
+multiple roles over ceiling in aggregate — it just spreads the damage instead
+of concentrating it on one role. After tightening Consistency's ceiling, a
+rerun showed Consistency's overshoot did shrink (20 → 15), but Enablers' own
+overshoot grew in exchange (18 → 21) because the loop kept picking whichever
+single card had the least-bad overshoot *at that moment*, oblivious to how
+many other picks had already been pushed onto Enablers earlier in the same
+OVERFLOW pass. This is accepted as a structural property of a greedy
+per-pick algorithm, not something worth a full backtracking rewrite for a PoC
+— see "Remaining structural tension" below for why some aggregate overshoot
+is unavoidable with this pool/target combination regardless of algorithm
+sophistication.
+
+### Bug #3: OVERFLOW always preferred a brand-new card over deepening an existing one
+
+The actual quality-visible bug: because every pick (`entries.push(...)`)
+permanently removed a card from `remainingPool` regardless of whether it was
+added at less than its max legal quantity, OVERFLOW could never revisit an
+existing 1x/2x entry to top it up later in the same pass — it could only ever
+reach for a brand-new distinct card. Combined with Bug #1's fix (which often
+finds a *new* card's minimal overshoot at qty=1, since 1 copy fits under a
+ceiling that 4 copies wouldn't), this meant OVERFLOW kept manufacturing
+fresh, awkward 1-of picks (Basri, Stiltzkin, Agatha's Soul Cauldron, Jace
+Reawakened, Kitsa, Super-Adaptoid, etc.) instead of growing playsets already
+in the deck — exactly the "consistency liability... you effectively never
+draw it" fragmentation the rest of the codebase's anti-fragmentation logic
+(the post-build `consolidatePlaysets` pass) exists to prevent, but which
+didn't run *during* OVERFLOW, only after it.
+
+**Fix**: added a TOP-UP PASS at the start of every OVERFLOW loop iteration
+(both engines) that checks whether any existing under-max entry (quantity <
+4, or < 2 for legendary) can absorb more copies at equal-or-lower overshoot
+than the best available brand-new card, and prefers that top-up whenever it
+ties or wins. This is a straightforward greedy preference, not a search —
+it's checked fresh every iteration, so a card topped up this iteration is
+naturally reconsidered for further top-up (or ceiling-blocked) next
+iteration.
+
+### Bug #4 (found while validating the above fix): consolidation could UNDO overshoot-aware picks
+
+While confirming the OVERFLOW fixes above, testing surfaced that the
+post-build `consolidatePlaysets()` pass — which existed before this session,
+meant to merge 1x/2x "fragments" into deeper playsets — sorted candidates
+purely by standalone power (`basePowerProxy`) with **no role-ceiling
+awareness at all**. In one test run it moved Sheltered by Ghosts' copies
+entirely out of the deck (donating them to a higher-basePower target),
+silently re-introducing exactly the ceiling violation the OVERFLOW fix had
+just carefully minimized. Fixed by making `consolidatePlaysets` role-aware:
+before executing any donor→target move, it now computes the roles the target
+would gain net copies of (target's roles minus donor's roles — roles both
+cards share are unaffected by the move) and clamps the move's quantity so it
+never increases a role's overshoot beyond its pre-move level. In practice,
+once OVERFLOW's own top-up pass (Bug #3 fix) already prevents most
+fragmentation from occurring in the first place, this consolidation pass has
+little left to do — which is the correct outcome; a role-blind consolidation
+pass "fixing" fragmentation by creating new ceiling violations is worse than
+leaving some fragmentation in place.
+
+### Final verified result
+
+With all four fixes in place (rerun logged in full at
+`comparison_run5.log` in the workspace, not committed — regenerate via
+`npx tsx scripts/hopeEstheimComparison.ts` if needed):
+
+| Role | Count | Target band | Status |
+|---|---|---|---|
+| Enabler | 17 | [10, 14] | +3 over ceiling |
+| Protection | 15 | [8, 12] | +3 over ceiling |
+| Consistency | 11 | [4, 8] | +3 over ceiling (was 20 pre-fix, 15 after target-only change) |
+| Payoff | 12 | [6, 8] | +4 over ceiling — structural, see below |
+
+Decklist fragmentation: only **one** unavoidable 1-of remains (South Pole
+Voyager, forced by being the literal 36th and final nonland slot with zero
+room left for a 2nd copy) — down from 5-7 awkward singletons in the
+pre-top-up-pass builds.
+
+### Remaining structural tension (not a bug — a pool/target mismatch)
+
+Ceiling sum (14+12+8+8 = 42) comfortably exceeds the 36-card nonland target
+on paper, so the overshoot is not caused by the bands being mathematically
+infeasible. It's caused by **multi-role tagging density in the pool**: most
+strong WU cards satisfying this seed's Enabler/Protection/Consistency
+definitions tag two or three roles simultaneously (see `classifySeedRoles`),
+so filling one role's ceiling consumes another role's headroom too. Payoff's
+overshoot (12 vs. target 6-8) is fully explained by the LOCKED 12-card seed
+package alone (4 Hope Estheim + 4 Authority of the Consuls + 4 Space-Time
+Anomaly are all tagged Payoff) — no algorithm change can bring Payoff inside
+its band without contradicting the seed-lock requirement, so this line of
+the target table should be read as "seed already meets/exceeds this band,"
+not as a build defect.
+
+**For future runs of this pipeline on a different seed**: if aggregate
+ceiling overshoot recurs, the fix is either (a) loosen ceilings further to
+match the pool's real multi-role density, or (b) tighten `classifySeedRoles`
+so cards earn fewer simultaneous roles (more precise, single-role
+classification), not another OVERFLOW-loop patch — the loop-level fixes in
+this section already minimize overshoot about as well as a greedy
+(non-backtracking) algorithm can.

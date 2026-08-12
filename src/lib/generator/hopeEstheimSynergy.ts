@@ -58,7 +58,14 @@ export interface SeedRoleTargets {
 export const SEED_ROLE_TARGETS: SeedRoleTargets = {
   enablers: [10, 14],
   protection: [8, 12],
-  consistency: [6, 10],
+  // Tightened from [6, 10]: the pre-fix batched seed-chain build let
+  // Consistency run to 20/36 (double the original ceiling) because loose
+  // multi-role tagging (many Enabler/Protection cards also tag Consistency)
+  // let it silently absorb most of the OVERFLOW pass once other roles hit
+  // their ceilings. This deck's identity is lifegain-mill conversion via the
+  // Enabler/Protection/Payoff roles; Consistency (draw/filtering) should stay
+  // a supporting role, not accumulate to nearly half the nonland slots.
+  consistency: [4, 8],
   payoffs: [6, 8],
   lands: 24,
 };

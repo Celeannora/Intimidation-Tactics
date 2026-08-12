@@ -165,6 +165,39 @@ function roleRoomRemaining(role: SeedRole, counts: DeckRoleCounts): number {
   }
 }
 
+/**
+ * How many copies of this role are already OVER its ceiling (0 if within
+ * band). Used only by the last-resort OVERFLOW passes below, to prefer the
+ * candidate that breaches its ceiling by the SMALLEST amount rather than
+ * whichever single role happens to score highest and absorb the entire
+ * overflow. Without this, one role (e.g. Consistency) can silently swallow
+ * every overflow slot and blow from a 10-card ceiling to 20, as happened in
+ * the pre-fix batched seed-chain run.
+ */
+function roleOvershoot(role: SeedRole, counts: DeckRoleCounts): number {
+  switch (role) {
+    case "Enabler":
+      return Math.max(0, counts.enablers - SEED_ROLE_TARGETS.enablers[1]);
+    case "Protection":
+      return Math.max(0, counts.protection - SEED_ROLE_TARGETS.protection[1]);
+    case "Consistency":
+      return Math.max(0, counts.consistency - SEED_ROLE_TARGETS.consistency[1]);
+    case "Payoff":
+      return Math.max(0, counts.payoffs - SEED_ROLE_TARGETS.payoffs[1]);
+  }
+}
+
+/**
+ * Worst-case ceiling overshoot a candidate would cause if added at the given
+ * quantity: the max over its roles of (current overshoot + qty), so a
+ * multi-role card is judged by its most-saturated role, not its least.
+ */
+function projectedOvershoot(card: CardRecord, counts: DeckRoleCounts, qty: number): number {
+  const roles = classifySeedRoles(card);
+  if (roles.length === 0) return 0;
+  return Math.max(...roles.map((r) => roleOvershoot(r, counts) + Math.max(0, qty - roleRoomRemaining(r, counts))));
+}
+
 function buildWithSynergyFirstEngine(pool: CardRecord[], seedCards: CardRecord[]): {
   entries: DeckEntry[];
   log: string[];
@@ -295,21 +328,81 @@ function buildWithSynergyFirstEngine(pool: CardRecord[], seedCards: CardRecord[]
     );
   }
   while (nonlandCount < targetNonlandCount && remainingPool.length > 0) {
-    let best: { card: CardRecord; score: ReturnType<typeof scoreCandidate> } | null = null;
+    // TOP-UP PASS: prefer deepening an existing under-max entry at zero (or
+    // minimal) extra overshoot over reaching for a brand-new singleton —
+    // see the identical block in the seed-chain engine's OVERFLOW loop for
+    // the full rationale (this is what fixes fragmentation: 1-of Basri,
+    // Kitsa, etc. instead of deepening cards already in the deck).
+    let topUp: { entryIdx: number; addQty: number; overshoot: number } | null = null;
+    for (let i = 0; i < entries.length; i++) {
+      const entry = entries[i];
+      const isLegendary = entry.card.typeLine.includes("Legendary");
+      const cap = isLegendary ? 2 : 4;
+      if (entry.quantity >= cap) continue;
+      const room = Math.min(cap - entry.quantity, targetNonlandCount - nonlandCount);
+      if (room < 1) continue;
+      const countsWithout = tallyRoleCounts(entries.map((e, j) => (j === i ? { ...e, quantity: e.quantity - entry.quantity } : e)));
+      const overshoot = projectedOvershoot(entry.card, countsWithout, entry.quantity + room);
+      if (!topUp || overshoot < topUp.overshoot || (overshoot === topUp.overshoot && room > topUp.addQty)) {
+        topUp = { entryIdx: i, addQty: room, overshoot };
+      }
+    }
+
+    // Minimize ceiling breach, THEN score — not the other way around. Picking
+    // by pure score here is what let one role (Consistency) silently absorb
+    // the entire overflow and blow from a 10-card ceiling to 20: whichever
+    // role scored best overall kept winning every single overflow round.
+    // Instead, prefer whichever candidate/qty combination causes the
+    // SMALLEST projected overshoot of any role it touches, and only use
+    // score to break ties among equally-minimal-overshoot candidates.
+    let best: { card: CardRecord; score: ReturnType<typeof scoreCandidate>; qty: number; overshoot: number } | null = null;
     for (const card of remainingPool) {
+      const isLegendary = card.typeLine.includes("Legendary");
+      const maxQty = Math.min(isLegendary ? 2 : 4, targetNonlandCount - nonlandCount);
       const basePower = basePowerProxy(card);
       const score = scoreCandidate(card, counts, basePower);
-      if (!best || score.final > best.score.final) best = { card, score };
+      // Find THIS card's own best (largest-quantity, minimal-overshoot) pick
+      // first — iterate qty from max down to 1 and keep the largest qty that
+      // achieves this card's personal minimum overshoot. This avoids the
+      // fragmentation bug where a card is locked in at x1 just because x1
+      // happens to hit zero overshoot, even when x4 would ALSO hit zero
+      // overshoot and give a clean playset instead of a dead one-of.
+      let cardBestQty = 1;
+      let cardBestOvershoot = projectedOvershoot(card, counts, 1);
+      for (let qty = 2; qty <= maxQty; qty++) {
+        const overshoot = projectedOvershoot(card, counts, qty);
+        if (overshoot <= cardBestOvershoot) {
+          cardBestQty = qty;
+          cardBestOvershoot = overshoot;
+        }
+      }
+      // Across candidates: smallest overshoot wins; score breaks ties.
+      if (
+        !best ||
+        cardBestOvershoot < best.overshoot ||
+        (cardBestOvershoot === best.overshoot && score.final > best.score.final)
+      ) {
+        best = { card, score, qty: cardBestQty, overshoot: cardBestOvershoot };
+      }
+    }
+    if (topUp && (!best || topUp.overshoot <= best.overshoot)) {
+      const entry = entries[topUp.entryIdx];
+      entry.quantity += topUp.addQty;
+      nonlandCount += topUp.addQty;
+      counts = tallyRoleCounts(entries);
+      log.push(
+        `[SYNERGY-FIRST] OVERFLOW top-up: ${entry.card.name} +${topUp.addQty} (now ${entry.quantity}x) — ` +
+        `depth on an existing pick preferred over a new singleton (overshoot=${topUp.overshoot}).`
+      );
+      continue;
     }
     if (!best) break;
-    const isLegendary = best.card.typeLine.includes("Legendary");
-    const qty = Math.min(isLegendary ? 2 : 4, targetNonlandCount - nonlandCount);
-    entries.push({ card: best.card, quantity: qty, board: "main" });
-    nonlandCount += qty;
+    entries.push({ card: best.card, quantity: best.qty, board: "main" });
+    nonlandCount += best.qty;
     counts = tallyRoleCounts(entries);
     log.push(
-      `[SYNERGY-FIRST] OVERFLOW pick: ${best.card.name} x${qty} — final=${best.score.final.toFixed(1)} ` +
-      `— added past ceiling to reach the 36-card nonland target; role counts after: ${JSON.stringify(counts)}`
+      `[SYNERGY-FIRST] OVERFLOW pick: ${best.card.name} x${best.qty} — final=${best.score.final.toFixed(1)} ` +
+      `(min-overshoot=${best.overshoot}) — added past ceiling to reach the 36-card nonland target; role counts after: ${JSON.stringify(counts)}`
     );
     remainingPool = remainingPool.filter((c) => c.name !== best!.card.name);
   }
@@ -481,20 +574,94 @@ function buildWithBatchedSeedChain(pool: CardRecord[], seedCards: CardRecord[]):
   }
   while (nonlandCount < targetNonlandCount && remainingPool.length > 0) {
     adjustments = reanalyzeDeck(entries);
-    let best: { card: CardRecord; score: ReturnType<typeof scoreCandidate>; basePower: number } | null = null;
+
+    // TOP-UP PASS: before reaching for any brand-new distinct card, check
+    // whether an existing under-max entry can absorb more OVERFLOW slots at
+    // zero additional overshoot (topping up Sheltered by Ghosts 2x -> 4x
+    // instead of adding two unrelated singleton cards, for example). This
+    // directly targets the fragmentation failure mode: minimizing overshoot
+    // per NEW card said nothing about preferring depth in cards already
+    // committed to, so OVERFLOW kept reaching for fresh 1-ofs even when an
+    // existing pick had headroom to grow for free.
+    let topUp: { entryIdx: number; addQty: number; overshoot: number } | null = null;
+    for (let i = 0; i < entries.length; i++) {
+      const entry = entries[i];
+      const isLegendary = entry.card.typeLine.includes("Legendary");
+      const cap = isLegendary ? 2 : 4;
+      if (entry.quantity >= cap) continue;
+      const room = Math.min(cap - entry.quantity, targetNonlandCount - nonlandCount);
+      for (let add = room; add >= 1; add--) {
+        const countsWithout = tallyRoleCounts(entries.map((e, j) => (j === i ? { ...e, quantity: e.quantity - entry.quantity } : e)));
+        const overshoot = projectedOvershoot(entry.card, countsWithout, entry.quantity + add);
+        if (!topUp || overshoot < topUp.overshoot || (overshoot === topUp.overshoot && add > topUp.addQty)) {
+          topUp = { entryIdx: i, addQty: add, overshoot };
+        }
+        break; // largest `add` tried first for this entry is its best (monotonic overshoot); no need to scan smaller adds once one succeeds
+      }
+    }
+    if (topUp && topUp.overshoot === 0) {
+      const entry = entries[topUp.entryIdx];
+      entry.quantity += topUp.addQty;
+      nonlandCount += topUp.addQty;
+      counts = tallyRoleCounts(entries);
+      log.push(
+        `[SEED-CHAIN] OVERFLOW top-up: ${entry.card.name} +${topUp.addQty} (now ${entry.quantity}x) — ` +
+        `zero-overshoot depth added to an existing pick instead of a new singleton.`
+      );
+      continue;
+    }
+
+    // Same minimal-overshoot-first rule as the synergy-first engine's
+    // overflow pass (see comment there): picking by pure score alone let
+    // Consistency silently absorb the whole overflow and run to 20 against
+    // a 10-card ceiling. Try every legal quantity per candidate and keep
+    // whichever (candidate, qty) minimizes the worst role overshoot it
+    // would cause; isStrictlyBetter only breaks ties among equal overshoot.
+    let best: { card: CardRecord; score: ReturnType<typeof scoreCandidate>; basePower: number; qty: number; overshoot: number } | null = null;
     for (const card of remainingPool) {
+      const isLegendary = card.typeLine.includes("Legendary");
+      const maxQty = Math.min(isLegendary ? 2 : 4, targetNonlandCount - nonlandCount);
       const basePower = basePowerProxy(card);
       const score = scoreCandidate(card, counts, basePower, adjustments);
-      const challenger = { card, score, basePower };
-      if (isStrictlyBetter(challenger, best)) best = challenger;
+      // Same largest-quantity-at-minimal-overshoot rule as the synergy-first
+      // engine's overflow pass: avoids locking a card in at x1 just because
+      // x1 happens to hit zero overshoot when x4 would ALSO hit zero.
+      let cardBestQty = 1;
+      let cardBestOvershoot = projectedOvershoot(card, counts, 1);
+      for (let qty = 2; qty <= maxQty; qty++) {
+        const overshoot = projectedOvershoot(card, counts, qty);
+        if (overshoot <= cardBestOvershoot) {
+          cardBestQty = qty;
+          cardBestOvershoot = overshoot;
+        }
+      }
+      const challenger = { card, score, basePower, qty: cardBestQty, overshoot: cardBestOvershoot };
+      if (
+        !best ||
+        cardBestOvershoot < best.overshoot ||
+        (cardBestOvershoot === best.overshoot && isStrictlyBetter(challenger, best))
+      ) {
+        best = challenger;
+      }
+    }
+    // Prefer a zero/lower-overshoot top-up over a brand-new-card pick even
+    // when the top-up wasn't strictly zero, as long as it's no worse.
+    if (topUp && best && topUp.overshoot <= best.overshoot) {
+      const entry = entries[topUp.entryIdx];
+      entry.quantity += topUp.addQty;
+      nonlandCount += topUp.addQty;
+      counts = tallyRoleCounts(entries);
+      log.push(
+        `[SEED-CHAIN] OVERFLOW top-up: ${entry.card.name} +${topUp.addQty} (now ${entry.quantity}x) — ` +
+        `matched or beat the best new-card overshoot, so depth was preferred over fragmentation.`
+      );
+      continue;
     }
     if (!best) break;
-    const isLegendary = best.card.typeLine.includes("Legendary");
-    const qty = Math.min(isLegendary ? 2 : 4, targetNonlandCount - nonlandCount);
-    entries.push({ card: best.card, quantity: qty, board: "main" });
-    nonlandCount += qty;
+    entries.push({ card: best.card, quantity: best.qty, board: "main" });
+    nonlandCount += best.qty;
     counts = tallyRoleCounts(entries);
-    log.push(`[SEED-CHAIN] OVERFLOW pick: ${best.card.name} x${qty} — final=${best.score.final.toFixed(1)}`);
+    log.push(`[SEED-CHAIN] OVERFLOW pick: ${best.card.name} x${best.qty} — final=${best.score.final.toFixed(1)} (min-overshoot=${best.overshoot})`);
     remainingPool = remainingPool.filter((c) => c.name !== best!.card.name);
   }
 
@@ -536,13 +703,52 @@ function consolidatePlaysets(
   // build; deepen the strong ones, cut the weak ones.
   fragmented.sort((a, b) => basePowerProxy(b.e.card) - basePowerProxy(a.e.card));
 
+  // Role-neutrality guard: consolidation must not silently re-open the
+  // exact overshoot problem the OVERFLOW pass was built to minimize. A move
+  // shifts copies from donor to target without changing the 36-card total,
+  // so it only changes role counts via the DIFFERENCE between the two
+  // cards' roles. Reject (or shrink) any move that would push a role's
+  // overshoot beyond its current level — e.g. do not let a Consistency-only
+  // donor's copies flow into an Enabler-only target if Enabler is already
+  // at/over its own ceiling, and do not deepen a target's role past ceiling
+  // just because it has higher standalone power.
   let moved = 0;
   let lo = fragmented.length - 1;
   for (let hi = 0; hi < lo; hi++) {
     const target = fragmented[hi].e;
     while (target.quantity < 4 && hi < lo) {
       const donor = fragmented[lo].e;
-      const take = Math.min(donor.quantity, 4 - target.quantity);
+      let take = Math.min(donor.quantity, 4 - target.quantity);
+      const counts = tallyRoleCounts(entries);
+      const targetRoles = classifySeedRoles(target.card);
+      const donorRoles = classifySeedRoles(donor.card);
+      // A role R's count changes by +take if the target fills R but the
+      // donor doesn't, -take if the donor fills R but the target doesn't,
+      // and 0 if both or neither fill R (moving copies between two cards
+      // that share a role is always safe for that role, and roles the
+      // donor uniquely held only ever free up headroom). Only roles the
+      // TARGET uniquely holds can worsen that role's overshoot, so clamp
+      // `take` to the tightest remaining headroom among those roles —
+      // but never below what's needed just to preserve the CURRENT
+      // overshoot level (if a role is already over ceiling pre-move, don't
+      // make it worse; if it still has room, don't exceed that room).
+      const netGainRoles = targetRoles.filter((r) => !donorRoles.includes(r));
+      for (const r of netGainRoles) {
+        const room = roleRoomRemaining(r, counts);
+        const alreadyOver = roleOvershoot(r, counts) > 0;
+        // If already over ceiling, permit 0 further net-gain copies of this
+        // role; otherwise cap at remaining room before the ceiling.
+        const cap = alreadyOver ? 0 : room;
+        take = Math.min(take, cap);
+      }
+      if (take === 0) {
+        // This donor cannot feed this target without worsening a role
+        // ceiling; try the next-weakest donor instead of giving up on the
+        // target entirely.
+        lo--;
+        if (hi >= lo) break;
+        continue;
+      }
       donor.quantity -= take;
       target.quantity += take;
       moved += take;
