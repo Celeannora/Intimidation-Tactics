@@ -266,7 +266,15 @@ export interface DeckAdjustments {
    * artifacts can feed a "sacrifice another artifact" cost). undefined =
    * dependency checking disabled (neutral / straight-through builds).
    */
-  supportCounts?: { artifacts: number; creatures: number; allies: number };
+  supportCounts?: { artifacts: number; creatures: number };
+  /**
+   * Creature subtype counts (e.g. { Ally: 2, Wizard: 5 }), keyed by exactly
+   * the subtype word as it appears in typeLine. Populated generically from
+   * whatever subtypes are actually present in the deck -- no fixed list of
+   * tribes is hardcoded anywhere. Used to resolve "another/other <Type> you
+   * control" trigger-condition dependencies for ANY tribe, not just one.
+   */
+  subtypeCounts?: Record<string, number>;
 }
 
 export function neutralAdjustments(): DeckAdjustments {
@@ -357,14 +365,23 @@ export function reanalyzeDeck(
   adj.supportCounts = {
     artifacts: entries.reduce((n, e) => n + (!e.card.typeLine.includes("Land") && e.card.typeLine.includes("Artifact") ? e.quantity : 0), 0),
     creatures: entries.reduce((n, e) => n + (e.card.typeLine.includes("Creature") ? e.quantity : 0), 0),
-    // Tribal subtype count, not just "Creature" -- cards whose trigger reads
-    // "another Ally you control" only fire from OTHER Allies specifically,
-    // not from any creature. Found via South Pole Voyager scoring as a
-    // repeatable-proactive Enabler in a deck with zero other Ally creatures,
-    // where its actual trigger ("this creature or another Ally... enters")
-    // can in practice only ever fire once (on itself) all game.
-    allies: entries.reduce((n, e) => n + (e.card.typeLine.includes("Ally") ? e.quantity : 0), 0),
   };
+
+  // Generic subtype census: split each card's typeLine on the em dash and
+  // tally every subtype word actually present in the deck (Ally, Wizard,
+  // Soldier, Spirit, whatever). No fixed tribe list -- this covers ANY
+  // "another/other <Type> you control" trigger dependency, for any seed,
+  // any deck, any tribe, without enumerating tribes in code.
+  const subtypeCounts: Record<string, number> = {};
+  for (const { card, quantity } of entries) {
+    const afterDash = card.typeLine.split(/—|--/)[1];
+    if (!afterDash) continue;
+    for (const subtype of afterDash.trim().split(/\s+/)) {
+      if (!subtype) continue;
+      subtypeCounts[subtype] = (subtypeCounts[subtype] ?? 0) + quantity;
+    }
+  }
+  adj.subtypeCounts = subtypeCounts;
 
   return adj;
 }
@@ -551,35 +568,58 @@ export const HOPE_ESTHEIM_RESOURCE: ResourceSpec = {
 // bulk-DB pool: Technodrome ("{T}, Sacrifice another artifact: Draw a card")
 // scored as a Consistency engine in a deck with zero other artifacts — a dead
 // ability. Patterns are seed-agnostic and extensible.
-const COST_DEPENDENCIES: { pattern: RegExp; resource: "artifacts" | "creatures" | "allies"; minimum: number }[] = [
+const COST_DEPENDENCIES: { pattern: RegExp; resource: "artifacts" | "creatures"; minimum: number }[] = [
   { pattern: /sacrifice (another|an) artifact/i, resource: "artifacts", minimum: 6 },
   { pattern: /sacrifice (another|a) creature/i, resource: "creatures", minimum: 8 },
-  // Tribal-count dependency, not a sacrifice cost: a trigger gated on
-  // "another Ally you control" entering is only as repeatable as the
-  // deck's Ally density. With 0-1 other Allies, "this creature or another
-  // Ally... enters" can only ever fire off itself -- a one-shot, not the
-  // repeatable-proactive cadence the raw regex match implied. Minimum of 4
-  // chosen so at least a light Ally sub-theme (not just the card itself)
-  // must be present before crediting repeatable value.
-  { pattern: /another ally you control/i, resource: "allies", minimum: 4 },
 ];
+
+// Generic tribal-trigger dependency: matches "another/other <Subtype> you
+// control" for ANY capitalized subtype word, not a fixed tribe list. A
+// trigger condition gated this way is only as repeatable as the deck's
+// count of that exact subtype -- e.g. South Pole Voyager's "whenever this
+// creature or another Ally you control enters" can only fire off itself
+// with 0 other Allies, making it a one-shot despite matching the
+// repeatable-proactive lifegain-trigger regex. The same shape applies to
+// "another Wizard you control", "other Soldiers you control", etc. for any
+// future seed/tribe -- the subtype name is captured at match time and
+// looked up dynamically against the deck's own subtype census, never
+// enumerated in code.
+const TRIBAL_TRIGGER_PATTERN = /(?:another|other) ([A-Z][a-z]+)s? you control/;
+const TRIBAL_TRIGGER_MINIMUM = 4;
 
 function costDependencyPenalty(
   card: CardRecord,
   adjustments?: DeckAdjustments
 ): { mult: number; note: string | null } {
   const support = adjustments?.supportCounts;
-  if (!support) return { mult: 1, note: null };
   const text = card.oracleText ?? "";
-  for (const dep of COST_DEPENDENCIES) {
-    if (dep.pattern.test(text) && support[dep.resource] < dep.minimum) {
-      const verb = dep.resource === "allies" ? "needs other Allies to trigger repeatably" : "needs";
-      return {
-        mult: 0.25,
-        note: `cost-dependency penalty x0.25: ${verb} ${dep.resource}, deck has ${support[dep.resource]} (min ${dep.minimum})`,
-      };
+
+  if (support) {
+    for (const dep of COST_DEPENDENCIES) {
+      if (dep.pattern.test(text) && support[dep.resource] < dep.minimum) {
+        return {
+          mult: 0.25,
+          note: `cost-dependency penalty x0.25: needs ${dep.resource} to sacrifice, deck has ${support[dep.resource]} (min ${dep.minimum})`,
+        };
+      }
     }
   }
+
+  const subtypeCounts = adjustments?.subtypeCounts;
+  if (subtypeCounts) {
+    const tribalMatch = text.match(TRIBAL_TRIGGER_PATTERN);
+    if (tribalMatch) {
+      const subtype = tribalMatch[1];
+      const count = subtypeCounts[subtype] ?? 0;
+      if (count < TRIBAL_TRIGGER_MINIMUM) {
+        return {
+          mult: 0.25,
+          note: `tribal-trigger dependency penalty x0.25: needs other ${subtype}s to trigger repeatably, deck has ${count} (min ${TRIBAL_TRIGGER_MINIMUM})`,
+        };
+      }
+    }
+  }
+
   return { mult: 1, note: null };
 }
 

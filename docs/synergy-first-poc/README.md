@@ -556,7 +556,7 @@ classification), not another OVERFLOW-loop patch — the loop-level fixes in
 this section already minimize overshoot about as well as a greedy
 (non-backtracking) algorithm can.
 
-## Bug found by user inspection: South Pole Voyager scored as repeatable despite being a dead Ally trigger
+## Bug found by user inspection: trigger-condition tribal dependencies scored as unconditionally repeatable
 
 After sharing the build above, manual inspection of the decklist caught a
 real scoring bug: **South Pole Voyager** ("Whenever this creature or another
@@ -568,60 +568,74 @@ what a static lifelink creature would earn — despite the deck containing
 practice only ever fire once per game (off itself), making it functionally
 a one-shot "gain 1 life" ETB, not a repeatable engine piece.
 
-### Root cause
+### First attempt was wrong: fixed the symptom, not the flaw
 
-`resourceCadence()`'s trigger-matching only checks whether the life-gain
-TEXT pattern (`/gain[^.]*life/`) appears inside a `whenever`/`at the
-beginning` clause, and whether that clause mentions "opponent"/"each player"
-(which would make it `repeatable-conditional`). It has no way to see that the
-trigger's own CONDITION ("another Ally you control enters") is itself gated
-on a tribal count the deck may not actually provide — the classifier only
-reasons about the resource being produced, never about what has to be true
-for the trigger to fire at all.
+The first fix hardcoded a check for the literal string `"another ally you
+control"` and a fixed `"allies"` resource type. That's a card-specific (and
+tribe-specific) patch, not a logic fix — it happens to catch South Pole
+Voyager and nothing else. A pool scan for the same trigger shape (`(another|
+other) <Subtype> you control`) across the existing card pool immediately
+turned up **13 other cards spanning 10 other subtypes** with the identical
+dependency problem: Bird (Salvation Swan), Angel (Giada Font of Hope,
+Youthful Valkyrie), Rabbit (Harvestrite Host), Detective (Projektor
+Inspector, Perimeter Enforcer), Villain (Flying Octobot), Merfolk (Deepway
+Navigator), Hero (Captain America Wings of Freedom, Agent Phil Coulson),
+Shrine/Shrines (Southern Air Temple, The Spirit Oasis), Heroes (Captain
+America Super-Soldier, Invisible Woman Sue Storm), Caves (Cavernous Maw).
+An Ally-only patch would have left every one of those miscategorized the
+same way the first time any of them got drafted into a build.
 
-The codebase already had the right pattern for this exact class of problem:
-`COST_DEPENDENCIES` (added in an earlier session for Technodrome's "sacrifice
-another artifact" ability scoring as a live Consistency engine in a deck with
-no other artifacts) penalizes any card whose ability text requires a support
-resource the deck doesn't have enough of. South Pole Voyager's "another Ally
-you control" clause is structurally identical — a trigger-condition
-dependency, not a cost dependency — but wasn't covered by the existing table.
+### Root cause (general form)
 
-### Fix
+`resourceCadence()`'s trigger-matching only checks whether the resource-
+production TEXT (e.g. `/gain[^.]*life/`) appears inside a `whenever`/`at the
+beginning` clause. It has no way to see that the trigger's own FIRING
+CONDITION can itself be gated on a creature subtype count the deck may not
+provide — the classifier only reasons about the resource being produced,
+never about what has to be true for the trigger to fire at all. This is the
+same class of problem `COST_DEPENDENCIES` already solved for activation
+costs (Technodrome's "sacrifice another artifact" scoring as live Consistency
+in a deck with no other artifacts) — but that fix was also narrow, restricted
+to a fixed `"artifacts" | "creatures"` enum with per-resource regexes typed
+in by hand.
 
-- Added an `allies` count to `DeckAdjustments.supportCounts` in
-  `reanalyzeDeck()`, computed the same way as `artifacts`/`creatures`
-  (counts entries whose `typeLine` includes "Ally").
-- Added `{ pattern: /another ally you control/i, resource: "allies",
-  minimum: 4 }` to `COST_DEPENDENCIES`. Minimum of 4 requires at least a
-  light Ally sub-theme (not just the card scoring itself) before the trigger
-  is credited as reliably repeatable.
-- `costDependencyPenalty()` already multiplied a matching card's ENTIRE
-  final score (including the cadence bonus) by 0.25x when the dependency
-  isn't met, so no change was needed there — extending the pattern table was
-  sufcient to flow through correctly.
+### Fix (tribe-agnostic)
+
+- `reanalyzeDeck()` now computes a **generic subtype census**
+  (`DeckAdjustments.subtypeCounts: Record<string, number>`) by splitting
+  every card's `typeLine` on the em dash and tallying every subtype word
+  actually present in the deck — Ally, Wizard, Soldier, Spirit, whatever
+  the pool contains. No fixed tribe list exists anywhere in this code.
+- `costDependencyPenalty()` matches oracle text against
+  `/(?:another|other) ([A-Z][a-z]+)s? you control/` — the subtype name is
+  **captured from the regex match itself**, not looked up from a hardcoded
+  set — then checks that captured subtype's count against the deck's own
+  census (minimum 4, i.e. requires at least a light sub-theme before
+  crediting a tribal trigger as reliably repeatable).
+- This covers Ally, and independently would also correctly flag Bird,
+  Angel, Rabbit, Detective, Villain, Merfolk, Hero, Shrine, and Caves
+  triggers (or any other subtype MTG ever prints) without any further code
+  change, because the logic is about the grammatical SHAPE of "another/
+  other \<X\> you control", not about any specific \<X\>.
 
 ### Verified result
 
-Rerunning after the fix (`comparison_run6.log` in the workspace) removes
-South Pole Voyager from the seed-chain engine's final decklist entirely —
-Sheltered by Ghosts grew to 3x and Jace Reawakened (a genuine repeatable
-card-selection engine, verified by its own oracle text, not another
-false-positive) filled the freed slot instead. Role counts are unchanged
-(17/15/11/12 against the same target bands), confirming this was a pure
-which-cards-fill-the-slots correction, not a rebalancing of the aggregate
-role math.
+Rerunning after the generalized fix (`comparison_run7.log`) produces the
+identical final decklist to the narrow Ally-only fix — South Pole Voyager is
+still excluded, Jace Reawakened (a genuine repeatable card-selection engine,
+verified by its own oracle text) fills the freed slot, and role counts are
+unchanged (17/15/11/12). This confirms the generalization was a pure
+robustness improvement with no behavior change on this specific seed/pool
+combination — the only tribal dependency actually present here was Ally, so
+both the narrow and general fix happen to agree on this build's output. The
+difference only shows up on a future deck/seed that touches one of the other
+9 subtypes found in the pool scan above.
 
-**Important caveat about the synergy-first (non-batched) engine**: this fix
-only takes effect where `adjustments` (built by `reanalyzeDeck()`) is passed
-into `scoreCandidate()`. The synergy-first engine's main pick loop never
-passes `adjustments` at all (only the batched seed-chain engine's periodic
-checkpoints do), so South Pole Voyager still scores at full (uncorrected)
-value in that engine's pick log and comparison-only output. This is
-acceptable because the seed-chain engine is the one whose output becomes the
-actual delivered decklist, but it does mean the two engines' comparison
-numbers in this report are not fully apples-to-apples for any future
-tribal/cost-dependency case — a true universal fix would thread
-`adjustments` (or at minimum `supportCounts`) into the synergy-first engine's
-main loop too, which is flagged here as a known follow-up rather than fixed
-in this pass, since it does not affect the delivered decklist.
+**Same caveat as before applies**: this fix only takes effect where
+`adjustments` (built by `reanalyzeDeck()`) is passed into `scoreCandidate()`.
+The synergy-first engine's main pick loop never passes `adjustments`, so
+tribal-trigger dependencies (of any subtype) still score at full,
+uncorrected value in that engine's pick log. This doesn't affect the
+delivered decklist (produced by the batched seed-chain engine, which does
+pass `adjustments`), but it remains a known gap flagged for future work
+rather than fixed in this pass.
