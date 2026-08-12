@@ -641,6 +641,66 @@ export function inferResourceSpec(seedPayoffCards: CardRecord[]): ResourceSpec |
   };
 }
 
+// ── Seed anthem / tribal-lord synergy ───────────────────────────────────
+
+/**
+ * A seed card may grant a stat buff and/or keyword(s) to another creature
+ * subtype it names directly (an "anthem" or tribal-lord effect), e.g.
+ * "Other Angels you control get +1/+1 and have lifelink." This is the
+ * reward-side counterpart to TRIBAL_TRIGGER_PATTERN below (which penalizes
+ * a trigger that NEEDS a scarce subtype); this instead rewards candidates
+ * that MATCH a subtype the seed already promises to reinforce. The subtype
+ * name and any granted keywords are captured from the seed card's own text
+ * at inference time — no tribe name is ever enumerated in code.
+ */
+export interface SeedAnthemSpec {
+  /** The exact subtype word captured from seed text, e.g. "Angel". */
+  subtype: string;
+  /** Keywords the anthem grants to matching creatures, if any (e.g. ["Lifelink"]). */
+  grantedKeywords: string[];
+}
+
+const ANTHEM_PATTERN = /[Oo]ther ([A-Z][a-z]+)s you control get \+\d+\/\+\d+(?:ies)?/;
+const ANTHEM_KEYWORD_GRANT_PATTERN = /[Oo]ther [A-Z][a-z]+s you control get \+\d+\/\+\d+ and have ([a-z, ]+?)(?:\.|$)/i;
+const KNOWN_KEYWORD_NAMES = Object.keys(KEYWORD_RESOURCE_OUTPUTS);
+
+/**
+ * Infer whether any seed card grants an anthem/tribal-lord bonus to a named
+ * creature subtype. Conservative text heuristic, mirroring inferResourceSpec:
+ * only matches the common "Other <Subtype>s you control get +X/+Y [and have
+ * <keywords>]" template. Returns null when no seed card matches — callers
+ * must treat null as "no tribal synergy to reward," never invent one.
+ */
+export function inferSeedAnthemSynergy(seedCards: CardRecord[]): SeedAnthemSpec | null {
+  for (const card of seedCards) {
+    const text = card.oracleText ?? "";
+    const match = text.match(ANTHEM_PATTERN);
+    if (!match) continue;
+    const subtype = match[1];
+
+    const grantedKeywords: string[] = [];
+    const keywordMatch = text.match(ANTHEM_KEYWORD_GRANT_PATTERN);
+    if (keywordMatch) {
+      const rawNames = keywordMatch[1].split(/,|\band\b/i).map((s) => s.trim()).filter(Boolean);
+      for (const raw of rawNames) {
+        const found = KNOWN_KEYWORD_NAMES.find((k) => k.toLowerCase() === raw.toLowerCase());
+        if (found) grantedKeywords.push(found);
+      }
+    }
+
+    return { subtype, grantedKeywords };
+  }
+  return null;
+}
+
+/** Does this candidate's type line carry the anthem's target subtype? */
+function matchesAnthemSubtype(card: CardRecord, anthem: SeedAnthemSpec): boolean {
+  if (!card.typeLine.includes("Creature")) return false;
+  const afterDash = card.typeLine.split(/—|--/)[1];
+  if (!afterDash) return false;
+  return afterDash.trim().split(/\s+/).includes(anthem.subtype);
+}
+
 // Activation-cost dependencies: a card whose ability needs OTHER resources is
 // only worth its text if the deck can actually pay the cost. A draw ability
 // that requires sacrificing another artifact is ineffective in a deck with
@@ -706,6 +766,7 @@ export function scoreCandidate(
   resourceSpec: ResourceSpec | null,
   roleTargets: SeedRoleTargets = SEED_ROLE_TARGETS,
   adjustments?: DeckAdjustments,
+  anthemSpec: SeedAnthemSpec | null = null,
 ): SeedScoreBreakdown {
   const roles = classifySeedRoles(card, seedPackage, resourceSpec);
   if (roles.length === 0) {
@@ -752,7 +813,22 @@ export function scoreCandidate(
     : null;
   const cadenceBonus = cadence ? CADENCE_BONUS[cadence] : 0;
 
-  const final = (basePowerScore * gapMultiplier - satPenalty + timing + prevention + curveBonus + cadenceBonus) * colorMult * dependency.mult;
+  // Anthem synergy bonus — only for candidates that already earned a role on
+  // their own merits (never a substitute for role eligibility). A creature
+  // matching the seed's named anthem subtype gets a flat bonus, doubled when
+  // the granted keyword also reinforces the inferred payoff resource (e.g.
+  // an anthem granting Lifelink to Angels, feeding a life-resource payoff).
+  let anthemBonus = 0;
+  let anthemNote: string | null = null;
+  if (anthemSpec && matchesAnthemSubtype(card, anthemSpec)) {
+    const reinforcesResource = resourceSpec !== null && anthemSpec.grantedKeywords.some(
+      (kw) => KEYWORD_RESOURCE_OUTPUTS[kw] === resourceSpec.name
+    );
+    anthemBonus = reinforcesResource ? 16 : 8;
+    anthemNote = `${anthemSpec.subtype} anthem synergy +${anthemBonus}${reinforcesResource ? ` (reinforces ${resourceSpec!.name})` : ""}`;
+  }
+
+  const final = (basePowerScore * gapMultiplier - satPenalty + timing + prevention + curveBonus + cadenceBonus + anthemBonus) * colorMult * dependency.mult;
 
   const target = roleTargets;
   const [lo] = bestGapRole === "Enabler" ? target.enablers
@@ -778,7 +854,7 @@ export function scoreCandidate(
     curveTimingBonus: timing,
     preventionBonus: prevention,
     final,
-    note: `Selected because it fills ${bestGapRole}, current gap is ${gap}, and it improves ${[...new Set(advances)].join(" / ") || "role coverage"}.${cadence && resourceSpec ? ` [${resourceSpec.name} cadence: ${cadence} +${cadenceBonus}]` : ""}${dependency.note ? ` [${dependency.note}]` : ""}` +
+    note: `Selected because it fills ${bestGapRole}, current gap is ${gap}, and it improves ${[...new Set(advances)].join(" / ") || "role coverage"}.${cadence && resourceSpec ? ` [${resourceSpec.name} cadence: ${cadence} +${cadenceBonus}]` : ""}${dependency.note ? ` [${dependency.note}]` : ""}${anthemNote ? ` [${anthemNote}]` : ""}` +
       (colorMult !== 1.0 ? ` [color-balance x${colorMult.toFixed(2)}]` : "") +
       (curveBonus > 0 ? ` [cheap-curve +${curveBonus}]` : ""),
   };

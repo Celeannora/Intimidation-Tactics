@@ -48,10 +48,12 @@ import {
   reanalyzeDeck,
   neutralAdjustments,
   inferResourceSpec,
+  inferSeedAnthemSynergy,
   SEED_ROLE_TARGETS,
   type DeckAdjustments,
   type DeckRoleCounts,
   type ResourceSpec,
+  type SeedAnthemSpec,
   type SeedRole,
   type SeedPackage,
 } from "../src/lib/generator/seedSynergy";
@@ -64,11 +66,12 @@ const POOL_DIR = join(__dirname, "..", "..", "pool_data");
 // seed without changing the generic scoring engine.
 const SEED_PACKAGE: SeedPackage = [
   { name: "Hope Estheim", quantity: 4 },
-  { name: "Authority of the Consuls", quantity: 4 },
   { name: "Space-Time Anomaly", quantity: 4 },
+  { name: "Lyra Dawnbringer", quantity: 4 },
 ];
 const SEED_QUANTITIES = new Map(SEED_PACKAGE.map((card) => [card.name, card.quantity]));
 let activeResourceSpec: ResourceSpec | null = null;
+let activeAnthemSpec: SeedAnthemSpec | null = null;
 
 // All engine calls receive the script's explicit seed configuration. The
 // inferred spec remains null only when a payoff does not expose a clear
@@ -99,6 +102,7 @@ function scoreWithSeed(
     activeResourceSpec,
     SEED_ROLE_TARGETS,
     adjustments,
+    activeAnthemSpec,
   );
 }
 
@@ -920,6 +924,11 @@ function main() {
     console.log(`[comparison] Inferred payoff resource: ${activeResourceSpec.name}.`);
   }
 
+  activeAnthemSpec = inferSeedAnthemSynergy(seedCards);
+  if (activeAnthemSpec) {
+    console.log(`[comparison] Inferred seed anthem synergy: other ${activeAnthemSpec.subtype}s you control get a bonus${activeAnthemSpec.grantedKeywords.length ? ` (grants ${activeAnthemSpec.grantedKeywords.join(", ")})` : ""}.`);
+  }
+
   const existing = buildWithExistingEngine(pool, seedCards);
   const synergyFirst = buildWithSynergyFirstEngine(pool, seedCards);
   const seedChain = buildWithBatchedSeedChain(pool, seedCards);
@@ -939,8 +948,9 @@ function main() {
   const feasibilityExisting = feasibility(existingCounts, { w: 14, u: 12 });
   const feasibilitySynergy = feasibility(synergyFirst.counts, { w: 14, u: 12 });
 
+  const seedTitleLabel = SEED_PACKAGE.map((c) => c.name).join(" / ");
   const report: string[] = [];
-  report.push("# Hope Estheim / Space-Time Anomaly — Composite vs. Synergy-First Scoring Comparison");
+  report.push(`# ${seedTitleLabel} — Composite vs. Synergy-First Scoring Comparison`);
   report.push("");
   report.push(`Pool size after Standard-legal + seed-role filtering: ${pool.length} cards (raw Scryfall data, ${new Date().toISOString().slice(0, 10)}).`);
   report.push("");
@@ -988,7 +998,8 @@ function main() {
   report.push("");
   report.push("## Final 60-card decklist — batched seed-chain engine + real Azorius mana base");
   report.push("");
-  report.push("Seed package (locked): 4x Hope Estheim, 4x Authority of the Consuls, 4x Space-Time Anomaly.");
+  const seedPackageLabel = SEED_PACKAGE.map((c) => `${c.quantity}x ${c.name}`).join(", ");
+  report.push(`Seed package (locked): ${seedPackageLabel}.`);
   report.push("");
   report.push("### Nonland (36)");
   const nonlandSorted = [...manaBase.entries]
@@ -1021,7 +1032,7 @@ function main() {
 
   // Also emit a clean standalone decklist file for sharing.
   const deckLines: string[] = [];
-  deckLines.push("# Hope Estheim / Space-Time Anomaly — Batched Seed-Chain 60-Card Decklist");
+  deckLines.push(`# ${seedTitleLabel} — Batched Seed-Chain 60-Card Decklist`);
   deckLines.push("");
   deckLines.push(`Enabler ${seedChain.counts.enablers} | Protection ${seedChain.counts.protection} | Consistency ${seedChain.counts.consistency} | Payoff ${seedChain.counts.payoffs} | Lands ${landTotal}`);
   deckLines.push("");

@@ -22,8 +22,8 @@ const POOL_DIR = "/home/user/workspace/pool_data";
 // different seed build; the generic engine never owns card-specific data.
 const SEED_PACKAGE: SeedPackage = [
   { name: "Hope Estheim", quantity: 4 },
-  { name: "Authority of the Consuls", quantity: 4 },
   { name: "Space-Time Anomaly", quantity: 4 },
+  { name: "Lyra Dawnbringer", quantity: 4 },
 ];
 
 interface ScryfallCard {
@@ -54,24 +54,23 @@ const PRINTING_OVERRIDE: Record<string, { set: string; number: string }> = {
 
 const DECKLIST: { qty: number; name: string }[] = [
   ...SEED_PACKAGE.map(({ quantity, name }) => ({ qty: quantity, name })),
-  { qty: 2, name: "Excalibur II" },
-  { qty: 2, name: "Stiltzkin, Moogle Merchant" },
   { qty: 2, name: "Agatha's Soul Cauldron" },
-  { qty: 1, name: "Jace Reawakened" },
   { qty: 2, name: "Kitsa, Otterball Elite" },
-  { qty: 3, name: "Sheltered by Ghosts" },
-  { qty: 2, name: "Super-Adaptoid" },
+  { qty: 1, name: "Sheltered by Ghosts" },
+  { qty: 2, name: "The Ooze" },
+  { qty: 4, name: "Resplendent Angel" },
   { qty: 2, name: "Venat, Heart of Hydaelyn // Hydaelyn, the Mothercrystal" },
-  { qty: 2, name: "Morningtide's Light" },
+  { qty: 4, name: "Angel of Finality" },
+  { qty: 4, name: "Exemplar of Light" },
+  { qty: 1, name: "Morningtide's Light" },
   { qty: 2, name: "Niko, Light of Hope" },
-  { qty: 4, name: "Season of the Burrow" },
 ];
 
 const LANDS: { qty: number; name: string }[] = [
   { qty: 3, name: "Floodfarm Verge" },
   { qty: 3, name: "Gleaming Bastion" },
-  { qty: 5, name: "Island" },
-  { qty: 11, name: "Plains" },
+  { qty: 4, name: "Island" },
+  { qty: 12, name: "Plains" },
   { qty: 2, name: "Temple of Enlightenment" },
 ];
 
