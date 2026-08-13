@@ -7,7 +7,6 @@
   "cards": [
     { "name": "Cut Down", "playRate": 0.42, "copiesAvg": 2.8, "topDeckPresence": 0.46 },
     { "name": "Go for the Throat", "playRate": 0.38, "copiesAvg": 2.9, "topDeckPresence": 0.44 },
-    { "name": "Sheoldred, the Apocalypse", "playRate": 0.31, "copiesAvg": 2.6, "topDeckPresence": 0.40 },
     { "name": "Slickshot Show-Off", "playRate": 0.27, "copiesAvg": 3.6, "topDeckPresence": 0.33 },
     { "name": "Heartfire Hero", "playRate": 0.22, "copiesAvg": 3.8, "topDeckPresence": 0.28 },
     { "name": "Monstrous Rage", "playRate": 0.24, "copiesAvg": 3.4, "topDeckPresence": 0.30 },

@@ -155,6 +155,7 @@ export function resolveCompetitiveStrength(
   colors: ManaColor[],
   dataset: LiveWinRateDataset | null | undefined,
   format: ConstructedFormat | undefined,
+  cardNames?: string[],
 ): CompetitiveStrength {
   if (!dataset) {
     return {
@@ -163,7 +164,7 @@ export function resolveCompetitiveStrength(
     };
   }
 
-  const match = matchArchetype({ archetype, colors }, dataset);
+  const match = matchArchetype({ archetype, colors, cardNames }, dataset);
   if (!match.matched || !match.candidate) {
     return {
       matched: false,
@@ -216,6 +217,7 @@ export function computeMythicViability(
     colors,
     context.liveWinRate,
     context.format,
+    entries.map((entry) => entry.card.name),
   );
   return { structural, competitive };
 }

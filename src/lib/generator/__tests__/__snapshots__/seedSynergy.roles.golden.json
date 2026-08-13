@@ -11,7 +11,9 @@
   },
   {
     "name": "Aclazotz, Deepest Betrayal // Temple of the Dead",
-    "roles": []
+    "roles": [
+      "Enabler"
+    ]
   },
   {
     "name": "Aetherize",
@@ -20,6 +22,7 @@
   {
     "name": "Aftermath Analyst",
     "roles": [
+      "Enabler",
       "Consistency"
     ]
   },
@@ -31,7 +34,9 @@
   },
   {
     "name": "Ajani, Caller of the Pride",
-    "roles": []
+    "roles": [
+      "Enabler"
+    ]
   },
   {
     "name": "Alesha, Who Laughs at Fate",
@@ -41,11 +46,15 @@
   },
   {
     "name": "An Offer You Can't Refuse",
-    "roles": []
+    "roles": [
+      "Enabler"
+    ]
   },
   {
     "name": "Anim Pakal, Thousandth Moon",
-    "roles": []
+    "roles": [
+      "Enabler"
+    ]
   },
   {
     "name": "Annie Joins Up",
@@ -63,11 +72,16 @@
   },
   {
     "name": "Appa, Steadfast Guardian",
-    "roles": []
+    "roles": [
+      "Payoff",
+      "Enabler"
+    ]
   },
   {
     "name": "Arabella, Abandoned Doll",
-    "roles": []
+    "roles": [
+      "Enabler"
+    ]
   },
   {
     "name": "Archangel of Tithes",
@@ -85,6 +99,7 @@
   {
     "name": "Archmage of Runes",
     "roles": [
+      "Payoff",
       "Consistency"
     ]
   },
@@ -97,6 +112,7 @@
   {
     "name": "Artist's Talent",
     "roles": [
+      "Enabler",
       "Consistency"
     ]
   },
@@ -108,11 +124,14 @@
   },
   {
     "name": "Aunt May",
-    "roles": []
+    "roles": [
+      "Enabler"
+    ]
   },
   {
     "name": "Aurelia, the Law Above",
     "roles": [
+      "Enabler",
       "Consistency"
     ]
   },
@@ -134,11 +153,15 @@
   },
   {
     "name": "Badgermole Cub",
-    "roles": []
+    "roles": [
+      "Enabler"
+    ]
   },
   {
     "name": "Balmor, Battlemage Captain",
-    "roles": []
+    "roles": [
+      "Payoff"
+    ]
   },
   {
     "name": "Banishing Light",
@@ -148,7 +171,9 @@
   },
   {
     "name": "Banner of Kinship",
-    "roles": []
+    "roles": [
+      "Payoff"
+    ]
   },
   {
     "name": "Bartolomé del Presidio",
@@ -156,17 +181,22 @@
   },
   {
     "name": "Basilisk Collar",
-    "roles": []
+    "roles": [
+      "Enabler"
+    ]
   },
   {
     "name": "Baylen, the Haymaker",
     "roles": [
+      "Enabler",
       "Consistency"
     ]
   },
   {
     "name": "Bender's Waterskin",
-    "roles": []
+    "roles": [
+      "Enabler"
+    ]
   },
   {
     "name": "Beseech the Mirror",
@@ -204,19 +234,26 @@
   },
   {
     "name": "Bloodthirsty Conqueror",
-    "roles": []
+    "roles": [
+      "Enabler"
+    ]
   },
   {
     "name": "Bloom Tender",
-    "roles": []
+    "roles": [
+      "Enabler"
+    ]
   },
   {
     "name": "Bloomvine Regent // Claim Territory",
-    "roles": []
+    "roles": [
+      "Enabler"
+    ]
   },
   {
     "name": "Blossoming Tortoise",
     "roles": [
+      "Enabler",
       "Consistency"
     ]
   },
@@ -230,7 +267,9 @@
   },
   {
     "name": "Bonehoard Dracosaur",
-    "roles": []
+    "roles": [
+      "Enabler"
+    ]
   },
   {
     "name": "Boros Charm",
@@ -238,11 +277,15 @@
   },
   {
     "name": "Bramble Familiar // Fetch Quest",
-    "roles": []
+    "roles": [
+      "Enabler"
+    ]
   },
   {
     "name": "Brass's Bounty",
-    "roles": []
+    "roles": [
+      "Enabler"
+    ]
   },
   {
     "name": "Brass's Tunnel-Grinder // Tecutlan, the Searing Rift",
@@ -254,7 +297,9 @@
   },
   {
     "name": "Bria, Riptide Rogue",
-    "roles": []
+    "roles": [
+      "Payoff"
+    ]
   },
   {
     "name": "Bristly Bill, Spine Sower",
@@ -267,6 +312,7 @@
   {
     "name": "Bushwhack",
     "roles": [
+      "Enabler",
       "Consistency"
     ]
   },
@@ -278,7 +324,10 @@
   },
   {
     "name": "Camellia, the Seedmiser",
-    "roles": []
+    "roles": [
+      "Payoff",
+      "Enabler"
+    ]
   },
   {
     "name": "Cancel",
@@ -289,12 +338,16 @@
   {
     "name": "Caretaker's Talent",
     "roles": [
+      "Payoff",
+      "Enabler",
       "Consistency"
     ]
   },
   {
     "name": "Carnelian Orb of Dragonkind",
-    "roles": []
+    "roles": [
+      "Enabler"
+    ]
   },
   {
     "name": "Cathar Commando",
@@ -312,17 +365,22 @@
   },
   {
     "name": "Chandra, Flameshaper",
-    "roles": []
+    "roles": [
+      "Enabler"
+    ]
   },
   {
     "name": "Chandra, Spark Hunter",
     "roles": [
+      "Payoff",
+      "Enabler",
       "Consistency"
     ]
   },
   {
     "name": "Charming Prince",
     "roles": [
+      "Enabler",
       "Consistency"
     ]
   },
@@ -347,6 +405,7 @@
   {
     "name": "Collector's Vault",
     "roles": [
+      "Enabler",
       "Consistency"
     ]
   },
@@ -366,7 +425,10 @@
   },
   {
     "name": "Coruscation Mage",
-    "roles": []
+    "roles": [
+      "Payoff",
+      "Enabler"
+    ]
   },
   {
     "name": "Craterhoof Behemoth",
@@ -375,12 +437,16 @@
   {
     "name": "Crib Swap",
     "roles": [
+      "Enabler",
       "Protection"
     ]
   },
   {
     "name": "Crime Novelist",
-    "roles": []
+    "roles": [
+      "Payoff",
+      "Enabler"
+    ]
   },
   {
     "name": "Crystal Fragments // Summon: Alexander",
@@ -422,7 +488,9 @@
   },
   {
     "name": "Decadent Dragon // Expensive Taste",
-    "roles": []
+    "roles": [
+      "Enabler"
+    ]
   },
   {
     "name": "Delney, Streetwise Lookout",
@@ -440,7 +508,9 @@
   },
   {
     "name": "Diamond Pick-Axe",
-    "roles": []
+    "roles": [
+      "Enabler"
+    ]
   },
   {
     "name": "Disdainful Stroke",
@@ -460,11 +530,15 @@
   },
   {
     "name": "Dollmaker's Shop // Porcelain Gallery",
-    "roles": []
+    "roles": [
+      "Enabler"
+    ]
   },
   {
     "name": "Doubling Season",
-    "roles": []
+    "roles": [
+      "Enabler"
+    ]
   },
   {
     "name": "Dour Port-Mage",
@@ -482,7 +556,9 @@
   },
   {
     "name": "Dragonmaster Outcast",
-    "roles": []
+    "roles": [
+      "Enabler"
+    ]
   },
   {
     "name": "Drakuseth, Maw of Flames",
@@ -494,7 +570,9 @@
   },
   {
     "name": "Dwynen, Gilt-Leaf Daen",
-    "roles": []
+    "roles": [
+      "Enabler"
+    ]
   },
   {
     "name": "Eddie Brock // Venom, Lethal Protector",
@@ -504,21 +582,29 @@
   },
   {
     "name": "Electro, Assaulting Battery",
-    "roles": []
+    "roles": [
+      "Payoff",
+      "Enabler"
+    ]
   },
   {
     "name": "Elspeth, Storm Slayer",
     "roles": [
+      "Enabler",
       "Protection"
     ]
   },
   {
     "name": "Elusive Otter // Grove's Bounty",
-    "roles": []
+    "roles": [
+      "Payoff"
+    ]
   },
   {
     "name": "Elvish Archdruid",
-    "roles": []
+    "roles": [
+      "Enabler"
+    ]
   },
   {
     "name": "Empyrean Eagle",
@@ -537,6 +623,7 @@
   {
     "name": "Enduring Innocence",
     "roles": [
+      "Enabler",
       "Consistency"
     ]
   },
@@ -546,7 +633,9 @@
   },
   {
     "name": "Enduring Vitality",
-    "roles": []
+    "roles": [
+      "Enabler"
+    ]
   },
   {
     "name": "Enter the Enigma",
@@ -590,7 +679,9 @@
   },
   {
     "name": "Exalted Sunborn",
-    "roles": []
+    "roles": [
+      "Enabler"
+    ]
   },
   {
     "name": "Exemplar of Light",
@@ -601,12 +692,15 @@
   {
     "name": "Expedition Map",
     "roles": [
+      "Enabler",
       "Consistency"
     ]
   },
   {
     "name": "Exsanguinate",
-    "roles": []
+    "roles": [
+      "Enabler"
+    ]
   },
   {
     "name": "Fabled Passage",
@@ -616,7 +710,9 @@
   },
   {
     "name": "Fake Your Own Death",
-    "roles": []
+    "roles": [
+      "Enabler"
+    ]
   },
   {
     "name": "Fanatical Firebrand",
@@ -630,7 +726,10 @@
   },
   {
     "name": "Felidar Retreat",
-    "roles": []
+    "roles": [
+      "Payoff",
+      "Enabler"
+    ]
   },
   {
     "name": "Final Showdown",
@@ -653,6 +752,7 @@
   {
     "name": "Forensic Gadgeteer",
     "roles": [
+      "Enabler",
       "Consistency"
     ]
   },
@@ -672,7 +772,9 @@
   },
   {
     "name": "Freya Crescent",
-    "roles": []
+    "roles": [
+      "Enabler"
+    ]
   },
   {
     "name": "Frontier Bivouac",
@@ -681,12 +783,15 @@
   {
     "name": "Fumigate",
     "roles": [
+      "Enabler",
       "Protection"
     ]
   },
   {
     "name": "Funeral Room // Awakening Hall",
     "roles": [
+      "Payoff",
+      "Enabler",
       "Consistency"
     ]
   },
@@ -698,11 +803,14 @@
   },
   {
     "name": "Generous Plunderer",
-    "roles": []
+    "roles": [
+      "Enabler"
+    ]
   },
   {
     "name": "Get Lost",
     "roles": [
+      "Enabler",
       "Protection"
     ]
   },
@@ -716,11 +824,15 @@
   },
   {
     "name": "Giada, Font of Hope",
-    "roles": []
+    "roles": [
+      "Enabler"
+    ]
   },
   {
     "name": "Gilded Lotus",
-    "roles": []
+    "roles": [
+      "Enabler"
+    ]
   },
   {
     "name": "Gishath, Sun's Avatar",
@@ -736,15 +848,21 @@
   },
   {
     "name": "Goldvein Hydra",
-    "roles": []
+    "roles": [
+      "Enabler"
+    ]
   },
   {
     "name": "Goldvein Pick",
-    "roles": []
+    "roles": [
+      "Enabler"
+    ]
   },
   {
     "name": "Gonti, Night Minister",
-    "roles": []
+    "roles": [
+      "Enabler"
+    ]
   },
   {
     "name": "Grab the Prize",
@@ -756,11 +874,14 @@
   },
   {
     "name": "Great Train Heist",
-    "roles": []
+    "roles": [
+      "Enabler"
+    ]
   },
   {
     "name": "Greedy Freebooter",
     "roles": [
+      "Enabler",
       "Consistency"
     ]
   },
@@ -772,7 +893,9 @@
   },
   {
     "name": "Guttersnipe",
-    "roles": []
+    "roles": [
+      "Payoff"
+    ]
   },
   {
     "name": "Gwen Stacy // Ghost-Spider",
@@ -794,7 +917,9 @@
   },
   {
     "name": "Healer's Hawk",
-    "roles": []
+    "roles": [
+      "Enabler"
+    ]
   },
   {
     "name": "Hedge Maze",
@@ -804,19 +929,26 @@
   },
   {
     "name": "Hedge Shredder",
-    "roles": []
+    "roles": [
+      "Enabler"
+    ]
   },
   {
     "name": "Hedron Archive",
-    "roles": []
+    "roles": [
+      "Enabler"
+    ]
   },
   {
     "name": "Heraldic Banner",
-    "roles": []
+    "roles": [
+      "Enabler"
+    ]
   },
   {
     "name": "Herd Heirloom",
     "roles": [
+      "Enabler",
       "Consistency"
     ]
   },
@@ -828,7 +960,9 @@
   },
   {
     "name": "Hexing Squelcher",
-    "roles": []
+    "roles": [
+      "Enabler"
+    ]
   },
   {
     "name": "High Fae Trickster",
@@ -836,11 +970,15 @@
   },
   {
     "name": "Hinterland Sanctifier",
-    "roles": []
+    "roles": [
+      "Enabler"
+    ]
   },
   {
     "name": "Homunculus Horde",
-    "roles": []
+    "roles": [
+      "Enabler"
+    ]
   },
   {
     "name": "Honest Rutstein",
@@ -849,12 +987,20 @@
     ]
   },
   {
-    "name": "Hulking Raptor",
+    "name": "Hope Estheim",
     "roles": []
   },
   {
+    "name": "Hulking Raptor",
+    "roles": [
+      "Enabler"
+    ]
+  },
+  {
     "name": "Icetill Explorer",
-    "roles": []
+    "roles": [
+      "Enabler"
+    ]
   },
   {
     "name": "Impact Tremors",
@@ -862,11 +1008,15 @@
   },
   {
     "name": "Imprisoned in the Moon",
-    "roles": []
+    "roles": [
+      "Enabler"
+    ]
   },
   {
     "name": "Infestation Sage",
-    "roles": []
+    "roles": [
+      "Enabler"
+    ]
   },
   {
     "name": "Ingenious Prodigy",
@@ -898,12 +1048,14 @@
   {
     "name": "Inspiring Call",
     "roles": [
+      "Payoff",
       "Consistency"
     ]
   },
   {
     "name": "Inspiring Overseer",
     "roles": [
+      "Enabler",
       "Consistency"
     ]
   },
@@ -914,12 +1066,16 @@
   {
     "name": "Into the Flood Maw",
     "roles": [
+      "Enabler",
       "Protection"
     ]
   },
   {
     "name": "Iridescent Vinelasher",
-    "roles": []
+    "roles": [
+      "Payoff",
+      "Enabler"
+    ]
   },
   {
     "name": "Ishgard, the Holy See // Faith & Grief",
@@ -940,6 +1096,7 @@
   {
     "name": "Jace Reawakened",
     "roles": [
+      "Enabler",
       "Consistency"
     ]
   },
@@ -954,22 +1111,28 @@
   {
     "name": "Kaito, Bane of Nightmares",
     "roles": [
+      "Enabler",
       "Consistency"
     ]
   },
   {
     "name": "Kaito, Cunning Infiltrator",
     "roles": [
+      "Enabler",
       "Consistency"
     ]
   },
   {
     "name": "Kambal, Profiteering Mayor",
-    "roles": []
+    "roles": [
+      "Payoff",
+      "Enabler"
+    ]
   },
   {
     "name": "Kefka, Court Mage // Kefka, Ruler of Ruin",
     "roles": [
+      "Enabler",
       "Consistency"
     ]
   },
@@ -981,7 +1144,9 @@
   },
   {
     "name": "Koma, World-Eater",
-    "roles": []
+    "roles": [
+      "Enabler"
+    ]
   },
   {
     "name": "Kona, Rescue Beastie",
@@ -989,7 +1154,9 @@
   },
   {
     "name": "Krenko, Mob Boss",
-    "roles": []
+    "roles": [
+      "Enabler"
+    ]
   },
   {
     "name": "Kutzil, Malamet Exemplar",
@@ -1003,11 +1170,16 @@
   },
   {
     "name": "Lathliss, Dragon Queen",
-    "roles": []
+    "roles": [
+      "Payoff",
+      "Enabler"
+    ]
   },
   {
     "name": "Lathril, Blade of the Elves",
-    "roles": []
+    "roles": [
+      "Enabler"
+    ]
   },
   {
     "name": "Lightning Strike",
@@ -1015,17 +1187,22 @@
   },
   {
     "name": "Lightning, Army of One",
-    "roles": []
+    "roles": [
+      "Enabler"
+    ]
   },
   {
     "name": "Likeness Looter",
     "roles": [
+      "Enabler",
       "Consistency"
     ]
   },
   {
     "name": "Liliana, Dreadhorde General",
     "roles": [
+      "Payoff",
+      "Enabler",
       "Consistency"
     ]
   },
@@ -1035,7 +1212,9 @@
   },
   {
     "name": "Llanowar Elves",
-    "roles": []
+    "roles": [
+      "Enabler"
+    ]
   },
   {
     "name": "Long River's Pull",
@@ -1053,13 +1232,14 @@
   {
     "name": "Lumra, Bellow of the Woods",
     "roles": [
+      "Enabler",
       "Consistency"
     ]
   },
   {
     "name": "Lyra Dawnbringer",
     "roles": [
-      "Payoff"
+      "Enabler"
     ]
   },
   {
@@ -1069,6 +1249,7 @@
   {
     "name": "Malcolm, Alluring Scoundrel",
     "roles": [
+      "Enabler",
       "Consistency"
     ]
   },
@@ -1083,6 +1264,7 @@
   {
     "name": "Marauding Mako",
     "roles": [
+      "Enabler",
       "Consistency"
     ]
   },
@@ -1099,6 +1281,7 @@
   {
     "name": "Massacre Wurm",
     "roles": [
+      "Enabler",
       "Protection"
     ]
   },
@@ -1140,7 +1323,9 @@
   },
   {
     "name": "Mirror Room // Fractured Realm",
-    "roles": []
+    "roles": [
+      "Enabler"
+    ]
   },
   {
     "name": "Mistrise Village",
@@ -1153,6 +1338,7 @@
   {
     "name": "Monument to Endurance",
     "roles": [
+      "Enabler",
       "Consistency"
     ]
   },
@@ -1204,7 +1390,9 @@
   },
   {
     "name": "Night of the Sweets' Revenge",
-    "roles": []
+    "roles": [
+      "Enabler"
+    ]
   },
   {
     "name": "Niv-Mizzet, Visionary",
@@ -1217,12 +1405,15 @@
   {
     "name": "Norman Osborn // Green Goblin",
     "roles": [
+      "Enabler",
       "Consistency"
     ]
   },
   {
     "name": "Not Dead After All",
-    "roles": []
+    "roles": [
+      "Enabler"
+    ]
   },
   {
     "name": "Ojer Axonil, Deepest Might // Temple of Power",
@@ -1271,6 +1462,7 @@
   {
     "name": "Overlord of the Balemurk",
     "roles": [
+      "Enabler",
       "Consistency"
     ]
   },
@@ -1281,16 +1473,21 @@
   {
     "name": "Parting Gust",
     "roles": [
+      "Enabler",
       "Protection"
     ]
   },
   {
     "name": "Patchwork Banner",
-    "roles": []
+    "roles": [
+      "Enabler"
+    ]
   },
   {
     "name": "Peter Parker // Amazing Spider-Man",
-    "roles": []
+    "roles": [
+      "Enabler"
+    ]
   },
   {
     "name": "Phyrexian Arena",
@@ -1309,13 +1506,16 @@
   {
     "name": "Professor Dellian Fel",
     "roles": [
+      "Enabler",
       "Protection",
       "Consistency"
     ]
   },
   {
     "name": "Quintorius Kand",
-    "roles": []
+    "roles": [
+      "Enabler"
+    ]
   },
   {
     "name": "Rakdos, Patron of Chaos",
@@ -1323,15 +1523,23 @@
   },
   {
     "name": "Ral, Crackling Wit",
-    "roles": []
+    "roles": [
+      "Payoff",
+      "Enabler"
+    ]
   },
   {
     "name": "Ramos, Dragon Engine",
-    "roles": []
+    "roles": [
+      "Enabler"
+    ]
   },
   {
     "name": "Rampaging Baloths",
-    "roles": []
+    "roles": [
+      "Payoff",
+      "Enabler"
+    ]
   },
   {
     "name": "Raucous Theater",
@@ -1354,6 +1562,7 @@
   {
     "name": "Reckless Lackey",
     "roles": [
+      "Enabler",
       "Consistency"
     ]
   },
@@ -1382,7 +1591,9 @@
   },
   {
     "name": "Restoration Magic",
-    "roles": []
+    "roles": [
+      "Enabler"
+    ]
   },
   {
     "name": "Return the Favor",
@@ -1394,7 +1605,9 @@
   },
   {
     "name": "Rite of Replication",
-    "roles": []
+    "roles": [
+      "Enabler"
+    ]
   },
   {
     "name": "Roaming Throne",
@@ -1406,7 +1619,9 @@
   },
   {
     "name": "Ruby, Daring Tracker",
-    "roles": []
+    "roles": [
+      "Enabler"
+    ]
   },
   {
     "name": "Rune-Scarred Demon",
@@ -1425,12 +1640,15 @@
   {
     "name": "Satoru, the Infiltrator",
     "roles": [
+      "Payoff",
       "Consistency"
     ]
   },
   {
     "name": "Savage Ventmaw",
-    "roles": []
+    "roles": [
+      "Enabler"
+    ]
   },
   {
     "name": "Sazh's Chocobo",
@@ -1439,6 +1657,7 @@
   {
     "name": "Scavenging Ooze",
     "roles": [
+      "Enabler",
       "Protection"
     ]
   },
@@ -1460,11 +1679,14 @@
   },
   {
     "name": "Seize the Spoils",
-    "roles": []
+    "roles": [
+      "Enabler"
+    ]
   },
   {
     "name": "Sephiroth, Fabled SOLDIER // Sephiroth, One-Winged Angel",
     "roles": [
+      "Enabler",
       "Consistency"
     ]
   },
@@ -1477,6 +1699,7 @@
   {
     "name": "Shared Roots",
     "roles": [
+      "Enabler",
       "Consistency"
     ]
   },
@@ -1487,6 +1710,7 @@
   {
     "name": "Sheltered by Ghosts",
     "roles": [
+      "Enabler",
       "Protection"
     ]
   },
@@ -1507,12 +1731,14 @@
   {
     "name": "Snarling Gorehound",
     "roles": [
+      "Enabler",
       "Consistency"
     ]
   },
   {
     "name": "Solemn Simulacrum",
     "roles": [
+      "Enabler",
       "Consistency"
     ]
   },
@@ -1525,6 +1751,12 @@
   },
   {
     "name": "Sovereign Okinec Ahau",
+    "roles": [
+      "Payoff"
+    ]
+  },
+  {
+    "name": "Space-Time Anomaly",
     "roles": []
   },
   {
@@ -1546,6 +1778,7 @@
   {
     "name": "Spelunking",
     "roles": [
+      "Enabler",
       "Consistency"
     ]
   },
@@ -1565,11 +1798,15 @@
   },
   {
     "name": "Springleaf Drum",
-    "roles": []
+    "roles": [
+      "Enabler"
+    ]
   },
   {
     "name": "Stadium Headliner",
-    "roles": []
+    "roles": [
+      "Enabler"
+    ]
   },
   {
     "name": "Starfall Invocation",
@@ -1584,7 +1821,10 @@
   },
   {
     "name": "Starscape Cleric",
-    "roles": []
+    "roles": [
+      "Payoff",
+      "Enabler"
+    ]
   },
   {
     "name": "Starting Town",
@@ -1600,7 +1840,9 @@
   },
   {
     "name": "Stiltzkin, Moogle Merchant",
-    "roles": []
+    "roles": [
+      "Enabler"
+    ]
   },
   {
     "name": "Stomping Ground",
@@ -1612,11 +1854,14 @@
   },
   {
     "name": "Stormcatch Mentor",
-    "roles": []
+    "roles": [
+      "Payoff"
+    ]
   },
   {
     "name": "Stroke of Midnight",
     "roles": [
+      "Enabler",
       "Protection"
     ]
   },
@@ -1627,6 +1872,7 @@
   {
     "name": "Summon: Fenrir",
     "roles": [
+      "Enabler",
       "Consistency"
     ]
   },
@@ -1636,7 +1882,9 @@
   },
   {
     "name": "Sunspine Lynx",
-    "roles": []
+    "roles": [
+      "Enabler"
+    ]
   },
   {
     "name": "Swamp",
@@ -1648,7 +1896,9 @@
   },
   {
     "name": "Sword of Wealth and Power",
-    "roles": []
+    "roles": [
+      "Enabler"
+    ]
   },
   {
     "name": "Syncopate",
@@ -1675,6 +1925,7 @@
   {
     "name": "Tatyova, Benthic Druid",
     "roles": [
+      "Enabler",
       "Consistency"
     ]
   },
@@ -1748,7 +1999,9 @@
   },
   {
     "name": "Temur Battlecrier",
-    "roles": []
+    "roles": [
+      "Payoff"
+    ]
   },
   {
     "name": "Terramorphic Expanse",
@@ -1772,7 +2025,9 @@
   },
   {
     "name": "The Aetherspark",
-    "roles": []
+    "roles": [
+      "Enabler"
+    ]
   },
   {
     "name": "The Earth Crystal",
@@ -1780,35 +2035,48 @@
   },
   {
     "name": "The Eternity Elevator",
-    "roles": []
+    "roles": [
+      "Enabler"
+    ]
   },
   {
     "name": "The Fire Crystal",
-    "roles": []
+    "roles": [
+      "Enabler"
+    ]
   },
   {
     "name": "The Goose Mother",
     "roles": [
+      "Payoff",
+      "Enabler",
       "Consistency"
     ]
   },
   {
     "name": "The Jolly Balloon Man",
-    "roles": []
+    "roles": [
+      "Enabler"
+    ]
   },
   {
     "name": "The Mindskinner",
-    "roles": []
+    "roles": [
+      "Enabler"
+    ]
   },
   {
     "name": "The Soul Stone",
     "roles": [
+      "Enabler",
       "Consistency"
     ]
   },
   {
     "name": "The Wind Crystal",
-    "roles": []
+    "roles": [
+      "Enabler"
+    ]
   },
   {
     "name": "Thousand Moons Smithy // Barracks of the Thousand",
@@ -1817,6 +2085,7 @@
   {
     "name": "Three Steps Ahead",
     "roles": [
+      "Enabler",
       "Protection"
     ]
   },
@@ -1860,17 +2129,21 @@
   },
   {
     "name": "Twitching Doll",
-    "roles": []
+    "roles": [
+      "Enabler"
+    ]
   },
   {
     "name": "Ugin, Eye of the Storms",
     "roles": [
+      "Enabler",
       "Consistency"
     ]
   },
   {
     "name": "Umbral Collar Zealot",
     "roles": [
+      "Enabler",
       "Consistency"
     ]
   },
@@ -1898,7 +2171,9 @@
   },
   {
     "name": "Valgavoth, Terror Eater",
-    "roles": []
+    "roles": [
+      "Enabler"
+    ]
   },
   {
     "name": "Valley Floodcaller",
@@ -1907,12 +2182,15 @@
   {
     "name": "Vampiric Rites",
     "roles": [
+      "Enabler",
       "Consistency"
     ]
   },
   {
     "name": "Vengeful Bloodwitch",
-    "roles": []
+    "roles": [
+      "Enabler"
+    ]
   },
   {
     "name": "Vile Entomber",
@@ -1930,11 +2208,14 @@
   },
   {
     "name": "Virtue of Loyalty // Ardenvale Fealty",
-    "roles": []
+    "roles": [
+      "Enabler"
+    ]
   },
   {
     "name": "Virtue of Persistence // Locthwain Scorn",
     "roles": [
+      "Enabler",
       "Protection"
     ]
   },
@@ -1946,7 +2227,9 @@
   },
   {
     "name": "Virulent Emissary",
-    "roles": []
+    "roles": [
+      "Enabler"
+    ]
   },
   {
     "name": "Vivien Reid",
@@ -1957,7 +2240,9 @@
   },
   {
     "name": "Voice of Victory",
-    "roles": []
+    "roles": [
+      "Enabler"
+    ]
   },
   {
     "name": "Walk-In Closet // Forgotten Cellar",
@@ -2007,12 +2292,15 @@
   {
     "name": "Yenna, Redtooth Regent",
     "roles": [
+      "Enabler",
       "Consistency"
     ]
   },
   {
     "name": "Ygra, Eater of All",
-    "roles": []
+    "roles": [
+      "Enabler"
+    ]
   },
   {
     "name": "Zack Fair",

@@ -9,18 +9,18 @@
  * fake-confidence behaviour where AI/homebrew decks inherited a netdeck's
  * favourable number.
  *
- * Confidence model (0–1), a weighted blend of two independent signals:
- *   - colour overlap  (0.6) — Jaccard similarity of WUBRG identity
- *   - macro agreement (0.4) — 1.0 when the deck's macro equals the tracked
+ * Confidence model (0–1), a weighted blend of three independent signals:
+ *   - colour overlap  (0.4) — Jaccard similarity of WUBRG identity
+ *   - macro agreement (0.3) — 1.0 when the deck's macro equals the tracked
  *                             archetype's inferred macro, else 0
+ *   - card overlap    (0.3) — Jaccard similarity of the actual decklists
  *
  * Accept requires BOTH a floor on absolute confidence AND a margin over the
  * runner-up, so genuinely ambiguous cases (two equally-plausible archetypes)
  * are rejected as unmatched. Thresholds were chosen so that:
- *   - a mono/2-colour deck whose macro matches a tracked deck of the same
- *     colours clears the floor comfortably (colour 1.0·0.6 + macro 1.0·0.4 = 1.0),
- *   - a same-colours-but-different-macro deck lands at 0.6 (accepted only if
- *     unambiguous — real archetypes are colour+strategy defined),
+ *   - a deck whose cards, macro, and colours match a tracked deck scores 1.0,
+ *   - a same-colours-and-macro pile with no cardlist evidence reaches only
+ *     0.7, so concrete decklist overlap can distinguish it from a real list,
  *   - a 5-colour "pile" or Unknown-macro homebrew scores far below the floor
  *     against any focused tracked archetype and is rejected.
  */
@@ -46,6 +46,8 @@ export const MACRO_AGREEMENT_FLOOR = 0.5;
 export interface ArchetypeQuery {
   archetype: Archetype;
   colors: ManaColor[];
+  /** Names or stable IDs of cards in the generated deck. */
+  cardNames?: string[];
 }
 
 export interface ArchetypeMatch {
@@ -69,6 +71,18 @@ function jaccard(a: ManaColor[], b: ManaColor[]): number {
   return union === 0 ? 0 : inter / union;
 }
 
+/** Jaccard overlap for decklist identifiers; missing cardlists provide no evidence. */
+export function cardOverlap(query: ArchetypeQuery, candidate: LiveArchetypeWinRate): number {
+  if (!query.cardNames?.length || !candidate.cardNames?.length) return 0;
+  const normalize = (name: string) => name.trim().toLowerCase();
+  const a = new Set(query.cardNames.map(normalize));
+  const b = new Set(candidate.cardNames.map(normalize));
+  let inter = 0;
+  for (const name of a) if (b.has(name)) inter++;
+  const union = a.size + b.size - inter;
+  return union === 0 ? 0 : inter / union;
+}
+
 /** 1 when the deck's macro equals the tracked archetype's inferred macro, else 0. */
 export function macroAgreement(query: ArchetypeQuery, candidate: LiveArchetypeWinRate): number {
   return candidate.macro && query.archetype !== "Unknown" && candidate.macro === query.archetype ? 1 : 0;
@@ -77,7 +91,10 @@ export function macroAgreement(query: ArchetypeQuery, candidate: LiveArchetypeWi
 /** Blended 0–1 confidence that `query` describes `candidate`. */
 export function matchConfidence(query: ArchetypeQuery, candidate: LiveArchetypeWinRate): number {
   const colourScore = jaccard(query.colors, candidate.colors);
-  return 0.6 * colourScore + 0.4 * macroAgreement(query, candidate);
+  // Card overlap gets equal weight to macro agreement: shared colours and a
+  // broad macro alone are insufficient evidence that a generated pile should
+  // inherit a representative netdeck's real win rate.
+  return 0.4 * colourScore + 0.3 * macroAgreement(query, candidate) + 0.3 * cardOverlap(query, candidate);
 }
 
 /**

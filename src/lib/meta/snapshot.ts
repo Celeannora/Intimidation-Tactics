@@ -1,5 +1,6 @@
 import type { MetaSnapshot } from "./types";
 import bundledStandardSnapshot from "../../data/meta/standard-snapshot.json";
+import { MetaStatsManager, type MetaContext } from "./metaScoring";
 
 /**
  * Snapshot loader.
@@ -14,6 +15,22 @@ import bundledStandardSnapshot from "../../data/meta/standard-snapshot.json";
 
 /** The bundled June 2026 Standard snapshot, shipped with the app. */
 export const BUNDLED_STANDARD_SNAPSHOT = bundledStandardSnapshot as MetaSnapshot;
+
+let bundledMetaContext: MetaContext | null = null;
+
+/**
+ * Build the scoring context once from the same bundled Standard snapshot used
+ * by the meta UI and counter-analysis paths. The snapshot contains the
+ * per-archetype share and interaction data required by computeMetaPerformance.
+ */
+export function getBundledMetaContext(): MetaContext {
+  if (!bundledMetaContext) {
+    bundledMetaContext = new MetaStatsManager().buildFromSnapshot(
+      BUNDLED_STANDARD_SNAPSHOT.archetypes,
+    );
+  }
+  return bundledMetaContext;
+}
 
 /** Upper bound on summed metaShare. Allows minor rounding / overlap slack. */
 const MAX_SHARE_SUM = 1.05;

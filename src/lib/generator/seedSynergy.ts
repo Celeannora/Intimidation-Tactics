@@ -7,7 +7,7 @@
  * cards. Nothing here is wired into the app's default pipeline.
  */
 
-import type { CardRecord } from "../types";
+import type { CardRecord, ManaColor } from "../types";
 import type { DeckEntry } from "../legality";
 import { assignRoles } from "../roles";
 import { recommendColorSources } from "../manaBase";
@@ -92,24 +92,27 @@ function isOpponentTax(text: string): boolean {
  */
 export function classifySeedRoles(
   card: CardRecord,
-  seedPackage: SeedPackage,
+  _seedPackage: SeedPackage,
   resourceSpec: ResourceSpec | null = null,
 ): SeedRole[] {
   const text = (card.oracleText ?? "").toLowerCase();
   const roles: Set<SeedRole> = new Set();
   const baseRoles = assignRoles(card);
 
-  // The supplied seed cards are the locked payoff package. Candidate cards
-  // earn supporting roles only through their rules text.
-  if (isInSeedPackage(card, seedPackage)) {
-    roles.add("Payoff");
-  }
+  // Seed cards are locked into the deck, but their role must still come from
+  // their actual function. Treating every seed as a Payoff hid genuine mana
+  // and resource Enablers, which in turn prevented the build from recognizing
+  // the rest of its engine.
+  if (baseRoles.includes("Payoff")) roles.add("Payoff");
 
   // ENABLER: cards that produce the payoff resource, plus low-cost tempo
   // setup for defensive seed plans. Resource production is inferred from
   // payoff text; without a clear inference this intentionally declines to
   // guess a resource producer.
   if (
+    baseRoles.includes("Enabler") ||
+    baseRoles.includes("Ramp") ||
+    baseRoles.includes("LandFetch") ||
     (resourceSpec !== null && resourceCadence(card, resourceSpec) !== null) ||
     isOpponentTax(text)
   ) {
@@ -221,7 +224,7 @@ export function tallyRoleCounts(
 /**
  * Deck-level adjustments produced by re-analysis between pick batches.
  * These recompute DERIVED state only (pip balance, curve shape); the game
- * plan anchor -- role definitions, payoff identity, win condition, the WU
+ * plan anchor -- role definitions, payoff identity, win condition, the
  * color identity itself -- is locked to the original seed and is never
  * re-inferred from the accumulated picks. Without that anchor, twenty
  * white protection cards would eventually outvote the seed and the
@@ -231,7 +234,7 @@ export function tallyRoleCounts(
 export interface DeckAdjustments {
   /** Score multiplier applied to candidates whose colored pips are
    *  predominantly this color. 1.0 = neutral, <1.0 = penalized. */
-  colorMultiplier: { w: number; u: number };
+  colorMultiplier: Record<ManaColor, number>;
   /** Bonus for cheap (MV<=2) candidates when the curve is top-heavy. */
   cheapCurveBonus: number;
   /** Human-readable checkpoint notes for the build log. */
@@ -253,19 +256,25 @@ export interface DeckAdjustments {
 }
 
 export function neutralAdjustments(): DeckAdjustments {
-  return { colorMultiplier: { w: 1.0, u: 1.0 }, cheapCurveBonus: 0, notes: [] };
+  return {
+    colorMultiplier: { W: 1.0, U: 1.0, B: 1.0, R: 1.0, G: 1.0 },
+    cheapCurveBonus: 0,
+    notes: [],
+  };
 }
 
-function pipCounts(entries: { card: CardRecord; quantity: number }[]): { w: number; u: number } {
-  let w = 0;
-  let u = 0;
+const MANA_COLORS: ManaColor[] = ["W", "U", "B", "R", "G"];
+
+function pipCounts(entries: { card: CardRecord; quantity: number }[]): Record<ManaColor, number> {
+  const counts: Record<ManaColor, number> = { W: 0, U: 0, B: 0, R: 0, G: 0 };
   for (const { card, quantity } of entries) {
     if (card.typeLine.includes("Land")) continue;
     const cost = card.manaCost ?? "";
-    w += (cost.match(/\{W\}/g)?.length ?? 0) * quantity;
-    u += (cost.match(/\{U\}/g)?.length ?? 0) * quantity;
+    for (const color of MANA_COLORS) {
+      counts[color] += (cost.match(new RegExp(`\\{${color}\\}`, "g"))?.length ?? 0) * quantity;
+    }
   }
-  return { w, u };
+  return counts;
 }
 
 /**
@@ -275,8 +284,8 @@ function pipCounts(entries: { card: CardRecord; quantity: number }[]): { w: numb
  *
  * Current checks (each one exists because the straight-through build
  * demonstrably missed it):
- * 1. Color-pip balance -- the straight-through build drifted to ~82%
- *    white pips because the role classifier has no color signal at all.
+ * 1. Color-pip balance -- the straight-through build drifted toward one
+ *    color because the role classifier has no color signal at all.
  *    When one color's share of colored pips exceeds BALANCE_THRESHOLD,
  *    candidates that would deepen the skew are penalized progressively.
  * 2. Curve shape -- if the deck is accumulating 4-5 MV cards faster than
@@ -288,29 +297,25 @@ export function reanalyzeDeck(
 ): DeckAdjustments {
   const adj = neutralAdjustments();
   const pips = pipCounts(entries);
-  const totalPips = pips.w + pips.u;
+  const totalPips = MANA_COLORS.reduce((sum, color) => sum + pips[color], 0);
 
   const BALANCE_THRESHOLD = 0.65;
   if (totalPips >= 10) {
-    const wShare = pips.w / totalPips;
-    const uShare = pips.u / totalPips;
-    if (wShare > BALANCE_THRESHOLD) {
+    const dominant = MANA_COLORS
+      .map((color) => ({ color, share: pips[color] / totalPips }))
+      .sort((a, b) => b.share - a.share)[0];
+    if (dominant.share > BALANCE_THRESHOLD) {
       // Scale penalty with excess: 65% -> 1.0, 80% -> 0.7, 95% -> 0.4
-      adj.colorMultiplier.w = Math.max(0.4, 1.0 - (wShare - BALANCE_THRESHOLD) * 2);
-      adj.notes.push(
-        `Color balance: W pip share ${(wShare * 100).toFixed(0)}% exceeds ${BALANCE_THRESHOLD * 100}% threshold — ` +
-        `white-leaning candidates penalized x${adj.colorMultiplier.w.toFixed(2)} next batch.`
+      adj.colorMultiplier[dominant.color] = Math.max(
+        0.4,
+        1.0 - (dominant.share - BALANCE_THRESHOLD) * 2,
       );
-    } else if (uShare > BALANCE_THRESHOLD) {
-      adj.colorMultiplier.u = Math.max(0.4, 1.0 - (uShare - BALANCE_THRESHOLD) * 2);
       adj.notes.push(
-        `Color balance: U pip share ${(uShare * 100).toFixed(0)}% exceeds ${BALANCE_THRESHOLD * 100}% threshold — ` +
-        `blue-leaning candidates penalized x${adj.colorMultiplier.u.toFixed(2)} next batch.`
+        `Color balance: ${dominant.color} pip share ${(dominant.share * 100).toFixed(0)}% exceeds ${BALANCE_THRESHOLD * 100}% threshold — ` +
+        `${dominant.color}-leaning candidates penalized x${adj.colorMultiplier[dominant.color].toFixed(2)} next batch.`
       );
     } else {
-      adj.notes.push(
-        `Color balance OK: W ${(wShare * 100).toFixed(0)}% / U ${((1 - wShare) * 100).toFixed(0)}% of colored pips.`
-      );
+      adj.notes.push(`Color balance OK: no color exceeds ${BALANCE_THRESHOLD * 100}% of colored pips.`);
     }
   }
 
@@ -364,15 +369,17 @@ export function reanalyzeDeck(
 /**
  * Which single color dominates a candidate's colored pips, if any.
  * Used to apply the re-analysis color-balance multiplier only to cards
- * that would actually deepen the skew (a WU gold card is neutral).
+ * that would actually deepen the skew (a multicolor card is neutral).
  */
-export function dominantColor(card: CardRecord): "w" | "u" | null {
+export function dominantColor(card: CardRecord): ManaColor | null {
   const cost = card.manaCost ?? "";
-  const w = cost.match(/\{W\}/g)?.length ?? 0;
-  const u = cost.match(/\{U\}/g)?.length ?? 0;
-  if (w > u) return "w";
-  if (u > w) return "u";
-  return null;
+  const counts = MANA_COLORS.map((color) => ({
+    color,
+    count: cost.match(new RegExp(`\\{${color}\\}`, "g"))?.length ?? 0,
+  }));
+  const highest = Math.max(...counts.map(({ count }) => count));
+  if (highest === 0 || counts.filter(({ count }) => count === highest).length !== 1) return null;
+  return counts.find(({ count }) => count === highest)!.color;
 }
 
 // ── Scoring rules ────────────────────────────────────────────────────────
@@ -753,7 +760,7 @@ export interface SeedAnthemSpec {
   grantedKeywords: string[];
 }
 
-const ANTHEM_PATTERN = /[Oo]ther ([A-Z][a-z]+)s you control get \+\d+\/\+\d+(?:ies)?/;
+const ANTHEM_PATTERN = /\bother ([A-Z][a-z]+) you control get \+\d+\/\+\d+/i;
 const ANTHEM_KEYWORD_GRANT_PATTERN = /[Oo]ther [A-Z][a-z]+s you control get \+\d+\/\+\d+ and have ([a-z, ]+?)(?:\.|$)/i;
 const KNOWN_KEYWORD_NAMES = Object.keys(KEYWORD_RESOURCE_OUTPUTS);
 
@@ -769,7 +776,7 @@ export function inferSeedAnthemSynergy(seedCards: CardRecord[]): SeedAnthemSpec 
     const text = card.oracleText ?? "";
     const match = text.match(ANTHEM_PATTERN);
     if (!match) continue;
-    const subtype = match[1];
+    const subtype = singularizeSubtype(match[1]);
 
     const grantedKeywords: string[] = [];
     const keywordMatch = text.match(ANTHEM_KEYWORD_GRANT_PATTERN);
@@ -784,6 +791,15 @@ export function inferSeedAnthemSynergy(seedCards: CardRecord[]): SeedAnthemSpec 
     return { subtype, grantedKeywords };
   }
   return null;
+}
+
+function singularizeSubtype(subtype: string): string {
+  // "Faerie" is the common -ie subtype whose plural only adds "s"; retain
+  // that stem before applying the ordinary -ies -> -y rule (Allies, etc.).
+  if (subtype.endsWith("eries")) return subtype.slice(0, -1);
+  if (subtype.endsWith("ies")) return `${subtype.slice(0, -3)}y`;
+  if (subtype.endsWith("s")) return subtype.slice(0, -1);
+  return subtype;
 }
 
 /** Does this candidate's type line carry the anthem's target subtype? */
@@ -886,13 +902,12 @@ export function scoreCandidate(
 
   // Deck-level adjustments from the batched re-analysis loop (neutral when
   // running straight-through). The color multiplier only applies to cards
-  // that would deepen the current skew; WU gold cards are neutral.
+  // that would deepen the current skew; multicolor cards are neutral.
   let colorMult = 1.0;
   let curveBonus = 0;
   if (adjustments) {
     const dom = dominantColor(card);
-    if (dom === "w") colorMult = adjustments.colorMultiplier.w;
-    else if (dom === "u") colorMult = adjustments.colorMultiplier.u;
+    if (dom) colorMult = adjustments.colorMultiplier[dom];
     if (card.cmc <= 2) curveBonus = adjustments.cheapCurveBonus;
   }
 

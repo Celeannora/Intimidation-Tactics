@@ -10,7 +10,7 @@
  */
 
 import { describe, it, expect } from "vitest";
-import type { LiveWinRateDataset } from "../liveWinRate";
+import type { LiveArchetypeWinRate, LiveWinRateDataset } from "../liveWinRate";
 import {
   matchArchetype,
   matchConfidence,
@@ -33,20 +33,20 @@ function makeDataset(overrides?: Partial<LiveWinRateDataset>): LiveWinRateDatase
 }
 
 describe("matchConfidence", () => {
-  it("is 1.0 for identical colours + macro", () => {
+  it("is 0.7 for identical colours + macro without representative cardlists", () => {
     const c = matchConfidence(
       { archetype: "Control", colors: ["W", "U"] },
       { id: "azorius-control", name: "Azorius Control", colors: ["W", "U"], macro: "Control", winRate: 53.2 },
     );
-    expect(c).toBeCloseTo(1.0, 5);
+    expect(c).toBeCloseTo(0.7, 5);
   });
 
-  it("is 0.6 for identical colours but wrong macro (colour signal only)", () => {
+  it("is 0.4 for identical colours but wrong macro (colour signal only)", () => {
     const c = matchConfidence(
       { archetype: "Aggro", colors: ["W", "U"] },
       { id: "azorius-control", name: "Azorius Control", colors: ["W", "U"], macro: "Control", winRate: 53.2 },
     );
-    expect(c).toBeCloseTo(0.6, 5);
+    expect(c).toBeCloseTo(0.4, 5);
   });
 
   it("Unknown macro never earns the macro-agreement bonus", () => {
@@ -54,7 +54,30 @@ describe("matchConfidence", () => {
       { archetype: "Unknown", colors: ["R"] },
       { id: "mono-red-aggro", name: "Mono-Red Aggro", colors: ["R"], macro: "Aggro", winRate: 55.6 },
     );
-    expect(c).toBeCloseTo(0.6, 5); // colour 1.0·0.6, macro 0
+    expect(c).toBeCloseTo(0.4, 5); // colour 1.0·0.4, macro 0
+  });
+
+  it("distinguishes same-colour, same-macro decks by actual card overlap", () => {
+    const candidate: LiveArchetypeWinRate = {
+      id: "azorius-control",
+      name: "Azorius Control",
+      colors: ["W", "U"],
+      macro: "Control",
+      winRate: 53.2,
+      cardNames: ["Counterspell", "Wrath", "Teferi"],
+    };
+    const close = matchConfidence(
+      { archetype: "Control", colors: ["W", "U"], cardNames: ["Counterspell", "Wrath", "Teferi"] },
+      candidate,
+    );
+    const distant = matchConfidence(
+      { archetype: "Control", colors: ["W", "U"], cardNames: ["Soldier", "Knight", "Angel"] },
+      candidate,
+    );
+
+    expect(close).toBeCloseTo(1, 5);
+    expect(distant).toBeCloseTo(0.7, 5);
+    expect(close).toBeGreaterThan(distant);
   });
 });
 
@@ -117,17 +140,17 @@ describe("matchArchetype", () => {
       ],
     });
     const m = matchArchetype({ archetype: "Control", colors: ["W", "U"] }, ds);
-    // Best overall clears the 0.5 confidence floor (0.6) but its macro is 0,
-    // so the match is rejected as macro-mismatch rather than accepted.
+    // With no matching macro or cardlist evidence, colour overlap alone is
+    // below the confidence floor and cannot inherit a tracked win rate.
     expect(m.matched).toBe(false);
-    expect(m.reason).toBe("macro-mismatch");
+    expect(m.reason).toBe("below-threshold");
     expect(m.candidate?.name).toBe("Azorius Tempo");
-    expect(m.confidence).toBeCloseTo(0.6, 5);
+    expect(m.confidence).toBeCloseTo(0.4, 5);
   });
 
   it("still accepts a same-colour deck when the macro also agrees", () => {
-    // Control guardrail for the fix above: identical colours AND matching macro
-    // must still match (colour 1.0·0.6 + macro 1.0·0.4 = 1.0).
+    // Control guardrail: identical colours AND matching macro still clear the
+    // threshold even when the dataset has no representative cardlist.
     const ds = makeDataset({
       archetypes: [
         { id: "orzhov-midrange", name: "Orzhov Midrange", colors: ["W", "B"], macro: "Midrange", winRate: 51, sampleSize: 6000 },
@@ -136,11 +159,11 @@ describe("matchArchetype", () => {
     const m = matchArchetype({ archetype: "Midrange", colors: ["W", "B"] }, ds);
     expect(m.matched).toBe(true);
     expect(m.candidate?.name).toBe("Orzhov Midrange");
-    expect(m.confidence).toBeCloseTo(1.0, 5);
+    expect(m.confidence).toBeCloseTo(0.7, 5);
   });
 
   it("prefers a lower-colour-overlap but macro-agreeing candidate over a higher colour-only one", () => {
-    // The macro precondition means a same-colour wrong-macro deck (0.6, macro 0)
+    // The macro precondition means a same-colour wrong-macro deck (0.4, macro 0)
     // is ineligible, while a partial-colour right-macro deck that still clears
     // the floor is eligible and wins.
     const ds = makeDataset({
@@ -149,11 +172,11 @@ describe("matchArchetype", () => {
         { id: "mono-white-aggro", name: "Mono-White Aggro", colors: ["W"], macro: "Aggro", winRate: 54, sampleSize: 8000 },
       ],
     });
-    // Query is WU Aggro. Azorius Control: colour 1.0·0.6 + macro 0 = 0.6 (macro 0 → ineligible).
-    // Mono-White Aggro: colour 0.5·0.6 + macro 1.0·0.4 = 0.7 (macro 1 → eligible).
+    // Query is WU Aggro. Azorius Control: colour 1.0·0.4 + macro 0 = 0.4 (macro 0 → ineligible).
+    // Mono-White Aggro: colour 0.5·0.4 + macro 1.0·0.3 = 0.5 (macro 1 → eligible).
     const m = matchArchetype({ archetype: "Aggro", colors: ["W", "U"] }, ds);
     expect(m.matched).toBe(true);
     expect(m.candidate?.name).toBe("Mono-White Aggro");
-    expect(m.confidence).toBeCloseTo(0.7, 5);
+    expect(m.confidence).toBeCloseTo(0.5, 5);
   });
 });

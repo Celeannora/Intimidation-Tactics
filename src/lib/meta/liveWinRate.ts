@@ -34,6 +34,8 @@ export interface LiveArchetypeWinRate {
   colors: ManaColor[];
   /** Best-effort macro classification inferred from the name. */
   macro?: Archetype;
+  /** Card names or stable card IDs from the representative tracked decklist. */
+  cardNames?: string[];
   /** Real win rate as a percentage in [0, 100]. */
   winRate: number;
   /** Play rate / meta share as a percentage, when published. */
@@ -185,6 +187,9 @@ interface RawArchetypeLike {
   sampleSize?: unknown;
   games?: unknown;
   count?: unknown;
+  cardNames?: unknown;
+  cards?: unknown;
+  decklist?: unknown;
 }
 
 function asNumber(v: unknown): number | undefined {
@@ -216,6 +221,19 @@ function coerceColors(raw: unknown, fallbackName: string): ManaColor[] {
   return inferColorsFromName(fallbackName);
 }
 
+function coerceCardNames(raw: unknown): string[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const names = raw
+    .map((entry) => typeof entry === "string"
+      ? entry
+      : entry && typeof entry === "object" && typeof (entry as { name?: unknown }).name === "string"
+        ? (entry as { name: string }).name
+        : null)
+    .filter((name): name is string => !!name?.trim())
+    .map((name) => name.trim());
+  return names.length > 0 ? [...new Set(names)] : undefined;
+}
+
 function normaliseArchetype(raw: RawArchetypeLike): LiveArchetypeWinRate | null {
   const name = [raw.name, raw.title, raw.archetype].find((v) => typeof v === "string" && v.trim().length > 0) as
     | string
@@ -232,6 +250,7 @@ function normaliseArchetype(raw: RawArchetypeLike): LiveArchetypeWinRate | null 
     name,
     colors: coerceColors(raw.colors ?? raw.colorIdentity, name),
     macro: inferMacroFromName(name),
+    cardNames: coerceCardNames(raw.cardNames ?? raw.cards ?? raw.decklist),
     winRate: Math.round(winRate * 10) / 10,
     playRate: playRate != null ? Math.round(playRate * 10) / 10 : undefined,
     sampleSize: sampleSize != null ? Math.round(sampleSize) : undefined,
