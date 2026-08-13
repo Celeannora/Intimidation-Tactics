@@ -24,6 +24,7 @@ import type { DeckEntry } from "../src/lib/legality";
 import { generateDeck } from "../src/lib/generator/generator";
 import type { GenerateOptions } from "../src/lib/generator/types";
 import type { Archetype } from "../src/lib/archetype";
+import type { RoleTarget } from "../src/lib/generator/roleTargets";
 
 interface CliArgs {
   seedPath: string;
@@ -33,6 +34,7 @@ interface CliArgs {
   archetype: Archetype;
   mainboardSize: number;
   out: string;
+  roleTargetOverrides?: Partial<RoleTarget>;
 }
 
 function parseArgs(argv: string[]): CliArgs {
@@ -48,6 +50,10 @@ function parseArgs(argv: string[]): CliArgs {
   const archetype = (get("--archetype", "Midrange") as Archetype)!;
   const mainboardSize = Number(get("--mainboard-size", "60"));
   const out = get("--out", "generated_decklist.json")!;
+  const roleTargetOverridesRaw = get("--role-target-overrides");
+  const roleTargetOverrides = roleTargetOverridesRaw
+    ? (JSON.parse(roleTargetOverridesRaw) as Partial<RoleTarget>)
+    : undefined;
   return {
     seedPath,
     poolDir,
@@ -56,6 +62,7 @@ function parseArgs(argv: string[]): CliArgs {
     archetype,
     mainboardSize,
     out,
+    roleTargetOverrides,
   };
 }
 
@@ -117,6 +124,7 @@ function main() {
     mainboardSize: args.mainboardSize,
     maxMainboardSize: args.mainboardSize,
     optimizationIterations: 200,
+    roleTargetOverrides: args.roleTargetOverrides,
   };
 
   console.log(`Generating deck: archetype=${options.archetype}, colors=${colors.join("")}...`);

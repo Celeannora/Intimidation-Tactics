@@ -230,10 +230,20 @@ function generateOne(
   const rng = makeRng(seed);
   const targetMainboardSize = normalizedMainboardSize(options);
   const formatRules = getFormatRules(options.format);
-  const target = scaleRoleTarget(
-    blendRoleTargets(options.archetype, options.secondaryArchetypes),
-    targetMainboardSize
-  );
+  const target = {
+    ...scaleRoleTarget(
+      blendRoleTargets(options.archetype, options.secondaryArchetypes),
+      targetMainboardSize
+    ),
+    ...options.roleTargetOverrides,
+  };
+  if (options.roleTargetOverrides && Object.keys(options.roleTargetOverrides).length > 0) {
+    reasoning.push(
+      `Role target overrides applied: ${Object.entries(options.roleTargetOverrides)
+        .map(([k, v]) => `${k}=${v}`)
+        .join(", ")}`
+    );
+  }
 
   // Selected colors are a hard constraint by default. Seed cards outside the
   // requested identity are excluded instead of silently widening the deck.
@@ -589,6 +599,40 @@ function generateOne(
   const used = new Set<string>(entries.map((e) => e.card.oracleId));
   const seedRoleCounts = countSeedRoles(seedEntries);
 
+  // If the sum of role targets plus already-locked nonland copies (seed +
+  // focus) can't fit alongside the archetype's land target, Phase 1 would
+  // overfill and the later mana-base-reserve step has to shed the overflow
+  // back out -- concentrated on whichever role skews highest CMC (often
+  // whichever role a roleTargetOverrides bump just raised). Instead, scale
+  // down the roles NOT explicitly overridden by the caller so the total
+  // fits before filling, preserving the caller's explicit ask exactly and
+  // spreading the reduction proportionally across the rest. Generic across
+  // every archetype/role/override combination -- driven only by `target`
+  // and live locked-entry counts.
+  const NONLAND_ROLE_SLOTS: RoleSlot[] = ["threats", "removal", "boardWipes", "counterspells", "cardDraw", "ramp"];
+  const lockedNonlandCount = entries.reduce((s, e) => s + e.quantity, 0);
+  const availableNonlandSlots = Math.max(0, targetMainboardSize - target.lands - lockedNonlandCount);
+  const requestedNonlandTotal = NONLAND_ROLE_SLOTS.reduce((s, slot) => s + (target[slot] ?? 0), 0);
+  if (requestedNonlandTotal > availableNonlandSlots && requestedNonlandTotal > 0) {
+    const overriddenSlots = new Set(Object.keys(options.roleTargetOverrides ?? {}) as RoleSlot[]);
+    const fixedTotal = NONLAND_ROLE_SLOTS.filter((s) => overriddenSlots.has(s)).reduce(
+      (s, slot) => s + (target[slot] ?? 0),
+      0
+    );
+    const flexibleSlots = NONLAND_ROLE_SLOTS.filter((s) => !overriddenSlots.has(s));
+    const flexibleTotal = flexibleSlots.reduce((s, slot) => s + (target[slot] ?? 0), 0);
+    const flexibleBudget = Math.max(0, availableNonlandSlots - fixedTotal);
+    if (flexibleTotal > 0 && flexibleBudget < flexibleTotal) {
+      const ratio = flexibleBudget / flexibleTotal;
+      for (const slot of flexibleSlots) {
+        target[slot] = Math.round((target[slot] ?? 0) * ratio);
+      }
+      reasoning.push(
+        `Role targets scaled down (×${ratio.toFixed(2)}) on non-overridden roles to fit ${availableNonlandSlots} available nonland slots (requested ${requestedNonlandTotal}).`
+      );
+    }
+  }
+
   for (const role of ROLE_ORDER) {
     const need = Math.max(0, (target[role] ?? 0) - (seedRoleCounts[role] ?? 0));
     if (need <= 0) {
@@ -633,9 +677,44 @@ function generateOne(
   const currentNonlandTotal = entries.reduce((s, e) => s + e.quantity, 0);
   if (currentNonlandTotal > idealNonlandSlots) {
     const toShed = currentNonlandTotal - idealNonlandSlots;
+    // Roles that are still AT or BELOW their target after Phase 1 are scarce
+    // -- shedding from them would undo the very fill the caller asked for
+    // (via archetype target or roleTargetOverrides). Roles placed well past
+    // their target have slack and should absorb the cull first. Without
+    // this, the CMC-first cull below disproportionately guts whichever
+    // role happens to skew high-CMC (board wipes, top-end threats, etc.)
+    // regardless of how scarce that role's target actually is -- true for
+    // any archetype/role, not just this deck's board wipes.
+    const currentRoleCounts: Partial<Record<RoleSlot, number>> = {};
+    for (const slot of ROLE_ORDER) {
+      currentRoleCounts[slot] = entries
+        .filter((e) => matchesRole(slot, assignRoles(e.card)))
+        .reduce((s, e) => s + e.quantity, 0);
+    }
+    // "Scarcity" = how far under (or at) target each role sits. A card's
+    // scarcity score is the MAX scarcity across all roles it fulfills (a
+    // card protected by any one scarce role stays protected).
+    const scarcityScore = (card: CardRecord): number => {
+      const roles = assignRoles(card);
+      let maxScarcity = -Infinity;
+      for (const slot of ROLE_ORDER) {
+        if (!matchesRole(slot, roles)) continue;
+        const tgt = target[slot] ?? 0;
+        if (tgt <= 0) continue;
+        const current = currentRoleCounts[slot] ?? 0;
+        const scarcity = tgt - current; // >0 means still under target (protect)
+        if (scarcity > maxScarcity) maxScarcity = scarcity;
+      }
+      return maxScarcity === -Infinity ? -1 : maxScarcity; // no positive-target role -> treat as slack (shed first)
+    };
     const shedable = entries
       .filter((e) => !lockedIds.has(e.card.oracleId))
-      .sort((a, b) => b.card.cmc - a.card.cmc);
+      .sort((a, b) => {
+        const aScarcity = scarcityScore(a.card);
+        const bScarcity = scarcityScore(b.card);
+        if (aScarcity !== bScarcity) return aScarcity - bScarcity; // most negative (slack) shed first
+        return b.card.cmc - a.card.cmc;
+      });
     let remaining = toShed;
     for (const e of shedable) {
       if (remaining <= 0) break;
@@ -786,6 +865,42 @@ function generateOne(
     finalEntries = cloneEntries(entries);
   }
 
+  // Optimizer guard: role-slot floor. The optimizer swaps a card for the
+  // top-scoring candidate from ONE of its matched role buckets (chosen at
+  // random when a card fills multiple roles) -- it optimizes for raw score,
+  // not for preserving the archetype's (or caller's roleTargetOverrides')
+  // per-role counts. A dual-role card (e.g. a board wipe that's also
+  // graveyard hate) can get swapped for a candidate that only satisfies the
+  // OTHER role, silently dropping a role below the count Phase 1 deliberately
+  // filled -- and this is invisible to deckScore, so nothing stops it.
+  // Mirrors the land-floor guard above: if the optimizer let any
+  // caller-relevant role regress below what Phase 1 achieved, restore the
+  // pre-optimizer entries rather than accept a worse, silently-shrunk role
+  // count. Generic across every archetype/role/override, keyed only off
+  // live role counts, never a specific role name.
+  const roleCountsIn = (list: DeckEntry[]): Partial<Record<RoleSlot, number>> => {
+    const counts: Partial<Record<RoleSlot, number>> = {};
+    for (const slot of ROLE_ORDER) {
+      counts[slot] = list
+        .filter((e) => matchesRole(slot, assignRoles(e.card)))
+        .reduce((s, e) => s + e.quantity, 0);
+    }
+    return counts;
+  };
+  const baselineRoleCounts = roleCountsIn(entries);
+  const optimizedRoleCounts = roleCountsIn(finalEntries);
+  const regressedRoles = ROLE_ORDER.filter(
+    (slot) => (target[slot] ?? 0) > 0 && (optimizedRoleCounts[slot] ?? 0) < (baselineRoleCounts[slot] ?? 0)
+  );
+  if (regressedRoles.length > 0) {
+    reasoning.push(
+      `Optimizer guard: restored pre-optimizer role counts after ${regressedRoles.join(", ")} regressed below Phase 1 levels (${regressedRoles
+        .map((slot) => `${slot}: ${optimizedRoleCounts[slot]} < ${baselineRoleCounts[slot]}`)
+        .join("; ")})`
+    );
+    finalEntries = cloneEntries(entries);
+  }
+
   // Final invariant: regardless of any prior trim/optimizer step, never leave
   // the deck below the recommended land floor. If lands fell short, top up
   // with basics (color-balanced) by replacing the highest-cmc nonland slots.
@@ -838,14 +953,18 @@ function generateOne(
         const want = idealQty(top.entry);
         if (top.entry.quantity >= want) { i++; continue; }
         if (bot.entry.quantity <= 1) { j--; continue; }
-        if (top.isLocked && bot.isLocked) { i++; j--; continue; }
-        // Donor gives 1 copy at a time to preserve granularity.
-        if (!bot.isLocked) {
-          bot.entry.quantity -= 1;
-        }
-        if (!top.isLocked) {
-          top.entry.quantity += 1;
-        }
+        // A transfer only conserves total copies when BOTH sides can move:
+        // the donor gives up a copy AND the recipient receives it. If either
+        // side is locked, that half of the transfer can't happen -- and
+        // applying only the other half silently inflates or shrinks the
+        // deck's total card count (the actual bug: a locked donor with an
+        // unlocked recipient granted a free +1 with no matching -1). When
+        // one side is locked, there's nothing valid this pair can do, so
+        // skip past whichever side is locked and re-evaluate.
+        if (top.isLocked) { i++; continue; }
+        if (bot.isLocked) { j--; continue; }
+        bot.entry.quantity -= 1;
+        top.entry.quantity += 1;
         // If bot is now at 1, advance j; if top has reached its want, advance i.
         if (bot.entry.quantity <= 1) j--;
         if (top.entry.quantity >= want) i++;

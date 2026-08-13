@@ -6,6 +6,7 @@ import type { MechanicAxis, AxisConfidence } from "./synergyModel";
 import type { ConstructedFormat, PlayEnvironment } from "../formats";
 import type { LiveWinRateDataset } from "../meta/liveWinRate";
 import type { SeedSynergyGraph } from "../analysis/synergyGraph";
+import type { RoleTarget } from "./roleTargets";
 import type {
   SeedPackage,
   SeedRoleTargets,
@@ -108,6 +109,17 @@ export interface GenerateOptions {
    */
   seedPolicy?: SeedPolicy;
 
+  /**
+   * Per-generation overrides for the archetype-blended role target (see
+   * roleTargets.ts). Any field left unset falls back to the normal
+   * archetype/secondaryArchetypes blend. Use this to raise or lower a
+   * specific role's count for one build -- e.g. a stricter metagame
+   * heuristic recommends more board wipes than the archetype default --
+   * without changing the shared per-archetype defaults for every other
+   * generation. Generic across all roles and archetypes; never seed- or
+   * card-specific.
+   */
+  roleTargetOverrides?: Partial<RoleTarget>;
 
   /** Total deck budget cap (USD). Penalize cards that push deck over this. */
   totalBudgetUsd?: number;
