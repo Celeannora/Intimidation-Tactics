@@ -11,11 +11,15 @@
  */
 
 import type { MythicViabilityReport } from "../lib/generator/types";
+import type { ComboChain } from "../lib/analysis/comboChainDetector";
+import type { VerifiedCombo } from "../lib/generator/comboLookup";
 
 interface Props {
   report: MythicViabilityReport;
   tempoScore?: number;
   cardAdvantageScore?: number;
+  comboChains?: ComboChain[];
+  verifiedCombos?: VerifiedCombo[];
 }
 
 /** Color-code a 0–100 value: red < 45, yellow 45–65, green > 65 */
@@ -108,7 +112,7 @@ function CompetitiveTrack({ report }: { report: MythicViabilityReport }) {
   );
 }
 
-export function MythicViabilityPanel({ report, tempoScore, cardAdvantageScore }: Props) {
+export function MythicViabilityPanel({ report, tempoScore, cardAdvantageScore, comboChains = [], verifiedCombos = [] }: Props) {
   const s = report.structural;
   return (
     <div className="rounded-lg border border-zinc-700 bg-zinc-800/60 p-3 text-sm space-y-3">
@@ -147,6 +151,27 @@ export function MythicViabilityPanel({ report, tempoScore, cardAdvantageScore }:
               <span className="text-zinc-600">/100</span>
             </span>
           )}
+        </div>
+      )}
+
+      {/* ── Multi-hop combo signals ───────────────────────────────────── */}
+      {(comboChains.length > 0 || verifiedCombos.length > 0) && (
+        <div className="space-y-1 pt-1 border-t border-zinc-700">
+          <div className="text-xs font-semibold uppercase tracking-wide text-zinc-300">Combo chains found</div>
+          <div className="space-y-1">
+            {comboChains.slice(0, 5).map((chain) => (
+              <div key={`${chain.kind}:${chain.oracleIds.join("|")}`} className="rounded border border-teal-900/50 bg-teal-950/20 px-2 py-1.5 text-[11px] text-zinc-300">
+                <span className="mr-1 font-semibold text-teal-300">{chain.kind === "loop" ? "Recurring loop" : "Chain"}</span>
+                <span>{chain.explanation}</span>
+              </div>
+            ))}
+            {verifiedCombos.slice(0, 5).map((combo) => (
+              <div key={combo.id} className="rounded border border-purple-900/50 bg-purple-950/20 px-2 py-1.5 text-[11px] text-zinc-300">
+                <span className="mr-1 font-semibold text-purple-300">Verified combo</span>
+                <span>{combo.explanation}</span>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 

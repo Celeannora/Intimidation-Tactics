@@ -27,6 +27,8 @@ import { CONSTRUCTED_FORMATS, getFormatRules, type ConstructedFormat, type PlayE
 import { generateDeckName } from "../lib/deckExporter";
 import { getLiveWinRateData } from "../lib/meta/liveWinRate";
 import { buildCardBreakdowns, topSynergyPairs } from "../lib/analysis/reasoningView";
+import { buildPool } from "../lib/generator/pool";
+import { getCommanderSpellbookCombos } from "../lib/generator/comboLookup";
 
 const ARCHETYPES: Archetype[] = [
   "Aggro", "Midrange", "Control", "Tempo", "Combo", "Ramp", "Prison",
@@ -501,6 +503,20 @@ export function GeneratorPanel() {
         userContext: userContext.trim() || undefined,
         generateSideboard: getFormatRules(format).sideboardSize == null ? false : generateSideboard,
       };
+      // One optional, batched pre-pass before the synchronous generator starts.
+      // The lookup itself is cache-first and failure-safe; it contributes plain
+      // data to scoring rather than causing network work inside the optimizer.
+      if (format === "standard") {
+        const comboCandidates = [...new Map(
+          [
+            ...buildPool(allCards, opts).filter((card) => !card.typeLine.includes("Land")),
+            ...(opts.seedEntries ?? []).map((entry) => entry.card),
+            ...(opts.focusEntries ?? []).map((entry) => entry.card),
+          ].map((card) => [card.oracleId, card]),
+        ).values()];
+        const verifiedCombos = await getCommanderSpellbookCombos(comboCandidates).catch(() => []);
+        opts.comboSynergyContext = { chains: [], verifiedCombos };
+      }
 
       let produced: GenerateResult[];
 
@@ -1336,6 +1352,8 @@ export function GeneratorPanel() {
                 report={active.mythicViability}
                 tempoScore={active.tempoScore}
                 cardAdvantageScore={active.cardAdvantageScore}
+                comboChains={active.comboChains}
+                verifiedCombos={active.verifiedCombos}
               />
             </div>
           )}

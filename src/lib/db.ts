@@ -1,6 +1,7 @@
 import Dexie, { Table } from "dexie";
 import type { CardRecord } from "./types";
 import type { LiveWinRateDataset } from "./meta/liveWinRate";
+import type { VerifiedCombo } from "./generator/comboLookup";
 
 export interface ImportMeta {
   key: string;
@@ -43,12 +44,20 @@ export interface LiveWinRateCacheRow {
   cachedAt: number;    // Date.now() when this row was written
 }
 
+/** Cached Commander Spellbook response for one sorted candidate-card set. */
+export interface CommanderSpellbookComboCacheRow {
+  key: string;
+  combos: VerifiedCombo[];
+  cachedAt: number;
+}
+
 export class MTGDeckBuilderDB extends Dexie {
   cards!:        Table<CardRecord,        string>;
   meta!:         Table<ImportMeta,        string>;
   savedDecks!:   Table<SavedDeck,         string>;
   matchResults!: Table<MatchResult,       number>;
   liveWinRate!:  Table<LiveWinRateCacheRow, string>;
+  commanderSpellbookCombos!: Table<CommanderSpellbookComboCacheRow, string>;
 
   constructor() {
     super("mtgDeckBuilderDB");
@@ -146,6 +155,32 @@ export class MTGDeckBuilderDB extends Dexie {
       savedDecks:   "id, updatedAt",
       matchResults: "++id, deckId, playedAt",
       liveWinRate:  "key, cachedAt",
+    });
+
+    this.version(5).stores({
+      cards: `
+        id,
+        oracleId,
+        name,
+        cmc,
+        legalityStandard,
+        legalityFuture,
+        bannedInStandard,
+        setCode,
+        setName,
+        rarity,
+        imageNormal,
+        importedAt,
+        *keywordsJson,
+        *colorsJson,
+        *colorIdentityJson,
+        typeLine
+      `,
+      meta:         "key",
+      savedDecks:   "id, updatedAt",
+      matchResults: "++id, deckId, playedAt",
+      liveWinRate:  "key, cachedAt",
+      commanderSpellbookCombos: "key, cachedAt",
     });
   }
 }

@@ -266,6 +266,8 @@ export interface CardScoreDetail {
   preferCardBonus: number;
   tribalBonus: number;
   broadTagBonus: number;
+  /** Additive reward when this card completes a precomputed chain/combo. */
+  comboContribution: number;
   cmcPenalty: number;
   pricePenalty: number;
   /**
@@ -313,6 +315,7 @@ export function cardScoreDetail(
   const flexibility = flexibilityScore(card, roles);
   const ladder = ladderBo1Score(card, roles, options);
   const deadCardPen = deadCardPenalty(card, roles, options);
+  const comboContribution = comboCandidateBonus(card, deckSoFar, options);
   // Load config for current format/environment
   const cardCfg = getCardConfig(options.format, options.playEnvironment);
 
@@ -345,7 +348,8 @@ export function cardScoreDetail(
     focusCard +
     preferCard +
     tribal +
-    broadBonus -
+    broadBonus +
+    comboContribution -
     cmcPen -
     pricePen -
     deadCardPen;
@@ -397,6 +401,7 @@ export function cardScoreDetail(
     preferCardBonus: preferCard,
     tribalBonus: tribal,
     broadTagBonus: broadBonus,
+    comboContribution,
     cmcPenalty: cmcPen,
     pricePenalty: pricePen + deadCardPen,
     seedSynergyNote,
@@ -490,6 +495,8 @@ export interface DeckScore {
   redundancyContribution: number;
   /** meta performance contribution term. */
   metaPerformanceContribution: number;
+  /** Additive reward for fully assembled chains and verified combos. */
+  comboContribution: number;
 }
 
 /**
@@ -618,11 +625,16 @@ export function deckScore(
     getBundledMetaContext(),
   );
   const metaPerformanceContribution = deckCfg.metaPerformanceMultiplier * metaPerf;
+  const comboContribution = deckComboBonus(entries, options);
 
   const total =
     cardScoreSum +
     redundancyContribution +
-    metaPerformanceContribution -
+    metaPerformanceContribution +
+    // Deck-level bonus rewards a complete multi-piece engine, not merely
+    // isolated pairwise links. It is additive; card scores and all penalties
+    // remain intact.
+    comboContribution -
     curvePenalty -
     manaPenalty -
     profilePenalty;
@@ -640,6 +652,7 @@ export function deckScore(
     profilePenalty,
     redundancyContribution,
     metaPerformanceContribution,
+    comboContribution,
   };
 }
 
@@ -674,6 +687,7 @@ export function buildScoreBreakdown(
         efficiencyContribution: detail.efficiencyContribution,
         flexibilityContribution: detail.flexibilityContribution,
         ladderContribution: detail.ladderContribution,
+        comboContribution: detail.comboContribution,
         focusBonus: detail.focusBonus,
         focusCardBonus: detail.focusCardBonus,
         tribalBonus: detail.tribalBonus,
@@ -693,9 +707,55 @@ export function buildScoreBreakdown(
       manaPenalty: score.manaPenalty,
       profilePenalty: score.profilePenalty,
       redundancyContribution: score.redundancyContribution,
+      comboContribution: score.comboContribution,
       finalScore: score.total,
     },
   };
+}
+
+/**
+ * Candidate-level bonus is intentionally conservative: it only appears when
+ * adding `card` completes every other piece of a precomputed chain or verified
+ * combo. The seed-role veto still runs after this addition and remains final.
+ */
+export function comboCandidateBonus(card: CardRecord, deckSoFar: DeckEntry[], options: GenerateOptions): number {
+  const context = options.comboSynergyContext;
+  if (!context) return 0;
+  const present = mainOracleIds(deckSoFar);
+  let bonus = 0;
+  for (const chain of context.chains) {
+    if (chain.oracleIds.includes(card.oracleId) && chain.oracleIds.every((id) => id === card.oracleId || present.has(id))) {
+      bonus += Math.min(6, chain.chainScore);
+    }
+  }
+  for (const combo of context.verifiedCombos) {
+    if (combo.cardOracleIds.includes(card.oracleId) && combo.cardOracleIds.every((id) => id === card.oracleId || present.has(id))) {
+      bonus += 8;
+    }
+  }
+  return Math.min(14, bonus);
+}
+
+/** Whole-deck bonus complements the completion bonus used while choosing cards. */
+export function deckComboBonus(entries: DeckEntry[], options: GenerateOptions): number {
+  const context = options.comboSynergyContext;
+  if (!context) return 0;
+  const present = mainOracleIds(entries);
+  const chainBonus = context.chains
+    .filter((chain) => containsAll(present, chain.oracleIds))
+    .reduce((sum, chain) => sum + Math.min(8, chain.chainScore * 1.5), 0);
+  const verifiedBonus = context.verifiedCombos
+    .filter((combo) => containsAll(present, combo.cardOracleIds))
+    .length * 12;
+  return Math.min(32, chainBonus + verifiedBonus);
+}
+
+function mainOracleIds(entries: DeckEntry[]): Set<string> {
+  return new Set(entries.filter((entry) => entry.board === "main").map((entry) => entry.card.oracleId));
+}
+
+function containsAll(present: Set<string>, oracleIds: string[]): boolean {
+  return oracleIds.length > 0 && oracleIds.every((id) => present.has(id));
 }
 
 /** Compute the avg-CMC target for an archetype, optionally overridden by SpeedProfile. */

@@ -6,6 +6,8 @@ import type { MechanicAxis, AxisConfidence } from "./synergyModel";
 import type { ConstructedFormat, PlayEnvironment } from "../formats";
 import type { LiveWinRateDataset } from "../meta/liveWinRate";
 import type { SeedSynergyGraph } from "../analysis/synergyGraph";
+import type { ComboChain } from "../analysis/comboChainDetector";
+import type { VerifiedCombo } from "./comboLookup";
 import type { RoleTarget } from "./roleTargets";
 import type {
   SeedPackage,
@@ -204,6 +206,15 @@ export interface GenerateOptions {
     anthemSpec: SeedAnthemSpec | null;
     roleTargets: SeedRoleTargets;
   };
+  /**
+   * Optional precomputed multi-card signals. The UI resolves Commander
+   * Spellbook data before generation and passes plain data here so the
+   * synchronous generator/optimizer never performs network I/O.
+   */
+  comboSynergyContext?: {
+    chains: ComboChain[];
+    verifiedCombos: VerifiedCombo[];
+  };
 }
 
 
@@ -260,6 +271,7 @@ export interface CardScoreContribution {
   efficiencyContribution?: number;
   flexibilityContribution?: number;
   ladderContribution?: number;
+  comboContribution?: number;
   focusBonus: number;
   focusCardBonus: number;
   tribalBonus: number;
@@ -277,6 +289,8 @@ export interface ScoreBreakdown {
     profilePenalty: number;
     /** Contribution from engine redundancy (sources × payoffs robustness). */
     redundancyContribution: number;
+    /** Contribution from assembled heuristic chains / verified combos. */
+    comboContribution: number;
     finalScore: number;
   };
 }
@@ -421,6 +435,10 @@ export interface GenerateResult {
    * UI's synergy view. Absent when fewer than 2 nonland cards are present.
    */
   deckSynergyGraph?: SeedSynergyGraph;
+  /** Multi-hop heuristic chains and recurring loops found in the final deck. */
+  comboChains?: ComboChain[];
+  /** Fully present Standard-legal Commander Spellbook combos in the final deck. */
+  verifiedCombos?: VerifiedCombo[];
   /**
    * AI-engine only: prominent, user-facing warnings that must NOT be buried in
    * diagnostics.reasoning. Surfaced when the pipeline silently degraded or could

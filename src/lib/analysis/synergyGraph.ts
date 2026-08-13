@@ -92,13 +92,18 @@ export function clearSynergyGraphCache(): void {
   _graphCache.clear();
 }
 
-/** Build a deterministic synergy graph among seed cards (cached by seed set). */
-export function buildSeedSynergyGraph(seeds: CardRecord[]): SeedSynergyGraph {
-  const key = seedCacheKey(seeds);
+/**
+ * Build a deterministic synergy graph over any card collection (cached by the
+ * collection's oracle IDs). The historical SeedSynergyGraph name is retained
+ * for API compatibility: the same typed source/payoff model is valid for seed
+ * cards, candidate pools, and finished decks.
+ */
+export function buildCandidatePoolSynergyGraph(cards: CardRecord[]): SeedSynergyGraph {
+  const key = seedCacheKey(cards);
   const cached = _graphCache.get(key);
   if (cached) return cached;
 
-  const profiles = seeds.map((card) => ({ card, profile: buildSynergyProfile(card) }));
+  const profiles = cards.map((card) => ({ card, profile: buildSynergyProfile(card) }));
   const nodes: SynergyGraphNode[] = profiles.map(({ card, profile }) => ({
     oracleId: card.oracleId,
     name: card.name,
@@ -191,15 +196,20 @@ export function buildSeedSynergyGraph(seeds: CardRecord[]): SeedSynergyGraph {
     }
   }
 
-  const possibleDirectedEdges = seeds.length * Math.max(0, seeds.length - 1);
+  const possibleDirectedEdges = cards.length * Math.max(0, cards.length - 1);
   const density = possibleDirectedEdges > 0 ? round2(edges.length / possibleDirectedEdges) : 0;
   const totalWeight = edges.reduce((sum, e) => sum + e.weight, 0);
   const weightedDensity = possibleDirectedEdges > 0 ? round2(totalWeight / possibleDirectedEdges) : 0;
-  const narrative = buildGraphNarrative(connectedAxes, edges.length, seeds.length);
+  const narrative = buildGraphNarrative(connectedAxes, edges.length, cards.length);
 
   const graph: SeedSynergyGraph = { nodes, edges, connectedAxes, axisSeedCardCounts, density, weightedDensity, narrative };
   _graphCache.set(key, graph);
   return graph;
+}
+
+/** Build a deterministic synergy graph among seed cards (cached by seed set). */
+export function buildSeedSynergyGraph(seeds: CardRecord[]): SeedSynergyGraph {
+  return buildCandidatePoolSynergyGraph(seeds);
 }
 
 /**
@@ -215,7 +225,7 @@ export function buildDeckSynergyGraph(entries: DeckEntry[]): SeedSynergyGraph {
     if (entry.card.typeLine.includes("Land")) continue;
     if (!uniqueNonland.has(entry.card.oracleId)) uniqueNonland.set(entry.card.oracleId, entry.card);
   }
-  return buildSeedSynergyGraph([...uniqueNonland.values()]);
+  return buildCandidatePoolSynergyGraph([...uniqueNonland.values()]);
 }
 
 export function formatSynergyGraphForPrompt(graph: SeedSynergyGraph): string {
