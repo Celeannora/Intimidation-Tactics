@@ -25,9 +25,14 @@ describe("combo signals preserve the seed-role veto", () => {
   it("never selects a zero-seed-role engine even when it completes a chain and verified combo", () => {
     const seedA = makeCard("Seed A", "Create a 1/1 token. Whenever you create a token, put a +1/+1 counter on Seed A.");
     const seedB = makeCard("Seed B", "Create a 1/1 token. Whenever you create a token, put a +1/+1 counter on Seed B.");
-    // This is a strong graph engine but is not a seed payoff, resource producer,
-    // interaction, or consistency card under the seed-role classifier.
-    const vetoedEngine = makeCard("Vetoed Engine", "Create a 1/1 token. Whenever you create a token, put a +1/+1 counter on Vetoed Engine.", "8");
+    // This card has no oracle text that maps to any seed role (Payoff,
+    // Enabler, Protection, Consistency) under the classifier, even though
+    // the synthetic chain/combo context below (injected directly as test
+    // data, independent of oracle text) marks it as completing a chain and
+    // a verified combo. A vanilla beater with real token-engine text would
+    // now legitimately earn a Payoff role post-PR21 classifier fixes, so
+    // this fixture must stay text-neutral to test the veto in isolation.
+    const vetoedEngine = makeCard("Vetoed Engine", "Vanilla creature with no relevant abilities.", "8");
     const removal = makeCard("Legal Removal", "Destroy target creature.", "4");
     const seedEntries: DeckEntry[] = [
       { card: seedA, quantity: 2, board: "main" },

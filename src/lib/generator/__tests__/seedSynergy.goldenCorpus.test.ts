@@ -23,7 +23,6 @@
  * file re-derives a new (still meaningful) snapshot rather than hardcoding
  * assumptions about the Hope Estheim seed specifically.
  */
-/* eslint-disable no-undef -- Vitest executes this fixture test in Node. */
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "fs";
 import { dirname, join } from "path";
