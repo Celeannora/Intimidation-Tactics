@@ -1,0 +1,65 @@
+name: Refresh Standard meta snapshot
+
+on:
+  schedule:
+    # Off-peak UTC; the workflow opens a review PR rather than writing to main.
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  refresh-meta:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Refresh source snapshots
+        run: npm run refresh-meta
+
+      - name: Detect snapshot changes
+        id: changes
+        run: |
+          if git diff --quiet -- src/data/meta/standard-snapshot.json src/data/competitive/standard-snapshot.json; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Report unchanged snapshot
+        if: steps.changes.outputs.changed == 'false'
+        run: echo "No Standard meta snapshot changes detected."
+
+      - name: Create review pull request
+        if: steps.changes.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          branch: meta-refresh/standard
+          delete-branch: true
+          base: main
+          commit-message: "chore(meta): refresh Standard snapshots"
+          title: "chore(meta): refresh Standard meta snapshots"
+          body: |
+            Automated daily refresh of the reviewed Standard metagame snapshots.
+
+            - Archetype shares are merged from the available MTGGoldfish, MTGTop8, and Untapped.gg sources.
+            - Per-card inclusion frequencies are derived only from fetched source-published decklists.
+            - Please review data-source availability and the snapshot diff before merging.
+          add-paths: |
+            src/data/meta/standard-snapshot.json
+            src/data/competitive/standard-snapshot.json

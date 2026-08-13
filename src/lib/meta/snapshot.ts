@@ -1,5 +1,6 @@
 import type { MetaSnapshot } from "./types";
 import bundledStandardSnapshot from "../../data/meta/standard-snapshot.json";
+import { db } from "../db";
 
 /**
  * Snapshot loader.
@@ -7,16 +8,22 @@ import bundledStandardSnapshot from "../../data/meta/standard-snapshot.json";
  * Architecture: the app ships a bundled JSON snapshot (imported below) as the
  * always-available baseline. At runtime an optional remote URL may be checked
  * to fetch a fresher snapshot; if present and valid it supersedes the bundled
- * copy and is cached in Dexie. No public Standard meta source is
- * CORS-accessible client-side, so the remote path is a documented stub today.
- * See docs/META.md for the update process.
+ * copy and is cached in Dexie. The remote path uses jsDelivr's CORS-permissive
+ * mirror of this repository's reviewed snapshot, not the upstream metagame
+ * sites themselves. See docs/META.md for the update process.
  */
 
-/** The bundled June 2026 Standard snapshot, shipped with the app. */
+/** The reviewed Standard snapshot bundled with the app build. */
 export const BUNDLED_STANDARD_SNAPSHOT = bundledStandardSnapshot as MetaSnapshot;
 
 /** Upper bound on summed metaShare. Allows minor rounding / overlap slack. */
 const MAX_SHARE_SUM = 1.05;
+/** CORS-permissive mirror of this repository's reviewed, committed snapshot. */
+export const STANDARD_SNAPSHOT_CDN_URL =
+  "https://cdn.jsdelivr.net/gh/Celeannora/Intimidation-Tactics@main/src/data/meta/standard-snapshot.json";
+const REMOTE_CACHE_KEY = "standard";
+const REMOTE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const REMOTE_TIMEOUT_MS = 7_000;
 
 export interface SnapshotValidation {
   valid: boolean;
@@ -63,30 +70,62 @@ export function validateSnapshot(snapshot: MetaSnapshot): SnapshotValidation {
 /**
  * Fetch a fresher snapshot from a remote URL.
  *
- * TODO(meta): implement remote refresh. Intended algorithm: GET the URL, parse
- * JSON, run validateSnapshot(); on success cache it in Dexie keyed by
- * format+updatedAt and return it, else return null so the caller keeps the
- * bundled copy. Today this is a stub because no CORS-accessible source exists.
+ * Requests the jsDelivr mirror by default, validates the result, and records a
+ * successful response in the same Dexie database used by liveWinRate.ts.
+ * Network, parse, timeout, and validation failures intentionally resolve to
+ * null so callers can use the cached or bundled fallback without disruption.
  */
-export async function fetchRemoteSnapshot(_url: string): Promise<MetaSnapshot | null> {
-  // TODO(meta): fetch + validate + Dexie-cache; returning null keeps the bundled snapshot.
-  return null;
+export async function fetchRemoteSnapshot(
+  url = STANDARD_SNAPSHOT_CDN_URL,
+  fetchImpl: typeof fetch = fetch,
+): Promise<MetaSnapshot | null> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), REMOTE_TIMEOUT_MS);
+  try {
+    const response = await fetchImpl(url, {
+      headers: { Accept: "application/json" },
+      signal: controller.signal,
+    });
+    if (!response.ok) return null;
+    const snapshot = await response.json() as MetaSnapshot;
+    if (!validateSnapshot(snapshot).valid) return null;
+    try {
+      await db.metaSnapshot.put({ key: REMOTE_CACHE_KEY, snapshot, cachedAt: Date.now() });
+    } catch {
+      /* IndexedDB unavailable: a valid network response remains usable. */
+    }
+    return snapshot;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function readRemoteCache(): Promise<{ snapshot: MetaSnapshot; cachedAt: number } | null> {
+  try {
+    const cached = await db.metaSnapshot.get(REMOTE_CACHE_KEY);
+    if (!cached || !validateSnapshot(cached.snapshot).valid) return null;
+    return { snapshot: cached.snapshot, cachedAt: cached.cachedAt };
+  } catch {
+    return null;
+  }
 }
 
 /**
  * Get the active meta snapshot.
  *
- * Returns the bundled snapshot today. When `remoteUrl` is provided, attempts a
- * remote refresh first and falls back to the bundled copy if the remote is
- * unavailable or fails validation.
- *
- * TODO(meta): consult a Dexie cache before hitting the network, and expose a
- * "last refreshed" timestamp to the UI.
+ * Cache-first accessor for the CDN mirror. A cache newer than 24 hours avoids a
+ * startup request; a stale cache is retained as a fallback if its refresh
+ * fails. Passing an empty string disables remote loading explicitly.
  */
-export async function getMetaSnapshot(remoteUrl?: string): Promise<MetaSnapshot> {
+export async function getMetaSnapshot(remoteUrl = STANDARD_SNAPSHOT_CDN_URL): Promise<MetaSnapshot> {
   if (remoteUrl) {
+    const cached = await readRemoteCache();
+    if (cached && Date.now() - cached.cachedAt < REMOTE_CACHE_TTL_MS) return cached.snapshot;
     const remote = await fetchRemoteSnapshot(remoteUrl);
     if (remote && validateSnapshot(remote).valid) return remote;
+    if (cached) return cached.snapshot;
   }
   return BUNDLED_STANDARD_SNAPSHOT;
 }

@@ -44,6 +44,12 @@ export interface MetaArchetype {
   metaShare: number;
   /** Badaro-style identifying card names (the cards that "name" the deck). */
   keyCards: string[];
+  /**
+   * Representative mainboard card names from source-published decklists.
+   * Optional so older manually curated snapshots remain valid; consumers that
+   * support card-list overlap should prefer this fuller evidence over keyCards.
+   */
+  cardNames?: string[];
   /** Card names / effects this deck commonly uses to interact (removal, counters, etc.). */
   commonInteraction: string[];
   /** How fast the deck typically wins. */

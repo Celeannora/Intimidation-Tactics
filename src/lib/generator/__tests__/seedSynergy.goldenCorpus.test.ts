@@ -25,7 +25,8 @@
  */
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "fs";
-import { join } from "path";
+import { dirname, join } from "path";
+import { fileURLToPath } from "url";
 import type { CardRecord } from "../../types";
 import {
   checkFeasibility,
@@ -37,7 +38,7 @@ import {
 } from "../seedSynergy";
 import type { DeckEntry } from "../../legality";
 
-const FIXTURE_PATH = join(__dirname, "..", "..", "..", "test", "fixtures", "standard-pool.json");
+const FIXTURE_PATH = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "test", "fixtures", "standard-pool.json");
 
 // Same seed used across this branch's Hope Estheim / Space-Time Anomaly
 // build. Swappable: this test's job is to snapshot whatever the classifier
