@@ -6,6 +6,12 @@ import type { MechanicAxis, AxisConfidence } from "./synergyModel";
 import type { ConstructedFormat, PlayEnvironment } from "../formats";
 import type { LiveWinRateDataset } from "../meta/liveWinRate";
 import type { SeedSynergyGraph } from "../analysis/synergyGraph";
+import type {
+  SeedPackage,
+  SeedRoleTargets,
+  ResourceSpec,
+  SeedAnthemSpec,
+} from "./seedSynergy";
 
 export type GenerationEngine = "offline" | "ai";
 export type SpeedProfile = "fast" | "midrange" | "slow";
@@ -167,6 +173,25 @@ export interface GenerateOptions {
    * "data not loaded" rather than synthesizing a number.
    */
   liveWinRate?: LiveWinRateDataset | null;
+
+  /**
+   * Internal, generator-computed hook — never set this directly from calling
+   * code. When seedEntries is non-empty, generateOne() derives this context
+   * (seed package, inferred payoff resource, inferred anthem synergy) purely
+   * from the supplied seed cards' own Oracle text and passes it through
+   * GenerateOptions so cardScore()/cardScoreDetail() in weights.ts can apply
+   * role-gap-aware seed synergy scoring (see seedSynergy.ts) without every
+   * call site needing its own plumbing. Absent (or seedPackage empty) means
+   * "no seed, behave exactly as before" — this keeps seed-synergy scoring
+   * strictly additive and opt-in, and it is derived fresh for every seed,
+   * never hardcoded to any specific deck.
+   */
+  seedSynergyContext?: {
+    seedPackage: SeedPackage;
+    resourceSpec: ResourceSpec | null;
+    anthemSpec: SeedAnthemSpec | null;
+    roleTargets: SeedRoleTargets;
+  };
 }
 
 
@@ -191,6 +216,14 @@ export interface GenerationDiagnostic {
    * one rather than treating every entry in {@link primaryAxes} as equal.
    */
   axisConfidence?: AxisConfidence[];
+  /**
+   * Present only when seedEntries produced a seedSynergyContext (see
+   * GenerateOptions.seedSynergyContext). Structural feasibility warnings/
+   * failures for the seed's role balance and color-source demands, from
+   * seedSynergy.ts's checkFeasibility() — computed generically from
+   * whatever seed was supplied, never specific to any one deck.
+   */
+  seedFeasibilityFlags?: { severity: "fail" | "warn"; message: string }[];
 }
 
 export interface CardScoreContribution {

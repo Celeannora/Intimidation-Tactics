@@ -23,10 +23,16 @@ Authority of the Consuls' Oracle text) and re-scores the *entire remaining
 pool* after every single pick against the deck's current role-gap and
 payoff-saturation state.
 
-`scripts/hopeEstheimComparison.ts` runs both scorers against the same real
+`scripts/hopeEstheimComparison.ts` ran both scorers against the same real
 Standard-legal WU card pool (pulled from the Scryfall API — see
-`pool_data/` at the workspace root, not checked in here) and logs a
-card-by-card divergence report.
+`pool_data/` at the workspace root, not checked in here) and logged a
+card-by-card divergence report. That one-off comparison script has since
+been removed: once the fixes below landed, its logic was wired directly
+into the generic pipeline (`generator.ts` + `weights.ts`, driven by
+`seedSynergy.ts`) so any seed gets this scoring automatically via a plain
+`generateDeck()` call, with no per-deck script required. This document is
+kept as a historical record of the proof-of-concept that motivated that
+wiring.
 
 ## Headline finding
 
@@ -518,8 +524,11 @@ leaving some fragmentation in place.
 ### Final verified result
 
 With all four fixes in place (rerun logged in full at
-`comparison_run5.log` in the workspace, not committed — regenerate via
-`npx tsx scripts/hopeEstheimComparison.ts` if needed):
+`comparison_run5.log` in the workspace, not committed — captured before the
+one-off comparison script was removed; the same numbers are now
+reproducible by calling `generateDeck()` directly with the seed passed as
+`seedEntries`, since the scoring/feasibility logic now lives in the
+generic pipeline):
 
 | Role | Count | Target band | Status |
 |---|---|---|---|

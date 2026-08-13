@@ -15,6 +15,7 @@ import {
 } from "../config/scoringConfig";
 import { computeMetaPerformance } from "../meta/metaScoring";
 import { computeCardAdvantageScore } from "../scoreEngine";
+import { scoreCandidate, tallyRoleCounts } from "./seedSynergy";
 import {
   ARCHETYPE_PROFILES,
   computeProfileLoss,
@@ -265,6 +266,15 @@ export interface CardScoreDetail {
   broadTagBonus: number;
   cmcPenalty: number;
   pricePenalty: number;
+  /**
+   * Only populated when options.seedSynergyContext is set (i.e. this
+   * generation call was given seedEntries). Role-gap-aware multiplier/bonus
+   * from seedSynergy.ts::scoreCandidate, applied on top of the generic
+   * score above. -Infinity means the card fills zero seed roles and is
+   * hard-rejected regardless of standalone power — callers filtering
+   * candidates by score must treat -Infinity as "exclude", not clamp it.
+   */
+  seedSynergyNote?: string;
 }
 
 export function cardScoreDetail(
@@ -322,7 +332,7 @@ export function cardScoreDetail(
   const flexibilityContribution = cardCfg.flexibilityScalar * flexibility;
   const ladderContribution = cardCfg.ladderScalar * ladder;
 
-  const total =
+  const genericTotal =
     rolePowerContribution +
     directionalContribution +
     compositionBonus +
@@ -337,6 +347,31 @@ export function cardScoreDetail(
     cmcPen -
     pricePen -
     deadCardPen;
+
+  // Seed synergy layer — strictly opt-in and additive-on-top: only runs when
+  // this generation call supplied seedEntries (options.seedSynergyContext,
+  // derived generically in generator.ts from whatever seed cards were given,
+  // never hardcoded to a specific deck). It re-expresses the generic score
+  // above through seedSynergy.ts's role-gap multiplier and rejects any
+  // nonland card that fills zero seed roles, regardless of standalone power.
+  let total = genericTotal;
+  let seedSynergyNote: string | undefined;
+  const seedCtx = options.seedSynergyContext;
+  if (seedCtx && seedCtx.seedPackage.length > 0 && !card.typeLine.includes("Land")) {
+    const counts = tallyRoleCounts(deckSoFar, seedCtx.seedPackage, seedCtx.resourceSpec);
+    const seedResult = scoreCandidate(
+      card,
+      counts,
+      genericTotal,
+      seedCtx.seedPackage,
+      seedCtx.resourceSpec,
+      seedCtx.roleTargets,
+      undefined,
+      seedCtx.anthemSpec
+    );
+    total = seedResult.final;
+    seedSynergyNote = seedResult.note;
+  }
 
   return {
     total,
@@ -362,6 +397,7 @@ export function cardScoreDetail(
     broadTagBonus: broadBonus,
     cmcPenalty: cmcPen,
     pricePenalty: pricePen + deadCardPen,
+    seedSynergyNote,
   };
 }
 

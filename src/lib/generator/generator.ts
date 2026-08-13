@@ -36,6 +36,15 @@ import { assertOfflineStageOrder, enforceRuleOfNine } from "./pipeline";
 import { validateSynergyPairs } from "./synergyConstraints";
 import { computeMythicViability } from "../mythicViability";
 import { computeTempoScore, computeCardAdvantageScore } from "../scoreEngine";
+import {
+  classifySeedRoles,
+  inferResourceSpec,
+  inferSeedAnthemSynergy,
+  checkFeasibility,
+  tallyRoleCounts,
+  SEED_ROLE_TARGETS,
+  type SeedPackage,
+} from "./seedSynergy";
 
 type RoleSlot = "threats" | "removal" | "boardWipes" | "counterspells" | "cardDraw" | "ramp";
 
@@ -169,6 +178,46 @@ export function generateDeck(
   allCards: CardRecord[]
 ): GenerateResult {
   return generateOne(options, allCards, 0xc0ffee);
+}
+
+/**
+ * Derive a seed-synergy scoring context purely from the seed cards a caller
+ * supplied via options.seedEntries — no deck-specific data, names, or color
+ * assumptions ever appear here. This is what lets classifySeedRoles(),
+ * scoreCandidate(), and checkFeasibility() (seedSynergy.ts) run for ANY seed,
+ * not just the Hope Estheim / Space-Time Anomaly example: the seed package,
+ * inferred payoff resource, and inferred anthem synergy are all computed
+ * fresh from whatever cards are in `seedEntries` and their own Oracle text.
+ *
+ * Returns undefined when there is no seed (seedEntries empty) so downstream
+ * scoring falls back to today's seed-unaware behaviour unchanged.
+ */
+function deriveSeedSynergyContext(
+  seedEntries: DeckEntry[]
+): GenerateOptions["seedSynergyContext"] {
+  if (seedEntries.length === 0) return undefined;
+
+  const seedPackage: SeedPackage = seedEntries.map((e) => ({
+    name: e.card.name,
+    quantity: e.quantity,
+  }));
+  const seedCards = seedEntries.map((e) => e.card);
+
+  // A seed card's OWN role among its seed-mates decides whether it counts as
+  // a "payoff" for resource inference — mirrors the reference implementation
+  // in the (now-removed) comparison script, but computed generically here.
+  const seedPayoffCards = seedCards.filter((card) =>
+    classifySeedRoles(card, seedPackage).includes("Payoff")
+  );
+  const resourceSpec = inferResourceSpec(seedPayoffCards);
+  const anthemSpec = inferSeedAnthemSynergy(seedCards);
+
+  return {
+    seedPackage,
+    resourceSpec,
+    anthemSpec,
+    roleTargets: SEED_ROLE_TARGETS,
+  };
 }
 
 function generateOne(
@@ -489,11 +538,24 @@ function generateOne(
   const focusEntries = buildFocusEntries(focusSourceEntries, options, target, targetAvgCmc, reasoning);
   const focusedCards = focusEntries.map((e) => e.card);
 
+  // Seed-synergy context: derived fresh from THIS call's seedEntries only,
+  // so role classification / resource cadence / feasibility checks are never
+  // tied to any particular deck — see deriveSeedSynergyContext() above.
+  const seedSynergyContext = deriveSeedSynergyContext(seedEntries);
+  if (seedSynergyContext) {
+    reasoning.push(
+      `Seed synergy: classifying candidates against ${seedSynergyContext.seedPackage.length} seed card(s)` +
+        (seedSynergyContext.resourceSpec ? `; inferred payoff resource "${seedSynergyContext.resourceSpec.name}"` : "") +
+        (seedSynergyContext.anthemSpec ? `; inferred anthem synergy for ${seedSynergyContext.anthemSpec.subtype}s` : "")
+    );
+  }
+
   const effectiveOptions: GenerateOptions = {
     ...options,
     colors: effectiveColors,
     focusEntries,
     preferEntries: [...legalPreferEntries, ...fuzzedPreferEntries],
+    seedSynergyContext,
   };
 
   // Build pool, exclude seed-locked and focus-pinned oracleIds.
@@ -880,6 +942,30 @@ function generateOne(
     );
   }
 
+  // Seed-synergy feasibility gate: color-agnostic, deck-agnostic structural
+  // check (recommendColorSources() under the hood) run on the ACTUAL finished
+  // deck. Only active when this call was given a seed (seedSynergyContext set
+  // above). See seedSynergy.ts::checkFeasibility — already generalized.
+  let seedFeasibilityFlags: { severity: "fail" | "warn"; message: string }[] | undefined;
+  if (seedSynergyContext) {
+    const finalCounts = tallyRoleCounts(
+      finalEntries.filter((e) => e.board === "main"),
+      seedSynergyContext.seedPackage,
+      seedSynergyContext.resourceSpec
+    );
+    const flags = checkFeasibility(
+      finalCounts,
+      finalEntries.filter((e) => e.board === "main"),
+      seedSynergyContext.roleTargets
+    );
+    if (flags.length > 0) {
+      seedFeasibilityFlags = flags;
+      reasoning.push(
+        ...flags.map((f) => `Seed feasibility [${f.severity}]: ${f.message}`)
+      );
+    }
+  }
+
   const diagnostics: GenerationDiagnostic = {
     reasoning,
     deckScore: finalScore.total,
@@ -889,6 +975,7 @@ function generateOne(
     optimizerSteps: optResult.steps,
     primaryAxes: deckAxes,
     axisConfidence,
+    seedFeasibilityFlags,
   };
 
   return {
