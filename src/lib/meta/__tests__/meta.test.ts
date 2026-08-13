@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import type { CardRecord, ManaColor } from "../../types";
 import type { DeckEntry } from "../../legality";
 import { generateDeck } from "../../generator/generator";
@@ -11,6 +11,7 @@ import {
 } from "../snapshot";
 import { analyzeCounters } from "../counterAnalysis";
 import type { MetaSnapshot, CounterPosture } from "../types";
+import { db } from "../../db";
 
 function makeCard(
   name: string,
@@ -62,6 +63,9 @@ function makeBasic(name: string): CardRecord {
 }
 
 describe("meta snapshot loader", () => {
+  beforeEach(async () => {
+    await db.metaSnapshot.clear();
+  });
   it("ships a valid bundled June 2026 Standard snapshot", () => {
     expect(BUNDLED_STANDARD_SNAPSHOT.schemaVersion).toBe(1);
     expect(BUNDLED_STANDARD_SNAPSHOT.format).toBe("standard");
@@ -71,13 +75,13 @@ describe("meta snapshot loader", () => {
     expect(result.errors).toEqual([]);
   });
 
-  it("includes the expected headline archetypes with sane shares", () => {
-    const ids = BUNDLED_STANDARD_SNAPSHOT.archetypes.map((a) => a.id);
-    expect(ids).toContain("izzet-prowess");
-    expect(ids).toContain("mono-green-landfall");
-    const prowess = BUNDLED_STANDARD_SNAPSHOT.archetypes.find((a) => a.id === "izzet-prowess");
-    expect(prowess?.metaShare).toBeGreaterThan(0);
-    expect(prowess?.keyCards.length).toBeGreaterThan(0);
+  it("includes sourced archetypes with sane shares and representative cards", () => {
+    expect(BUNDLED_STANDARD_SNAPSHOT.source).toContain("server-side refresh");
+    const headline = BUNDLED_STANDARD_SNAPSHOT.archetypes[0];
+    expect(headline.id).toBeTruthy();
+    expect(headline.metaShare).toBeGreaterThan(0);
+    expect(headline.keyCards.length).toBeGreaterThan(0);
+    expect(headline.cardNames?.length).toBeGreaterThan(0);
   });
 
   it("rejects an unsupported schema version", () => {
@@ -100,12 +104,34 @@ describe("meta snapshot loader", () => {
     expect(result.errors.some((e) => e.includes("metaShare"))).toBe(true);
   });
 
-  it("fetchRemoteSnapshot is a stub returning null", async () => {
-    expect(await fetchRemoteSnapshot("https://example.invalid/meta.json")).toBeNull();
+  it("fetchRemoteSnapshot returns and caches a valid CDN response", async () => {
+    const fetchImpl = (async () => ({
+      ok: true,
+      status: 200,
+      json: async () => BUNDLED_STANDARD_SNAPSHOT,
+    })) as unknown as typeof fetch;
+    const snapshot = await fetchRemoteSnapshot("https://cdn.example.test/meta.json", fetchImpl);
+    expect(snapshot).toEqual(BUNDLED_STANDARD_SNAPSHOT);
+    expect((await db.metaSnapshot.get("standard"))?.snapshot).toEqual(BUNDLED_STANDARD_SNAPSHOT);
+  });
+
+  it("fetchRemoteSnapshot returns null when the request fails", async () => {
+    const fetchImpl = (async () => { throw new Error("network down"); }) as unknown as typeof fetch;
+    await expect(fetchRemoteSnapshot("https://cdn.example.test/meta.json", fetchImpl)).resolves.toBeNull();
+  });
+
+  it("fetchRemoteSnapshot returns null when validation fails", async () => {
+    const malformed = { ...BUNDLED_STANDARD_SNAPSHOT, schemaVersion: 2 };
+    const fetchImpl = (async () => ({
+      ok: true,
+      status: 200,
+      json: async () => malformed,
+    })) as unknown as typeof fetch;
+    await expect(fetchRemoteSnapshot("https://cdn.example.test/meta.json", fetchImpl)).resolves.toBeNull();
   });
 
   it("getMetaSnapshot returns the bundled snapshot when no remote is given", async () => {
-    expect(await getMetaSnapshot()).toBe(BUNDLED_STANDARD_SNAPSHOT);
+    expect(await getMetaSnapshot("")).toBe(BUNDLED_STANDARD_SNAPSHOT);
   });
 
   it("getMetaSnapshot falls back to bundled when remote yields nothing", async () => {
@@ -142,11 +168,15 @@ describe("analyzeCounters", () => {
     }
   });
 
-  it("emits no suggestions for the aggregate 'other' bucket", () => {
+  it("handles an aggregate 'other' bucket conservatively when the source publishes one", () => {
     const report = analyzeCounters(deck, pool, BUNDLED_STANDARD_SNAPSHOT);
     const other = report.perArchetype.find((e) => e.archetype.id === "other");
-    expect(other?.suggestions).toEqual([]);
-    expect(other?.estimatedPosture).toBe("unknown");
+    if (other) {
+      expect(other.suggestions).toEqual([]);
+      expect(other.estimatedPosture).toBe("unknown");
+    } else {
+      expect(report.perArchetype.every((entry) => entry.archetype.id !== "other")).toBe(true);
+    }
   });
 
   it("caps suggestions per archetype at the requested limit", () => {

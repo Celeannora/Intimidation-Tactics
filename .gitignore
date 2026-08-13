@@ -31,3 +31,6 @@ Thumbs.db
 .vscode/
 .idea/
 *.swp
+
+# Meta refresh raw response cache
+/.cache/meta-refresh/

@@ -1,7 +1,7 @@
 # Meta-Snapshot + Counter-Analysis Subsystem
 
-> Status: **scaffold**. Interface-complete with documented `TODO(meta):` markers.
-> No behavior change to existing code; the generator `metaTargets` hook is a no-op.
+> Status: **scheduled server-side refresh**. The generator `metaTargets` hook
+> remains a no-op; snapshot refresh does not alter generation policy by itself.
 
 ## Why a bundled snapshot
 
@@ -14,11 +14,13 @@ seam to pull fresher data later.
 ## Architecture
 
 ```
-src/data/meta/standard-snapshot.json   real June 2026 Standard sample data
+src/data/meta/standard-snapshot.json   reviewed Standard archetype snapshot
 src/lib/meta/types.ts                   MetaSnapshot / MetaArchetype / CounterReport types
-src/lib/meta/snapshot.ts                loader: bundled import, validate, remote-refresh stub
+src/lib/meta/snapshot.ts                loader: bundled import, validation, CDN refresh + Dexie cache
 src/lib/meta/counterAnalysis.ts         analyzeCounters(): naive posture + tech suggestions
 src/lib/meta/__tests__/meta.test.ts     tests for the implemented parts
+scripts/refreshMetaSnapshot.ts          Node-only multi-source refresh + raw-response cache
+.github/workflows/refresh-meta.yml      daily refresh that opens a review PR
 ```
 
 - **`types.ts`** — `MetaSnapshot { schemaVersion: 1; format: "standard"; updatedAt; source; archetypes[] }`,
@@ -26,7 +28,16 @@ src/lib/meta/__tests__/meta.test.ts     tests for the implemented parts
   `keyCards`), and the `CounterReport` / `CounterSuggestion` output shapes.
 - **`snapshot.ts`** — imports the bundled JSON, exposes `getMetaSnapshot(remoteUrl?)`,
   `validateSnapshot()` (checks `schemaVersion`, `format`, and that shares sum ≤ 1.05),
-  and `fetchRemoteSnapshot(url)` (stub returning `null`).
+  and `fetchRemoteSnapshot(url)`. The default remote is the CORS-permissive
+  jsDelivr mirror at
+  `https://cdn.jsdelivr.net/gh/Celeannora/Intimidation-Tactics@main/src/data/meta/standard-snapshot.json`.
+  Valid remote data is cached in Dexie for 24 hours; a timeout, malformed
+  response, or validation failure falls back to cache and then the bundle.
+- **`refreshMetaSnapshot.ts`** — reads public MTGGoldfish, MTGTop8, and Untapped.gg
+  Standard pages outside the browser, rate limits requests, caches raw responses
+  under `.cache/meta-refresh/`, and validates before writing either snapshot.
+  A source that fails or changes page structure is logged and omitted; all three
+  failing aborts without overwriting tracked data.
 - **`counterAnalysis.ts`** — `analyzeCounters(deck, pool, snapshot)` returns a
   structurally valid `CounterReport`. Posture is a naive speed/macro heuristic;
   suggestions reuse the existing `suggestTechCardsV2` engine.
@@ -41,17 +52,22 @@ src/lib/meta/__tests__/meta.test.ts     tests for the implemented parts
 
 ## Snapshot update process
 
-- **Now (manual):** hand-edit `standard-snapshot.json` from current sources
-  (MTGGoldfish / MTGTop8 / WotC Metagame Mentor), bump `updatedAt`, keep `source`
-  honest, and ensure shares sum ≤ 1.05. `validateSnapshot()` is the guard.
-- **Later (scripted):** a build/CI step regenerates the JSON from a data source,
-  then `fetchRemoteSnapshot(url)` lets the running app pull updates between
-  releases, caching in Dexie.
+- **Local:** run `npm run refresh-meta`. It follows each available source's
+  `robots.txt` directives, waits between uncached requests, and reuses the
+  local raw-response cache to avoid repeated development traffic.
+- **CI:** `.github/workflows/refresh-meta.yml` runs daily at 06:00 UTC and on
+  `workflow_dispatch`. Changed snapshots are committed only to a
+  `meta-refresh/standard` branch and opened as a pull request against `main`;
+  the workflow never commits directly to `main`.
+- **Data boundaries:** archetype shares are a merge of sources that parse
+  successfully. Per-card frequency is derived only from source-published
+  representative decklists (currently MTGGoldfish); it is an inclusion proxy,
+  not a match-win-rate claim. Untapped contributes only when its public page
+  still embeds a parseable archetype dataset.
 
 ## Implementation TODO list (search `TODO(meta):`)
 
-1. `snapshot.ts` — implement `fetchRemoteSnapshot`: GET + parse + `validateSnapshot`
-   + Dexie cache keyed by `format`+`updatedAt`; surface a "last refreshed" time.
+1. `snapshot.ts` — surface a "last refreshed" timestamp to the UI.
 2. `counterAnalysis.ts` — replace the speed-only posture with a real model
    (key-card answer coverage, goldfish clock, stored `MatchResult` win rates).
 3. `counterAnalysis.ts` — rank suggestions against each archetype's
