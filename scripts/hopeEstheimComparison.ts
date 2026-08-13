@@ -106,8 +106,8 @@ function scoreWithSeed(
   );
 }
 
-function feasibility(counts: DeckRoleCounts, colorSources: { w: number; u: number }) {
-  return checkFeasibility(counts, colorSources, SEED_ROLE_TARGETS);
+function feasibility(counts: DeckRoleCounts, deckEntries: DeckEntry[] = []) {
+  return checkFeasibility(counts, deckEntries, SEED_ROLE_TARGETS);
 }
 
 // Scryfall pre-marks preview/spoiler sets as standard-legal weeks before
@@ -554,7 +554,7 @@ function buildWithBatchedSeedChain(pool: CardRecord[], seedCards: CardRecord[]):
     if (slotsSinceReanalysis >= BATCH_SLOTS) {
       adjustments = reanalyzeDeck(entries);
       checkpoint++;
-      const flags = feasibility(counts, { w: 0, u: 0 })
+      const flags = feasibility(counts, [])
         .filter((f) => !f.message.includes("Mana base") && !f.message.includes("Color source"))
         .map((f) => `${f.severity.toUpperCase()}: ${f.message}`);
       log.push(
@@ -945,8 +945,30 @@ function main() {
   const onlySynergy = [...synergyPicks].filter((n) => !existingPicks.has(n));
 
   const existingCounts = tally(existing.entries);
-  const feasibilityExisting = feasibility(existingCounts, { w: 14, u: 12 });
-  const feasibilitySynergy = feasibility(synergyFirst.counts, { w: 14, u: 12 });
+  const existingWithManaBase = addManaBase(existing.entries, allLands, 24);
+  const synergyWithManaBase = addManaBase(synergyFirst.entries, allLands, 24);
+  // .counts / tally() are nonland-only tallies taken before addManaBase runs,
+  // so `lands` is always 0 there -- patch in the real land total from each
+  // variant's own mana base or the land-count-band feasibility check
+  // spuriously fires on every deck regardless of its actual land count.
+  const landTotalOf = (entries: DeckEntry[]) =>
+    entries.reduce((sum, e) => sum + (e.card.typeLine.includes("Land") ? e.quantity : 0), 0);
+  const feasibilityExisting = feasibility(
+    { ...existingCounts, lands: landTotalOf(existingWithManaBase.entries) },
+    existingWithManaBase.entries,
+  );
+  const feasibilitySynergy = feasibility(
+    { ...synergyFirst.counts, lands: landTotalOf(synergyWithManaBase.entries) },
+    synergyWithManaBase.entries,
+  );
+  // The batched seed-chain build is the actual shipped decklist, so its
+  // feasibility must be checked against the REAL 24-land mana base already
+  // constructed above (manaBase.entries) -- not skipped like the other two
+  // comparison variants, since this is what ships to the player.
+  const feasibilitySeedChain = feasibility(
+    { ...seedChain.counts, lands: landTotalOf(manaBase.entries) },
+    manaBase.entries,
+  );
 
   const seedTitleLabel = SEED_PACKAGE.map((c) => c.name).join(" / ");
   const report: string[] = [];
@@ -968,6 +990,10 @@ function main() {
   report.push("## Feasibility flags — synergy-first engine's build");
   for (const f of feasibilitySynergy) report.push(`- [${f.severity.toUpperCase()}] ${f.message}`);
   if (feasibilitySynergy.length === 0) report.push("- none");
+  report.push("");
+  report.push("## Feasibility flags — batched seed-chain engine's build (SHIPPED DECKLIST, real 24-land mana base)");
+  for (const f of feasibilitySeedChain) report.push(`- [${f.severity.toUpperCase()}] ${f.message}`);
+  if (feasibilitySeedChain.length === 0) report.push("- none");
   report.push("");
   report.push("## Pick log — existing composite engine");
   report.push(...existing.log.map((l) => `- ${l}`));

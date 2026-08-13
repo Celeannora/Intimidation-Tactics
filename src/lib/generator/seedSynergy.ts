@@ -8,7 +8,9 @@
  */
 
 import type { CardRecord } from "../types";
+import type { DeckEntry } from "../legality";
 import { assignRoles } from "../roles";
+import { recommendColorSources } from "../manaBase";
 
 // ── Seed configuration and role model ───────────────────────────────────
 
@@ -499,6 +501,75 @@ export interface ResourceSpec {
 // Only fall through to one-shot when the keyword is a truly single-use grant.
 const TEMPORARY_GRANT_HINT = /until end of turn|this turn\b/;
 
+// ── Shared clause-semantics primitive ───────────────────────────────────
+// A single sentence of Magic oracle text can carry a resource reference in
+// FOUR structurally different roles, and only one of them (the effect of a
+// trigger, or a bare one-shot effect) is actual evidence of production:
+//   1. Trigger CONDITION  — "Whenever you gain life, <effect>"        (reactive, not production)
+//   2. Trigger EFFECT     — "Whenever <event>, you gain life."        (production)
+//   3. Static CONDITION   — "As long as you have 10 or more life, …"  (state check, not production)
+//   4. Activated-ability COST — "Pay 3 life: <effect>"                (resource is SPENT, not produced)
+// Every classifier in this file must reason about the same clause split, or
+// the same condition/effect conflation bug reappears in a new call site each
+// time (as happened with the reactive-trigger fix and the still-open static-
+// condition and activated-cost gaps). `stripConditionClauses` is the single
+// owner of this distinction: it returns ONLY the text that is actually
+// eligible to count as production evidence, with every condition/cost clause
+// removed. Callers must test patterns against its output, never raw text.
+const STATIC_CONDITION_PATTERN = /\b(?:as long as|if you have|if you've|while you have)\b[^,.;]*/gi;
+const ACTIVATED_COST_PATTERN = /^[^:]*:/; // text before the first top-level ":" is a cost, not an effect
+
+function splitTriggerClause(sentence: string): { condition: string; effect: string } | null {
+  const wheneverMatch = /\bwhenever\b/.exec(sentence);
+  if (!wheneverMatch) return null;
+  const delimiterIndex = (() => {
+    const comma = sentence.indexOf(",", wheneverMatch.index);
+    const semicolon = sentence.indexOf(";", wheneverMatch.index);
+    if (comma === -1) return semicolon;
+    if (semicolon === -1) return comma;
+    return Math.min(comma, semicolon);
+  })();
+  if (delimiterIndex === -1) return null;
+  return {
+    condition: sentence.slice(wheneverMatch.index, delimiterIndex),
+    effect: sentence.slice(delimiterIndex + 1),
+  };
+}
+
+/**
+ * Reduce a sentence (or full oracle text) to only the substrings that are
+ * structurally eligible to be production evidence: trigger effect clauses,
+ * one-shot spell/ETB effects, and static ability bodies -- with trigger
+ * conditions, "as long as"/"if you have" static conditions, and activated-
+ * ability costs (text before a top-level ":") stripped out. This is the
+ * single shared primitive; every resourceCadence code path must route
+ * through it instead of re-deriving its own clause boundary logic.
+ */
+function stripConditionClauses(text: string): string {
+  return text
+    .split(/(?<=\.)\s+/)
+    .map((sentence) => {
+      // Activated-ability cost: "Pay 3 life: draw a card." The resource is
+      // SPENT to pay the cost, not produced -- only the post-":" effect can
+      // count as evidence.
+      const costMatch = ACTIVATED_COST_PATTERN.exec(sentence);
+      let working = costMatch ? sentence.slice(costMatch[0].length) : sentence;
+
+      // Trigger condition vs. effect: only keep the effect half.
+      const trigger = splitTriggerClause(working);
+      if (trigger) working = trigger.effect;
+
+      // Static "as long as / if you have" conditions anywhere in the
+      // (remaining) sentence are state checks, never production, regardless
+      // of whether the sentence is a trigger, a static ability, or an
+      // activated effect. Strip them unconditionally.
+      working = working.replace(STATIC_CONDITION_PATTERN, "");
+
+      return working;
+    })
+    .join(" ");
+}
+
 export function resourceCadence(card: CardRecord, spec: ResourceSpec): ResourceCadence {
   const text = (card.oracleText ?? "").toLowerCase();
   const isCreature = card.typeLine.includes("Creature");
@@ -519,50 +590,25 @@ export function resourceCadence(card: CardRecord, spec: ResourceSpec): ResourceC
     // EFFECT clause. A trigger conditioned on the resource already having
     // been produced by something else is a payoff/consumer, not a producer
     // of that resource -- e.g. "Whenever you gain life, put a +1/+1 counter
-    // on this creature" never causes any life gain itself. Split on the
-    // first comma (the conventional trigger/effect boundary in Magic
-    // templating) and require the production pattern to still match the
-    // effect side; a trigger that produces the resource directly ("At the
-    // beginning of your upkeep, you gain 2 life") keeps matching normally.
-    const wheneverMatch = /\bwhenever\b/.exec(sentence);
-    const commaIndex = wheneverMatch ? sentence.indexOf(",", wheneverMatch.index) : -1;
-    if (wheneverMatch && commaIndex !== -1) {
-      const condition = sentence.slice(wheneverMatch.index, commaIndex);
-      const effect = sentence.slice(commaIndex + 1);
-      // If the resource/production pattern only matches inside the trigger's
-      // own CONDITION clause, and not in the EFFECT clause that follows the
-      // comma, then this card is reacting to the resource (already produced
-      // by something else) rather than producing it. Only the effect clause
-      // counts as evidence of real production.
-      if (spec.triggerProductionPattern.test(condition) && !spec.triggerProductionPattern.test(effect)) {
-        continue;
-      }
+    // on this creature" never causes any life gain itself. Only the effect
+    // clause (after the trigger's comma/semicolon) counts as evidence of
+    // real production; a trigger that produces the resource directly ("At
+    // the beginning of your upkeep, you gain 2 life") keeps matching
+    // normally since it has no condition clause to strip.
+    const trigger = splitTriggerClause(sentence);
+    if (trigger && spec.triggerProductionPattern.test(trigger.condition) && !spec.triggerProductionPattern.test(trigger.effect)) {
+      continue;
     }
     return /opponent|each player/.test(sentence) ? "repeatable-conditional" : "repeatable-proactive";
   }
-  // The one-shot fallback below scans raw card text for the production
-  // pattern, so it needs the same reactive-condition-clause exclusion as the
-  // trigger loop above -- otherwise a card like "Whenever you gain life, put
-  // a +1/+1 counter on this creature" (condition-only reference, no actual
-  // production) would fall through and re-trigger the same false positive
-  // here even after being correctly rejected as a repeatable trigger.
-  const oneShotEvidenceText = text
-    .split(/(?<=\.)\s+/)
-    .map((sentence) => {
-      const wheneverMatch = /\bwhenever\b/.exec(sentence);
-      const commaIndex = wheneverMatch ? sentence.indexOf(",", wheneverMatch.index) : -1;
-      if (wheneverMatch && commaIndex !== -1) {
-        const condition = sentence.slice(wheneverMatch.index, commaIndex);
-        const effect = sentence.slice(commaIndex + 1);
-        if (spec.triggerProductionPattern.test(condition) && !spec.triggerProductionPattern.test(effect)) {
-          // Drop only the reactive condition clause; keep the effect clause
-          // (and the rest of the sentence) in play for one-shot detection.
-          return sentence.slice(0, wheneverMatch.index) + effect;
-        }
-      }
-      return sentence;
-    })
-    .join(" ");
+  // The one-shot fallback scans oracle text for the production pattern, so
+  // it must see the SAME clause-stripped evidence as the trigger loop above
+  // -- routed through the single shared `stripConditionClauses` primitive so
+  // reactive trigger conditions, static "as long as you have X life"
+  // conditions, and activated-ability costs are ALL excluded uniformly,
+  // rather than each call site re-deriving its own partial exclusion (which
+  // is how this bug class shipped three times in three different spots).
+  const oneShotEvidenceText = stripConditionClauses(text);
   if (spec.oneShotProductionPattern.test(oneShotEvidenceText) || hasStaticProducer) return "one-shot";
   return null;
 }
@@ -914,9 +960,18 @@ export interface FeasibilityFlag {
   message: string;
 }
 
+/**
+ * Color-source feasibility input. Callers pass the deck's current entries
+ * (any color combination, any pip count) rather than hand-picked WU counts,
+ * so the check generalizes to any seed. Pass an empty array (or omit) when
+ * lands haven't been finalized yet -- with no land entries, `recommendColorSources`
+ * has no active-color demand to report, so the check naturally has nothing
+ * meaningful to flag, mirroring how mid-build checkpoints already skip the
+ * color-source warning today.
+ */
 export function checkFeasibility(
   counts: DeckRoleCounts,
-  colorSources: { w: number; u: number },
+  deckEntries: DeckEntry[] = [],
   roleTargets: SeedRoleTargets = SEED_ROLE_TARGETS,
 ): FeasibilityFlag[] {
   const flags: FeasibilityFlag[] = [];
@@ -950,10 +1005,24 @@ export function checkFeasibility(
     });
   }
 
-  if (colorSources.w < 13 || colorSources.u < 11) {
+  // Color-agnostic Karsten-table check: for every color the deck actually
+  // plays, recommendColorSources derives the required source count from the
+  // deck's OWN heaviest pip requirement and the turn it wants to be cast on
+  // (via the same karstenSourcesNeeded/naturalTurn tables manaBase.ts already
+  // uses elsewhere in the product), instead of a fixed WU-shaped floor. A
+  // mono-red deck, a five-color deck, or a double-blue-pip WU deck are all
+  // measured against their own actual demand.
+  const colorRecommendations = recommendColorSources(deckEntries, deckEntries.reduce(
+    (sum, e) => sum + (e.card.typeLine.includes("Land") ? e.quantity : 0),
+    0,
+  ));
+  const undersourced = colorRecommendations.filter((rec) => rec.criticallyUndersourced);
+  if (undersourced.length > 0) {
     flags.push({
       severity: "warn",
-      message: `Color source count may be unstable for reliable double-pip WU casting (W sources: ${colorSources.w}, U sources: ${colorSources.u}).`,
+      message: `Color source count may be unstable for reliable casting (${undersourced
+        .map((rec) => `${rec.color}: ${rec.actualSources} sources, needs ~${rec.recommendedSources} by turn ${rec.requiredByTurn} for ${rec.requiredPips}-pip cards`)
+        .join("; ")}).`,
     });
   }
 

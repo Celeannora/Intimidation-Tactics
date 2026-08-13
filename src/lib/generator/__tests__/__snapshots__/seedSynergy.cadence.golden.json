@@ -1,0 +1,1682 @@
+[
+  {
+    "name": "Abandoned Air Temple",
+    "cadence": null
+  },
+  {
+    "name": "Abrade",
+    "cadence": null
+  },
+  {
+    "name": "Aclazotz, Deepest Betrayal // Temple of the Dead",
+    "cadence": "repeatable-proactive"
+  },
+  {
+    "name": "Aetherize",
+    "cadence": null
+  },
+  {
+    "name": "Aftermath Analyst",
+    "cadence": null
+  },
+  {
+    "name": "Agatha's Soul Cauldron",
+    "cadence": null
+  },
+  {
+    "name": "Ajani, Caller of the Pride",
+    "cadence": "one-shot"
+  },
+  {
+    "name": "Alesha, Who Laughs at Fate",
+    "cadence": null
+  },
+  {
+    "name": "An Offer You Can't Refuse",
+    "cadence": null
+  },
+  {
+    "name": "Anim Pakal, Thousandth Moon",
+    "cadence": null
+  },
+  {
+    "name": "Annie Joins Up",
+    "cadence": null
+  },
+  {
+    "name": "Annul",
+    "cadence": null
+  },
+  {
+    "name": "Anzrag, the Quake-Mole",
+    "cadence": null
+  },
+  {
+    "name": "Appa, Steadfast Guardian",
+    "cadence": null
+  },
+  {
+    "name": "Arabella, Abandoned Doll",
+    "cadence": "repeatable-conditional"
+  },
+  {
+    "name": "Archangel of Tithes",
+    "cadence": null
+  },
+  {
+    "name": "Archdruid's Charm",
+    "cadence": null
+  },
+  {
+    "name": "Archmage of Runes",
+    "cadence": null
+  },
+  {
+    "name": "Arid Archway",
+    "cadence": null
+  },
+  {
+    "name": "Artist's Talent",
+    "cadence": null
+  },
+  {
+    "name": "Assassin's Trophy",
+    "cadence": null
+  },
+  {
+    "name": "Aunt May",
+    "cadence": "repeatable-proactive"
+  },
+  {
+    "name": "Aurelia, the Law Above",
+    "cadence": "repeatable-conditional"
+  },
+  {
+    "name": "Aurelia, the Warleader",
+    "cadence": null
+  },
+  {
+    "name": "Authority of the Consuls",
+    "cadence": "repeatable-conditional"
+  },
+  {
+    "name": "Aven Interrupter",
+    "cadence": null
+  },
+  {
+    "name": "Badgermole Cub",
+    "cadence": null
+  },
+  {
+    "name": "Balmor, Battlemage Captain",
+    "cadence": null
+  },
+  {
+    "name": "Banishing Light",
+    "cadence": null
+  },
+  {
+    "name": "Banner of Kinship",
+    "cadence": null
+  },
+  {
+    "name": "Bartolomé del Presidio",
+    "cadence": null
+  },
+  {
+    "name": "Basilisk Collar",
+    "cadence": "one-shot"
+  },
+  {
+    "name": "Baylen, the Haymaker",
+    "cadence": null
+  },
+  {
+    "name": "Bender's Waterskin",
+    "cadence": null
+  },
+  {
+    "name": "Beseech the Mirror",
+    "cadence": null
+  },
+  {
+    "name": "Bitter Triumph",
+    "cadence": null
+  },
+  {
+    "name": "Blasphemous Edict",
+    "cadence": null
+  },
+  {
+    "name": "Blazemire Verge",
+    "cadence": null
+  },
+  {
+    "name": "Blood Crypt",
+    "cadence": null
+  },
+  {
+    "name": "Bloodghast",
+    "cadence": null
+  },
+  {
+    "name": "Bloodletter of Aclazotz",
+    "cadence": null
+  },
+  {
+    "name": "Bloodthirsty Conqueror",
+    "cadence": "repeatable-conditional"
+  },
+  {
+    "name": "Bloom Tender",
+    "cadence": null
+  },
+  {
+    "name": "Bloomvine Regent // Claim Territory",
+    "cadence": "repeatable-proactive"
+  },
+  {
+    "name": "Blossoming Tortoise",
+    "cadence": null
+  },
+  {
+    "name": "Bolt Bend",
+    "cadence": null
+  },
+  {
+    "name": "Boltwave",
+    "cadence": null
+  },
+  {
+    "name": "Bonehoard Dracosaur",
+    "cadence": null
+  },
+  {
+    "name": "Boros Charm",
+    "cadence": null
+  },
+  {
+    "name": "Bramble Familiar // Fetch Quest",
+    "cadence": null
+  },
+  {
+    "name": "Brass's Bounty",
+    "cadence": null
+  },
+  {
+    "name": "Brass's Tunnel-Grinder // Tecutlan, the Searing Rift",
+    "cadence": null
+  },
+  {
+    "name": "Breeding Pool",
+    "cadence": null
+  },
+  {
+    "name": "Bria, Riptide Rogue",
+    "cadence": null
+  },
+  {
+    "name": "Bristly Bill, Spine Sower",
+    "cadence": null
+  },
+  {
+    "name": "Burnished Hart",
+    "cadence": null
+  },
+  {
+    "name": "Bushwhack",
+    "cadence": null
+  },
+  {
+    "name": "Buster Sword",
+    "cadence": null
+  },
+  {
+    "name": "Camellia, the Seedmiser",
+    "cadence": null
+  },
+  {
+    "name": "Cancel",
+    "cadence": null
+  },
+  {
+    "name": "Caretaker's Talent",
+    "cadence": null
+  },
+  {
+    "name": "Carnelian Orb of Dragonkind",
+    "cadence": null
+  },
+  {
+    "name": "Cathar Commando",
+    "cadence": null
+  },
+  {
+    "name": "Cavern of Souls",
+    "cadence": null
+  },
+  {
+    "name": "Chameleon, Master of Disguise",
+    "cadence": null
+  },
+  {
+    "name": "Chandra, Flameshaper",
+    "cadence": null
+  },
+  {
+    "name": "Chandra, Spark Hunter",
+    "cadence": null
+  },
+  {
+    "name": "Charming Prince",
+    "cadence": "one-shot"
+  },
+  {
+    "name": "Charred Foyer // Warped Space",
+    "cadence": null
+  },
+  {
+    "name": "Chimil, the Inner Sun",
+    "cadence": null
+  },
+  {
+    "name": "Circuitous Route",
+    "cadence": null
+  },
+  {
+    "name": "Claim Jumper",
+    "cadence": null
+  },
+  {
+    "name": "Collector's Vault",
+    "cadence": null
+  },
+  {
+    "name": "Commercial District",
+    "cadence": null
+  },
+  {
+    "name": "Consuming Aberration",
+    "cadence": null
+  },
+  {
+    "name": "Corrupted Conviction",
+    "cadence": null
+  },
+  {
+    "name": "Coruscation Mage",
+    "cadence": null
+  },
+  {
+    "name": "Craterhoof Behemoth",
+    "cadence": null
+  },
+  {
+    "name": "Crib Swap",
+    "cadence": null
+  },
+  {
+    "name": "Crime Novelist",
+    "cadence": null
+  },
+  {
+    "name": "Crystal Fragments // Summon: Alexander",
+    "cadence": null
+  },
+  {
+    "name": "Dark Confidant",
+    "cadence": null
+  },
+  {
+    "name": "Dawn's Truce",
+    "cadence": null
+  },
+  {
+    "name": "Day of Judgment",
+    "cadence": null
+  },
+  {
+    "name": "Dazzling Denial",
+    "cadence": null
+  },
+  {
+    "name": "Dazzling Theater // Prop Room",
+    "cadence": null
+  },
+  {
+    "name": "Death Baron",
+    "cadence": null
+  },
+  {
+    "name": "Deathcap Glade",
+    "cadence": null
+  },
+  {
+    "name": "Decadent Dragon // Expensive Taste",
+    "cadence": null
+  },
+  {
+    "name": "Delney, Streetwise Lookout",
+    "cadence": null
+  },
+  {
+    "name": "Demand Answers",
+    "cadence": null
+  },
+  {
+    "name": "Demolition Field",
+    "cadence": null
+  },
+  {
+    "name": "Diamond Pick-Axe",
+    "cadence": null
+  },
+  {
+    "name": "Disdainful Stroke",
+    "cadence": null
+  },
+  {
+    "name": "Disenchant",
+    "cadence": null
+  },
+  {
+    "name": "Doc Aurlock, Grizzled Genius",
+    "cadence": null
+  },
+  {
+    "name": "Dollmaker's Shop // Porcelain Gallery",
+    "cadence": null
+  },
+  {
+    "name": "Doubling Season",
+    "cadence": null
+  },
+  {
+    "name": "Dour Port-Mage",
+    "cadence": null
+  },
+  {
+    "name": "Dragonhawk, Fate's Tempest",
+    "cadence": null
+  },
+  {
+    "name": "Dragonlord's Servant",
+    "cadence": null
+  },
+  {
+    "name": "Dragonmaster Outcast",
+    "cadence": null
+  },
+  {
+    "name": "Drakuseth, Maw of Flames",
+    "cadence": null
+  },
+  {
+    "name": "Dreamroot Cascade",
+    "cadence": null
+  },
+  {
+    "name": "Dwynen, Gilt-Leaf Daen",
+    "cadence": "repeatable-proactive"
+  },
+  {
+    "name": "Eddie Brock // Venom, Lethal Protector",
+    "cadence": null
+  },
+  {
+    "name": "Electro, Assaulting Battery",
+    "cadence": null
+  },
+  {
+    "name": "Elspeth, Storm Slayer",
+    "cadence": null
+  },
+  {
+    "name": "Elusive Otter // Grove's Bounty",
+    "cadence": null
+  },
+  {
+    "name": "Elvish Archdruid",
+    "cadence": null
+  },
+  {
+    "name": "Empyrean Eagle",
+    "cadence": null
+  },
+  {
+    "name": "Enduring Courage",
+    "cadence": null
+  },
+  {
+    "name": "Enduring Curiosity",
+    "cadence": null
+  },
+  {
+    "name": "Enduring Innocence",
+    "cadence": "repeatable-proactive"
+  },
+  {
+    "name": "Enduring Tenacity",
+    "cadence": null
+  },
+  {
+    "name": "Enduring Vitality",
+    "cadence": null
+  },
+  {
+    "name": "Enter the Enigma",
+    "cadence": null
+  },
+  {
+    "name": "Entity Tracker",
+    "cadence": null
+  },
+  {
+    "name": "Escape Tunnel",
+    "cadence": null
+  },
+  {
+    "name": "Essence Scatter",
+    "cadence": null
+  },
+  {
+    "name": "Etali, Primal Storm",
+    "cadence": null
+  },
+  {
+    "name": "Ethereal Armor",
+    "cadence": null
+  },
+  {
+    "name": "Evendo, Waking Haven",
+    "cadence": null
+  },
+  {
+    "name": "Evolving Wilds",
+    "cadence": null
+  },
+  {
+    "name": "Exalted Sunborn",
+    "cadence": "repeatable-proactive"
+  },
+  {
+    "name": "Exemplar of Light",
+    "cadence": null
+  },
+  {
+    "name": "Expedition Map",
+    "cadence": null
+  },
+  {
+    "name": "Exsanguinate",
+    "cadence": "one-shot"
+  },
+  {
+    "name": "Fabled Passage",
+    "cadence": null
+  },
+  {
+    "name": "Fake Your Own Death",
+    "cadence": null
+  },
+  {
+    "name": "Fanatical Firebrand",
+    "cadence": null
+  },
+  {
+    "name": "Feed the Swarm",
+    "cadence": null
+  },
+  {
+    "name": "Felidar Retreat",
+    "cadence": null
+  },
+  {
+    "name": "Final Showdown",
+    "cadence": null
+  },
+  {
+    "name": "Finale of Revelation",
+    "cadence": null
+  },
+  {
+    "name": "Firebrand Archer",
+    "cadence": null
+  },
+  {
+    "name": "Fireshrieker",
+    "cadence": null
+  },
+  {
+    "name": "Forensic Gadgeteer",
+    "cadence": null
+  },
+  {
+    "name": "Forest",
+    "cadence": null
+  },
+  {
+    "name": "Forsaken Miner",
+    "cadence": null
+  },
+  {
+    "name": "Fountainport",
+    "cadence": null
+  },
+  {
+    "name": "Freya Crescent",
+    "cadence": null
+  },
+  {
+    "name": "Frontier Bivouac",
+    "cadence": null
+  },
+  {
+    "name": "Fumigate",
+    "cadence": "one-shot"
+  },
+  {
+    "name": "Funeral Room // Awakening Hall",
+    "cadence": "repeatable-conditional"
+  },
+  {
+    "name": "Garruk's Uprising",
+    "cadence": null
+  },
+  {
+    "name": "Generous Plunderer",
+    "cadence": null
+  },
+  {
+    "name": "Get Lost",
+    "cadence": null
+  },
+  {
+    "name": "Ghalta, Primal Hunger",
+    "cadence": null
+  },
+  {
+    "name": "Ghalta, Stampede Tyrant",
+    "cadence": null
+  },
+  {
+    "name": "Giada, Font of Hope",
+    "cadence": null
+  },
+  {
+    "name": "Gilded Lotus",
+    "cadence": null
+  },
+  {
+    "name": "Gishath, Sun's Avatar",
+    "cadence": null
+  },
+  {
+    "name": "Gloomlake Verge",
+    "cadence": null
+  },
+  {
+    "name": "Godless Shrine",
+    "cadence": null
+  },
+  {
+    "name": "Goldvein Hydra",
+    "cadence": null
+  },
+  {
+    "name": "Goldvein Pick",
+    "cadence": null
+  },
+  {
+    "name": "Gonti, Night Minister",
+    "cadence": null
+  },
+  {
+    "name": "Grab the Prize",
+    "cadence": null
+  },
+  {
+    "name": "Grand Abolisher",
+    "cadence": null
+  },
+  {
+    "name": "Great Train Heist",
+    "cadence": null
+  },
+  {
+    "name": "Greedy Freebooter",
+    "cadence": null
+  },
+  {
+    "name": "Growing Rites of Itlimoc // Itlimoc, Cradle of the Sun",
+    "cadence": null
+  },
+  {
+    "name": "Guttersnipe",
+    "cadence": null
+  },
+  {
+    "name": "Gwen Stacy // Ghost-Spider",
+    "cadence": null
+  },
+  {
+    "name": "Halana and Alena, Partners",
+    "cadence": null
+  },
+  {
+    "name": "Hallowed Fountain",
+    "cadence": null
+  },
+  {
+    "name": "Harrier Strix",
+    "cadence": null
+  },
+  {
+    "name": "Healer's Hawk",
+    "cadence": "repeatable-proactive"
+  },
+  {
+    "name": "Hedge Maze",
+    "cadence": null
+  },
+  {
+    "name": "Hedge Shredder",
+    "cadence": null
+  },
+  {
+    "name": "Hedron Archive",
+    "cadence": null
+  },
+  {
+    "name": "Heraldic Banner",
+    "cadence": null
+  },
+  {
+    "name": "Herd Heirloom",
+    "cadence": null
+  },
+  {
+    "name": "Hero's Downfall",
+    "cadence": null
+  },
+  {
+    "name": "Hexing Squelcher",
+    "cadence": "one-shot"
+  },
+  {
+    "name": "High Fae Trickster",
+    "cadence": null
+  },
+  {
+    "name": "Hinterland Sanctifier",
+    "cadence": "repeatable-proactive"
+  },
+  {
+    "name": "Homunculus Horde",
+    "cadence": null
+  },
+  {
+    "name": "Honest Rutstein",
+    "cadence": null
+  },
+  {
+    "name": "Hulking Raptor",
+    "cadence": null
+  },
+  {
+    "name": "Icetill Explorer",
+    "cadence": null
+  },
+  {
+    "name": "Impact Tremors",
+    "cadence": null
+  },
+  {
+    "name": "Imprisoned in the Moon",
+    "cadence": null
+  },
+  {
+    "name": "Infestation Sage",
+    "cadence": null
+  },
+  {
+    "name": "Ingenious Prodigy",
+    "cadence": null
+  },
+  {
+    "name": "Innkeeper's Talent",
+    "cadence": null
+  },
+  {
+    "name": "Inquisitive Glimmer",
+    "cadence": null
+  },
+  {
+    "name": "Insatiable Avarice",
+    "cadence": null
+  },
+  {
+    "name": "Insidious Fungus",
+    "cadence": null
+  },
+  {
+    "name": "Inspiring Call",
+    "cadence": null
+  },
+  {
+    "name": "Inspiring Overseer",
+    "cadence": "one-shot"
+  },
+  {
+    "name": "Inti, Seneschal of the Sun",
+    "cadence": null
+  },
+  {
+    "name": "Into the Flood Maw",
+    "cadence": null
+  },
+  {
+    "name": "Iridescent Vinelasher",
+    "cadence": null
+  },
+  {
+    "name": "Ishgard, the Holy See // Faith & Grief",
+    "cadence": null
+  },
+  {
+    "name": "Island",
+    "cadence": null
+  },
+  {
+    "name": "It'll Quench Ya!",
+    "cadence": null
+  },
+  {
+    "name": "Jace Reawakened",
+    "cadence": null
+  },
+  {
+    "name": "Jazal Goldmane",
+    "cadence": null
+  },
+  {
+    "name": "Jidoor, Aristocratic Capital // Overture",
+    "cadence": null
+  },
+  {
+    "name": "Kaito, Bane of Nightmares",
+    "cadence": null
+  },
+  {
+    "name": "Kaito, Cunning Infiltrator",
+    "cadence": null
+  },
+  {
+    "name": "Kambal, Profiteering Mayor",
+    "cadence": "repeatable-conditional"
+  },
+  {
+    "name": "Kefka, Court Mage // Kefka, Ruler of Ruin",
+    "cadence": null
+  },
+  {
+    "name": "Kellan, the Fae-Blooded // Birthright Boon",
+    "cadence": null
+  },
+  {
+    "name": "Koma, World-Eater",
+    "cadence": null
+  },
+  {
+    "name": "Kona, Rescue Beastie",
+    "cadence": null
+  },
+  {
+    "name": "Krenko, Mob Boss",
+    "cadence": null
+  },
+  {
+    "name": "Kutzil, Malamet Exemplar",
+    "cadence": null
+  },
+  {
+    "name": "Lady Octopus, Inspired Inventor",
+    "cadence": null
+  },
+  {
+    "name": "Lathliss, Dragon Queen",
+    "cadence": null
+  },
+  {
+    "name": "Lathril, Blade of the Elves",
+    "cadence": "one-shot"
+  },
+  {
+    "name": "Lightning Strike",
+    "cadence": null
+  },
+  {
+    "name": "Lightning, Army of One",
+    "cadence": "repeatable-proactive"
+  },
+  {
+    "name": "Likeness Looter",
+    "cadence": null
+  },
+  {
+    "name": "Liliana, Dreadhorde General",
+    "cadence": null
+  },
+  {
+    "name": "Lindblum, Industrial Regency // Mage Siege",
+    "cadence": null
+  },
+  {
+    "name": "Llanowar Elves",
+    "cadence": null
+  },
+  {
+    "name": "Long River's Pull",
+    "cadence": null
+  },
+  {
+    "name": "Loot, Exuberant Explorer",
+    "cadence": null
+  },
+  {
+    "name": "Lumra, Bellow of the Woods",
+    "cadence": null
+  },
+  {
+    "name": "Lyra Dawnbringer",
+    "cadence": "repeatable-proactive"
+  },
+  {
+    "name": "Maha, Its Feathers Night",
+    "cadence": null
+  },
+  {
+    "name": "Malcolm, Alluring Scoundrel",
+    "cadence": null
+  },
+  {
+    "name": "Marang River Regent // Coil and Catch",
+    "cadence": null
+  },
+  {
+    "name": "Marauding Blight-Priest",
+    "cadence": null
+  },
+  {
+    "name": "Marauding Mako",
+    "cadence": null
+  },
+  {
+    "name": "Marvin, Murderous Mimic",
+    "cadence": null
+  },
+  {
+    "name": "Massacre Girl, Known Killer",
+    "cadence": null
+  },
+  {
+    "name": "Massacre Wurm",
+    "cadence": "repeatable-conditional"
+  },
+  {
+    "name": "Matzalantli, the Great Door // The Core",
+    "cadence": null
+  },
+  {
+    "name": "Mentor of the Meek",
+    "cadence": null
+  },
+  {
+    "name": "Meteor Golem",
+    "cadence": null
+  },
+  {
+    "name": "Meticulous Archive",
+    "cadence": null
+  },
+  {
+    "name": "Midgar, City of Mako // Reactor Raid",
+    "cadence": null
+  },
+  {
+    "name": "Midnight Reaper",
+    "cadence": null
+  },
+  {
+    "name": "Miles Morales // Ultimate Spider-Man",
+    "cadence": null
+  },
+  {
+    "name": "Mirror Room // Fractured Realm",
+    "cadence": null
+  },
+  {
+    "name": "Mistrise Village",
+    "cadence": null
+  },
+  {
+    "name": "Mockingbird",
+    "cadence": null
+  },
+  {
+    "name": "Monument to Endurance",
+    "cadence": null
+  },
+  {
+    "name": "Moonshaker Cavalry",
+    "cadence": null
+  },
+  {
+    "name": "Mortify",
+    "cadence": null
+  },
+  {
+    "name": "Mossborn Hydra",
+    "cadence": null
+  },
+  {
+    "name": "Mountain",
+    "cadence": null
+  },
+  {
+    "name": "Muldrotha, the Gravetide",
+    "cadence": null
+  },
+  {
+    "name": "Muraganda Raceway",
+    "cadence": null
+  },
+  {
+    "name": "Murder",
+    "cadence": null
+  },
+  {
+    "name": "Mystic Monastery",
+    "cadence": null
+  },
+  {
+    "name": "Nature's Rhythm",
+    "cadence": null
+  },
+  {
+    "name": "Negate",
+    "cadence": null
+  },
+  {
+    "name": "Night of the Sweets' Revenge",
+    "cadence": "one-shot"
+  },
+  {
+    "name": "Niv-Mizzet, Visionary",
+    "cadence": null
+  },
+  {
+    "name": "Nomad Outpost",
+    "cadence": null
+  },
+  {
+    "name": "Norman Osborn // Green Goblin",
+    "cadence": null
+  },
+  {
+    "name": "Not Dead After All",
+    "cadence": "one-shot"
+  },
+  {
+    "name": "Ojer Axonil, Deepest Might // Temple of Power",
+    "cadence": null
+  },
+  {
+    "name": "Ojer Kaslem, Deepest Growth // Temple of Cultivation",
+    "cadence": null
+  },
+  {
+    "name": "Ojer Pakpatiq, Deepest Epoch // Temple of Cyclical Time",
+    "cadence": null
+  },
+  {
+    "name": "Ojer Taq, Deepest Foundation // Temple of Civilization",
+    "cadence": null
+  },
+  {
+    "name": "Omniscience",
+    "cadence": null
+  },
+  {
+    "name": "Opt",
+    "cadence": null
+  },
+  {
+    "name": "Opulent Palace",
+    "cadence": null
+  },
+  {
+    "name": "Origin of Metalbending",
+    "cadence": null
+  },
+  {
+    "name": "Ouroboroid",
+    "cadence": null
+  },
+  {
+    "name": "Overgrown Tomb",
+    "cadence": null
+  },
+  {
+    "name": "Overlord of the Balemurk",
+    "cadence": null
+  },
+  {
+    "name": "Painful Quandary",
+    "cadence": null
+  },
+  {
+    "name": "Parting Gust",
+    "cadence": null
+  },
+  {
+    "name": "Patchwork Banner",
+    "cadence": null
+  },
+  {
+    "name": "Peter Parker // Amazing Spider-Man",
+    "cadence": null
+  },
+  {
+    "name": "Phyrexian Arena",
+    "cadence": null
+  },
+  {
+    "name": "Plains",
+    "cadence": null
+  },
+  {
+    "name": "Prime Speaker Zegana",
+    "cadence": null
+  },
+  {
+    "name": "Professor Dellian Fel",
+    "cadence": "one-shot"
+  },
+  {
+    "name": "Quintorius Kand",
+    "cadence": "repeatable-conditional"
+  },
+  {
+    "name": "Rakdos, Patron of Chaos",
+    "cadence": null
+  },
+  {
+    "name": "Ral, Crackling Wit",
+    "cadence": null
+  },
+  {
+    "name": "Ramos, Dragon Engine",
+    "cadence": null
+  },
+  {
+    "name": "Rampaging Baloths",
+    "cadence": null
+  },
+  {
+    "name": "Raucous Theater",
+    "cadence": null
+  },
+  {
+    "name": "Razorkin Needlehead",
+    "cadence": null
+  },
+  {
+    "name": "Reassembling Skeleton",
+    "cadence": null
+  },
+  {
+    "name": "Reckless Lackey",
+    "cadence": null
+  },
+  {
+    "name": "Reclamation Sage",
+    "cadence": null
+  },
+  {
+    "name": "Redirect Lightning",
+    "cadence": null
+  },
+  {
+    "name": "Refute",
+    "cadence": null
+  },
+  {
+    "name": "Requisition Raid",
+    "cadence": null
+  },
+  {
+    "name": "Restoration Magic",
+    "cadence": "one-shot"
+  },
+  {
+    "name": "Return the Favor",
+    "cadence": null
+  },
+  {
+    "name": "Rise of the Dark Realms",
+    "cadence": null
+  },
+  {
+    "name": "Rite of Replication",
+    "cadence": null
+  },
+  {
+    "name": "Roaming Throne",
+    "cadence": null
+  },
+  {
+    "name": "Rogue's Passage",
+    "cadence": null
+  },
+  {
+    "name": "Ruby, Daring Tracker",
+    "cadence": null
+  },
+  {
+    "name": "Rune-Scarred Demon",
+    "cadence": null
+  },
+  {
+    "name": "Sacred Foundry",
+    "cadence": null
+  },
+  {
+    "name": "Sandsteppe Citadel",
+    "cadence": null
+  },
+  {
+    "name": "Satoru, the Infiltrator",
+    "cadence": null
+  },
+  {
+    "name": "Savage Ventmaw",
+    "cadence": null
+  },
+  {
+    "name": "Sazh's Chocobo",
+    "cadence": null
+  },
+  {
+    "name": "Scavenging Ooze",
+    "cadence": "one-shot"
+  },
+  {
+    "name": "Scrawling Crawler",
+    "cadence": null
+  },
+  {
+    "name": "Season of Gathering",
+    "cadence": null
+  },
+  {
+    "name": "Secluded Courtyard",
+    "cadence": null
+  },
+  {
+    "name": "Seize the Spoils",
+    "cadence": null
+  },
+  {
+    "name": "Sephiroth, Fabled SOLDIER // Sephiroth, One-Winged Angel",
+    "cadence": "repeatable-conditional"
+  },
+  {
+    "name": "Shadowy Backstreet",
+    "cadence": null
+  },
+  {
+    "name": "Shared Roots",
+    "cadence": null
+  },
+  {
+    "name": "Shattered Sanctum",
+    "cadence": null
+  },
+  {
+    "name": "Sheltered by Ghosts",
+    "cadence": "repeatable-proactive"
+  },
+  {
+    "name": "Shock",
+    "cadence": null
+  },
+  {
+    "name": "Silent Hallcreeper",
+    "cadence": null
+  },
+  {
+    "name": "Snakeskin Veil",
+    "cadence": null
+  },
+  {
+    "name": "Snarling Gorehound",
+    "cadence": null
+  },
+  {
+    "name": "Solemn Simulacrum",
+    "cadence": null
+  },
+  {
+    "name": "Soul-Guide Lantern",
+    "cadence": null
+  },
+  {
+    "name": "Sovereign Okinec Ahau",
+    "cadence": null
+  },
+  {
+    "name": "Spectral Sailor",
+    "cadence": null
+  },
+  {
+    "name": "Spell Pierce",
+    "cadence": null
+  },
+  {
+    "name": "Spell Stutter",
+    "cadence": null
+  },
+  {
+    "name": "Spelunking",
+    "cadence": "one-shot"
+  },
+  {
+    "name": "Spider-Sense",
+    "cadence": null
+  },
+  {
+    "name": "Split Up",
+    "cadence": null
+  },
+  {
+    "name": "Springbloom Druid",
+    "cadence": null
+  },
+  {
+    "name": "Springleaf Drum",
+    "cadence": null
+  },
+  {
+    "name": "Stadium Headliner",
+    "cadence": null
+  },
+  {
+    "name": "Starfall Invocation",
+    "cadence": null
+  },
+  {
+    "name": "Starfield Vocalist",
+    "cadence": null
+  },
+  {
+    "name": "Starscape Cleric",
+    "cadence": null
+  },
+  {
+    "name": "Starting Town",
+    "cadence": null
+  },
+  {
+    "name": "Steam Vents",
+    "cadence": null
+  },
+  {
+    "name": "Steel Hellkite",
+    "cadence": null
+  },
+  {
+    "name": "Stiltzkin, Moogle Merchant",
+    "cadence": "repeatable-proactive"
+  },
+  {
+    "name": "Stomping Ground",
+    "cadence": null
+  },
+  {
+    "name": "Stormcarved Coast",
+    "cadence": null
+  },
+  {
+    "name": "Stormcatch Mentor",
+    "cadence": null
+  },
+  {
+    "name": "Stroke of Midnight",
+    "cadence": null
+  },
+  {
+    "name": "Summon: Bahamut",
+    "cadence": null
+  },
+  {
+    "name": "Summon: Fenrir",
+    "cadence": null
+  },
+  {
+    "name": "Sundown Pass",
+    "cadence": null
+  },
+  {
+    "name": "Sunspine Lynx",
+    "cadence": "one-shot"
+  },
+  {
+    "name": "Swamp",
+    "cadence": null
+  },
+  {
+    "name": "Swiftfoot Boots",
+    "cadence": null
+  },
+  {
+    "name": "Sword of Wealth and Power",
+    "cadence": null
+  },
+  {
+    "name": "Syncopate",
+    "cadence": null
+  },
+  {
+    "name": "Talion, the Kindly Lord",
+    "cadence": null
+  },
+  {
+    "name": "Tannuk, Memorial Ensign",
+    "cadence": null
+  },
+  {
+    "name": "Tarrian's Soulcleaver",
+    "cadence": null
+  },
+  {
+    "name": "Tatyova, Benthic Druid",
+    "cadence": "repeatable-proactive"
+  },
+  {
+    "name": "Taurean Mauler",
+    "cadence": null
+  },
+  {
+    "name": "Temple Garden",
+    "cadence": null
+  },
+  {
+    "name": "Temple of Abandon",
+    "cadence": null
+  },
+  {
+    "name": "Temple of Deceit",
+    "cadence": null
+  },
+  {
+    "name": "Temple of Enlightenment",
+    "cadence": null
+  },
+  {
+    "name": "Temple of Epiphany",
+    "cadence": null
+  },
+  {
+    "name": "Temple of Malady",
+    "cadence": null
+  },
+  {
+    "name": "Temple of Malice",
+    "cadence": null
+  },
+  {
+    "name": "Temple of Mystery",
+    "cadence": null
+  },
+  {
+    "name": "Temple of Plenty",
+    "cadence": null
+  },
+  {
+    "name": "Temple of Silence",
+    "cadence": null
+  },
+  {
+    "name": "Temple of Triumph",
+    "cadence": null
+  },
+  {
+    "name": "Temur Battlecrier",
+    "cadence": null
+  },
+  {
+    "name": "Terramorphic Expanse",
+    "cadence": null
+  },
+  {
+    "name": "Terrasymbiosis",
+    "cadence": null
+  },
+  {
+    "name": "Terror of the Peaks",
+    "cadence": null
+  },
+  {
+    "name": "Tezzeret, Cruel Captain",
+    "cadence": null
+  },
+  {
+    "name": "The Aetherspark",
+    "cadence": null
+  },
+  {
+    "name": "The Earth Crystal",
+    "cadence": null
+  },
+  {
+    "name": "The Eternity Elevator",
+    "cadence": null
+  },
+  {
+    "name": "The Fire Crystal",
+    "cadence": null
+  },
+  {
+    "name": "The Goose Mother",
+    "cadence": null
+  },
+  {
+    "name": "The Jolly Balloon Man",
+    "cadence": null
+  },
+  {
+    "name": "The Mindskinner",
+    "cadence": null
+  },
+  {
+    "name": "The Soul Stone",
+    "cadence": null
+  },
+  {
+    "name": "The Wind Crystal",
+    "cadence": "one-shot"
+  },
+  {
+    "name": "Thousand Moons Smithy // Barracks of the Thousand",
+    "cadence": null
+  },
+  {
+    "name": "Three Steps Ahead",
+    "cadence": null
+  },
+  {
+    "name": "Three Tree City",
+    "cadence": null
+  },
+  {
+    "name": "Thrill of Possibility",
+    "cadence": null
+  },
+  {
+    "name": "Thundering Falls",
+    "cadence": null
+  },
+  {
+    "name": "Tinybones, the Pickpocket",
+    "cadence": null
+  },
+  {
+    "name": "Tishana's Tidebinder",
+    "cadence": null
+  },
+  {
+    "name": "Treasure Map // Treasure Cove",
+    "cadence": null
+  },
+  {
+    "name": "Trumpeting Carnosaur",
+    "cadence": null
+  },
+  {
+    "name": "Twinflame Tyrant",
+    "cadence": null
+  },
+  {
+    "name": "Twitching Doll",
+    "cadence": null
+  },
+  {
+    "name": "Ugin, Eye of the Storms",
+    "cadence": "one-shot"
+  },
+  {
+    "name": "Umbral Collar Zealot",
+    "cadence": null
+  },
+  {
+    "name": "Undercity Sewers",
+    "cadence": null
+  },
+  {
+    "name": "Underground Mortuary",
+    "cadence": null
+  },
+  {
+    "name": "Unstoppable Slasher",
+    "cadence": null
+  },
+  {
+    "name": "Untimely Malfunction",
+    "cadence": null
+  },
+  {
+    "name": "Valgavoth, Terror Eater",
+    "cadence": "repeatable-proactive"
+  },
+  {
+    "name": "Valley Floodcaller",
+    "cadence": null
+  },
+  {
+    "name": "Vampiric Rites",
+    "cadence": "one-shot"
+  },
+  {
+    "name": "Vengeful Bloodwitch",
+    "cadence": "repeatable-conditional"
+  },
+  {
+    "name": "Vile Entomber",
+    "cadence": null
+  },
+  {
+    "name": "Virtue of Courage // Embereth Blaze",
+    "cadence": null
+  },
+  {
+    "name": "Virtue of Knowledge // Vantress Visions",
+    "cadence": null
+  },
+  {
+    "name": "Virtue of Loyalty // Ardenvale Fealty",
+    "cadence": null
+  },
+  {
+    "name": "Virtue of Persistence // Locthwain Scorn",
+    "cadence": "one-shot"
+  },
+  {
+    "name": "Virtue of Strength // Garenbrig Growth",
+    "cadence": null
+  },
+  {
+    "name": "Virulent Emissary",
+    "cadence": "repeatable-proactive"
+  },
+  {
+    "name": "Vivien Reid",
+    "cadence": null
+  },
+  {
+    "name": "Voice of Victory",
+    "cadence": null
+  },
+  {
+    "name": "Walk-In Closet // Forgotten Cellar",
+    "cadence": null
+  },
+  {
+    "name": "Wan Shi Tong, Librarian",
+    "cadence": null
+  },
+  {
+    "name": "Warleader's Call",
+    "cadence": null
+  },
+  {
+    "name": "Watery Grave",
+    "cadence": null
+  },
+  {
+    "name": "Wear Down",
+    "cadence": null
+  },
+  {
+    "name": "Weftstalker Ardent",
+    "cadence": null
+  },
+  {
+    "name": "Wildwood Scourge",
+    "cadence": null
+  },
+  {
+    "name": "Wishclaw Talisman",
+    "cadence": null
+  },
+  {
+    "name": "Withering Torment",
+    "cadence": null
+  },
+  {
+    "name": "Yenna, Redtooth Regent",
+    "cadence": null
+  },
+  {
+    "name": "Ygra, Eater of All",
+    "cadence": "repeatable-proactive"
+  },
+  {
+    "name": "Zack Fair",
+    "cadence": null
+  },
+  {
+    "name": "Zetalpa, Primal Dawn",
+    "cadence": null
+  }
+]
