@@ -1,0 +1,2025 @@
+[
+  {
+    "name": "Abandoned Air Temple",
+    "roles": []
+  },
+  {
+    "name": "Abrade",
+    "roles": [
+      "Protection"
+    ]
+  },
+  {
+    "name": "Aclazotz, Deepest Betrayal // Temple of the Dead",
+    "roles": []
+  },
+  {
+    "name": "Aetherize",
+    "roles": []
+  },
+  {
+    "name": "Aftermath Analyst",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Agatha's Soul Cauldron",
+    "roles": [
+      "Protection"
+    ]
+  },
+  {
+    "name": "Ajani, Caller of the Pride",
+    "roles": []
+  },
+  {
+    "name": "Alesha, Who Laughs at Fate",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "An Offer You Can't Refuse",
+    "roles": []
+  },
+  {
+    "name": "Anim Pakal, Thousandth Moon",
+    "roles": []
+  },
+  {
+    "name": "Annie Joins Up",
+    "roles": [
+      "Protection"
+    ]
+  },
+  {
+    "name": "Annul",
+    "roles": []
+  },
+  {
+    "name": "Anzrag, the Quake-Mole",
+    "roles": []
+  },
+  {
+    "name": "Appa, Steadfast Guardian",
+    "roles": []
+  },
+  {
+    "name": "Arabella, Abandoned Doll",
+    "roles": []
+  },
+  {
+    "name": "Archangel of Tithes",
+    "roles": [
+      "Enabler"
+    ]
+  },
+  {
+    "name": "Archdruid's Charm",
+    "roles": [
+      "Protection",
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Archmage of Runes",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Arid Archway",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Artist's Talent",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Assassin's Trophy",
+    "roles": [
+      "Protection"
+    ]
+  },
+  {
+    "name": "Aunt May",
+    "roles": []
+  },
+  {
+    "name": "Aurelia, the Law Above",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Aurelia, the Warleader",
+    "roles": []
+  },
+  {
+    "name": "Authority of the Consuls",
+    "roles": [
+      "Enabler"
+    ]
+  },
+  {
+    "name": "Aven Interrupter",
+    "roles": [
+      "Protection"
+    ]
+  },
+  {
+    "name": "Badgermole Cub",
+    "roles": []
+  },
+  {
+    "name": "Balmor, Battlemage Captain",
+    "roles": []
+  },
+  {
+    "name": "Banishing Light",
+    "roles": [
+      "Protection"
+    ]
+  },
+  {
+    "name": "Banner of Kinship",
+    "roles": []
+  },
+  {
+    "name": "Bartolomé del Presidio",
+    "roles": []
+  },
+  {
+    "name": "Basilisk Collar",
+    "roles": []
+  },
+  {
+    "name": "Baylen, the Haymaker",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Bender's Waterskin",
+    "roles": []
+  },
+  {
+    "name": "Beseech the Mirror",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Bitter Triumph",
+    "roles": [
+      "Protection"
+    ]
+  },
+  {
+    "name": "Blasphemous Edict",
+    "roles": []
+  },
+  {
+    "name": "Blazemire Verge",
+    "roles": []
+  },
+  {
+    "name": "Blood Crypt",
+    "roles": []
+  },
+  {
+    "name": "Bloodghast",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Bloodletter of Aclazotz",
+    "roles": []
+  },
+  {
+    "name": "Bloodthirsty Conqueror",
+    "roles": []
+  },
+  {
+    "name": "Bloom Tender",
+    "roles": []
+  },
+  {
+    "name": "Bloomvine Regent // Claim Territory",
+    "roles": []
+  },
+  {
+    "name": "Blossoming Tortoise",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Bolt Bend",
+    "roles": []
+  },
+  {
+    "name": "Boltwave",
+    "roles": []
+  },
+  {
+    "name": "Bonehoard Dracosaur",
+    "roles": []
+  },
+  {
+    "name": "Boros Charm",
+    "roles": []
+  },
+  {
+    "name": "Bramble Familiar // Fetch Quest",
+    "roles": []
+  },
+  {
+    "name": "Brass's Bounty",
+    "roles": []
+  },
+  {
+    "name": "Brass's Tunnel-Grinder // Tecutlan, the Searing Rift",
+    "roles": []
+  },
+  {
+    "name": "Breeding Pool",
+    "roles": []
+  },
+  {
+    "name": "Bria, Riptide Rogue",
+    "roles": []
+  },
+  {
+    "name": "Bristly Bill, Spine Sower",
+    "roles": []
+  },
+  {
+    "name": "Burnished Hart",
+    "roles": []
+  },
+  {
+    "name": "Bushwhack",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Buster Sword",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Camellia, the Seedmiser",
+    "roles": []
+  },
+  {
+    "name": "Cancel",
+    "roles": [
+      "Protection"
+    ]
+  },
+  {
+    "name": "Caretaker's Talent",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Carnelian Orb of Dragonkind",
+    "roles": []
+  },
+  {
+    "name": "Cathar Commando",
+    "roles": [
+      "Protection"
+    ]
+  },
+  {
+    "name": "Cavern of Souls",
+    "roles": []
+  },
+  {
+    "name": "Chameleon, Master of Disguise",
+    "roles": []
+  },
+  {
+    "name": "Chandra, Flameshaper",
+    "roles": []
+  },
+  {
+    "name": "Chandra, Spark Hunter",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Charming Prince",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Charred Foyer // Warped Space",
+    "roles": []
+  },
+  {
+    "name": "Chimil, the Inner Sun",
+    "roles": []
+  },
+  {
+    "name": "Circuitous Route",
+    "roles": []
+  },
+  {
+    "name": "Claim Jumper",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Collector's Vault",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Commercial District",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Consuming Aberration",
+    "roles": []
+  },
+  {
+    "name": "Corrupted Conviction",
+    "roles": []
+  },
+  {
+    "name": "Coruscation Mage",
+    "roles": []
+  },
+  {
+    "name": "Craterhoof Behemoth",
+    "roles": []
+  },
+  {
+    "name": "Crib Swap",
+    "roles": [
+      "Protection"
+    ]
+  },
+  {
+    "name": "Crime Novelist",
+    "roles": []
+  },
+  {
+    "name": "Crystal Fragments // Summon: Alexander",
+    "roles": []
+  },
+  {
+    "name": "Dark Confidant",
+    "roles": []
+  },
+  {
+    "name": "Dawn's Truce",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Day of Judgment",
+    "roles": [
+      "Protection"
+    ]
+  },
+  {
+    "name": "Dazzling Denial",
+    "roles": [
+      "Protection"
+    ]
+  },
+  {
+    "name": "Dazzling Theater // Prop Room",
+    "roles": []
+  },
+  {
+    "name": "Death Baron",
+    "roles": []
+  },
+  {
+    "name": "Deathcap Glade",
+    "roles": []
+  },
+  {
+    "name": "Decadent Dragon // Expensive Taste",
+    "roles": []
+  },
+  {
+    "name": "Delney, Streetwise Lookout",
+    "roles": []
+  },
+  {
+    "name": "Demand Answers",
+    "roles": []
+  },
+  {
+    "name": "Demolition Field",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Diamond Pick-Axe",
+    "roles": []
+  },
+  {
+    "name": "Disdainful Stroke",
+    "roles": [
+      "Protection"
+    ]
+  },
+  {
+    "name": "Disenchant",
+    "roles": [
+      "Protection"
+    ]
+  },
+  {
+    "name": "Doc Aurlock, Grizzled Genius",
+    "roles": []
+  },
+  {
+    "name": "Dollmaker's Shop // Porcelain Gallery",
+    "roles": []
+  },
+  {
+    "name": "Doubling Season",
+    "roles": []
+  },
+  {
+    "name": "Dour Port-Mage",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Dragonhawk, Fate's Tempest",
+    "roles": []
+  },
+  {
+    "name": "Dragonlord's Servant",
+    "roles": []
+  },
+  {
+    "name": "Dragonmaster Outcast",
+    "roles": []
+  },
+  {
+    "name": "Drakuseth, Maw of Flames",
+    "roles": []
+  },
+  {
+    "name": "Dreamroot Cascade",
+    "roles": []
+  },
+  {
+    "name": "Dwynen, Gilt-Leaf Daen",
+    "roles": []
+  },
+  {
+    "name": "Eddie Brock // Venom, Lethal Protector",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Electro, Assaulting Battery",
+    "roles": []
+  },
+  {
+    "name": "Elspeth, Storm Slayer",
+    "roles": [
+      "Protection"
+    ]
+  },
+  {
+    "name": "Elusive Otter // Grove's Bounty",
+    "roles": []
+  },
+  {
+    "name": "Elvish Archdruid",
+    "roles": []
+  },
+  {
+    "name": "Empyrean Eagle",
+    "roles": []
+  },
+  {
+    "name": "Enduring Courage",
+    "roles": []
+  },
+  {
+    "name": "Enduring Curiosity",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Enduring Innocence",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Enduring Tenacity",
+    "roles": []
+  },
+  {
+    "name": "Enduring Vitality",
+    "roles": []
+  },
+  {
+    "name": "Enter the Enigma",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Entity Tracker",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Escape Tunnel",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Essence Scatter",
+    "roles": []
+  },
+  {
+    "name": "Etali, Primal Storm",
+    "roles": []
+  },
+  {
+    "name": "Ethereal Armor",
+    "roles": []
+  },
+  {
+    "name": "Evendo, Waking Haven",
+    "roles": []
+  },
+  {
+    "name": "Evolving Wilds",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Exalted Sunborn",
+    "roles": []
+  },
+  {
+    "name": "Exemplar of Light",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Expedition Map",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Exsanguinate",
+    "roles": []
+  },
+  {
+    "name": "Fabled Passage",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Fake Your Own Death",
+    "roles": []
+  },
+  {
+    "name": "Fanatical Firebrand",
+    "roles": []
+  },
+  {
+    "name": "Feed the Swarm",
+    "roles": [
+      "Protection"
+    ]
+  },
+  {
+    "name": "Felidar Retreat",
+    "roles": []
+  },
+  {
+    "name": "Final Showdown",
+    "roles": [
+      "Protection"
+    ]
+  },
+  {
+    "name": "Finale of Revelation",
+    "roles": []
+  },
+  {
+    "name": "Firebrand Archer",
+    "roles": []
+  },
+  {
+    "name": "Fireshrieker",
+    "roles": []
+  },
+  {
+    "name": "Forensic Gadgeteer",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Forest",
+    "roles": []
+  },
+  {
+    "name": "Forsaken Miner",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Fountainport",
+    "roles": []
+  },
+  {
+    "name": "Freya Crescent",
+    "roles": []
+  },
+  {
+    "name": "Frontier Bivouac",
+    "roles": []
+  },
+  {
+    "name": "Fumigate",
+    "roles": [
+      "Protection"
+    ]
+  },
+  {
+    "name": "Funeral Room // Awakening Hall",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Garruk's Uprising",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Generous Plunderer",
+    "roles": []
+  },
+  {
+    "name": "Get Lost",
+    "roles": [
+      "Protection"
+    ]
+  },
+  {
+    "name": "Ghalta, Primal Hunger",
+    "roles": []
+  },
+  {
+    "name": "Ghalta, Stampede Tyrant",
+    "roles": []
+  },
+  {
+    "name": "Giada, Font of Hope",
+    "roles": []
+  },
+  {
+    "name": "Gilded Lotus",
+    "roles": []
+  },
+  {
+    "name": "Gishath, Sun's Avatar",
+    "roles": []
+  },
+  {
+    "name": "Gloomlake Verge",
+    "roles": []
+  },
+  {
+    "name": "Godless Shrine",
+    "roles": []
+  },
+  {
+    "name": "Goldvein Hydra",
+    "roles": []
+  },
+  {
+    "name": "Goldvein Pick",
+    "roles": []
+  },
+  {
+    "name": "Gonti, Night Minister",
+    "roles": []
+  },
+  {
+    "name": "Grab the Prize",
+    "roles": []
+  },
+  {
+    "name": "Grand Abolisher",
+    "roles": []
+  },
+  {
+    "name": "Great Train Heist",
+    "roles": []
+  },
+  {
+    "name": "Greedy Freebooter",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Growing Rites of Itlimoc // Itlimoc, Cradle of the Sun",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Guttersnipe",
+    "roles": []
+  },
+  {
+    "name": "Gwen Stacy // Ghost-Spider",
+    "roles": []
+  },
+  {
+    "name": "Halana and Alena, Partners",
+    "roles": []
+  },
+  {
+    "name": "Hallowed Fountain",
+    "roles": []
+  },
+  {
+    "name": "Harrier Strix",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Healer's Hawk",
+    "roles": []
+  },
+  {
+    "name": "Hedge Maze",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Hedge Shredder",
+    "roles": []
+  },
+  {
+    "name": "Hedron Archive",
+    "roles": []
+  },
+  {
+    "name": "Heraldic Banner",
+    "roles": []
+  },
+  {
+    "name": "Herd Heirloom",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Hero's Downfall",
+    "roles": [
+      "Protection"
+    ]
+  },
+  {
+    "name": "Hexing Squelcher",
+    "roles": []
+  },
+  {
+    "name": "High Fae Trickster",
+    "roles": []
+  },
+  {
+    "name": "Hinterland Sanctifier",
+    "roles": []
+  },
+  {
+    "name": "Homunculus Horde",
+    "roles": []
+  },
+  {
+    "name": "Honest Rutstein",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Hulking Raptor",
+    "roles": []
+  },
+  {
+    "name": "Icetill Explorer",
+    "roles": []
+  },
+  {
+    "name": "Impact Tremors",
+    "roles": []
+  },
+  {
+    "name": "Imprisoned in the Moon",
+    "roles": []
+  },
+  {
+    "name": "Infestation Sage",
+    "roles": []
+  },
+  {
+    "name": "Ingenious Prodigy",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Innkeeper's Talent",
+    "roles": []
+  },
+  {
+    "name": "Inquisitive Glimmer",
+    "roles": []
+  },
+  {
+    "name": "Insatiable Avarice",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Insidious Fungus",
+    "roles": [
+      "Protection",
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Inspiring Call",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Inspiring Overseer",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Inti, Seneschal of the Sun",
+    "roles": []
+  },
+  {
+    "name": "Into the Flood Maw",
+    "roles": [
+      "Protection"
+    ]
+  },
+  {
+    "name": "Iridescent Vinelasher",
+    "roles": []
+  },
+  {
+    "name": "Ishgard, the Holy See // Faith & Grief",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Island",
+    "roles": []
+  },
+  {
+    "name": "It'll Quench Ya!",
+    "roles": [
+      "Protection"
+    ]
+  },
+  {
+    "name": "Jace Reawakened",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Jazal Goldmane",
+    "roles": []
+  },
+  {
+    "name": "Jidoor, Aristocratic Capital // Overture",
+    "roles": []
+  },
+  {
+    "name": "Kaito, Bane of Nightmares",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Kaito, Cunning Infiltrator",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Kambal, Profiteering Mayor",
+    "roles": []
+  },
+  {
+    "name": "Kefka, Court Mage // Kefka, Ruler of Ruin",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Kellan, the Fae-Blooded // Birthright Boon",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Koma, World-Eater",
+    "roles": []
+  },
+  {
+    "name": "Kona, Rescue Beastie",
+    "roles": []
+  },
+  {
+    "name": "Krenko, Mob Boss",
+    "roles": []
+  },
+  {
+    "name": "Kutzil, Malamet Exemplar",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Lady Octopus, Inspired Inventor",
+    "roles": []
+  },
+  {
+    "name": "Lathliss, Dragon Queen",
+    "roles": []
+  },
+  {
+    "name": "Lathril, Blade of the Elves",
+    "roles": []
+  },
+  {
+    "name": "Lightning Strike",
+    "roles": []
+  },
+  {
+    "name": "Lightning, Army of One",
+    "roles": []
+  },
+  {
+    "name": "Likeness Looter",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Liliana, Dreadhorde General",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Lindblum, Industrial Regency // Mage Siege",
+    "roles": []
+  },
+  {
+    "name": "Llanowar Elves",
+    "roles": []
+  },
+  {
+    "name": "Long River's Pull",
+    "roles": [
+      "Protection",
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Loot, Exuberant Explorer",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Lumra, Bellow of the Woods",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Lyra Dawnbringer",
+    "roles": [
+      "Payoff"
+    ]
+  },
+  {
+    "name": "Maha, Its Feathers Night",
+    "roles": []
+  },
+  {
+    "name": "Malcolm, Alluring Scoundrel",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Marang River Regent // Coil and Catch",
+    "roles": []
+  },
+  {
+    "name": "Marauding Blight-Priest",
+    "roles": []
+  },
+  {
+    "name": "Marauding Mako",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Marvin, Murderous Mimic",
+    "roles": []
+  },
+  {
+    "name": "Massacre Girl, Known Killer",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Massacre Wurm",
+    "roles": [
+      "Protection"
+    ]
+  },
+  {
+    "name": "Matzalantli, the Great Door // The Core",
+    "roles": []
+  },
+  {
+    "name": "Mentor of the Meek",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Meteor Golem",
+    "roles": [
+      "Protection"
+    ]
+  },
+  {
+    "name": "Meticulous Archive",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Midgar, City of Mako // Reactor Raid",
+    "roles": []
+  },
+  {
+    "name": "Midnight Reaper",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Miles Morales // Ultimate Spider-Man",
+    "roles": []
+  },
+  {
+    "name": "Mirror Room // Fractured Realm",
+    "roles": []
+  },
+  {
+    "name": "Mistrise Village",
+    "roles": []
+  },
+  {
+    "name": "Mockingbird",
+    "roles": []
+  },
+  {
+    "name": "Monument to Endurance",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Moonshaker Cavalry",
+    "roles": []
+  },
+  {
+    "name": "Mortify",
+    "roles": [
+      "Protection"
+    ]
+  },
+  {
+    "name": "Mossborn Hydra",
+    "roles": []
+  },
+  {
+    "name": "Mountain",
+    "roles": []
+  },
+  {
+    "name": "Muldrotha, the Gravetide",
+    "roles": []
+  },
+  {
+    "name": "Muraganda Raceway",
+    "roles": []
+  },
+  {
+    "name": "Murder",
+    "roles": [
+      "Protection"
+    ]
+  },
+  {
+    "name": "Mystic Monastery",
+    "roles": []
+  },
+  {
+    "name": "Nature's Rhythm",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Negate",
+    "roles": []
+  },
+  {
+    "name": "Night of the Sweets' Revenge",
+    "roles": []
+  },
+  {
+    "name": "Niv-Mizzet, Visionary",
+    "roles": []
+  },
+  {
+    "name": "Nomad Outpost",
+    "roles": []
+  },
+  {
+    "name": "Norman Osborn // Green Goblin",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Not Dead After All",
+    "roles": []
+  },
+  {
+    "name": "Ojer Axonil, Deepest Might // Temple of Power",
+    "roles": []
+  },
+  {
+    "name": "Ojer Kaslem, Deepest Growth // Temple of Cultivation",
+    "roles": []
+  },
+  {
+    "name": "Ojer Pakpatiq, Deepest Epoch // Temple of Cyclical Time",
+    "roles": []
+  },
+  {
+    "name": "Ojer Taq, Deepest Foundation // Temple of Civilization",
+    "roles": []
+  },
+  {
+    "name": "Omniscience",
+    "roles": []
+  },
+  {
+    "name": "Opt",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Opulent Palace",
+    "roles": []
+  },
+  {
+    "name": "Origin of Metalbending",
+    "roles": [
+      "Protection"
+    ]
+  },
+  {
+    "name": "Ouroboroid",
+    "roles": []
+  },
+  {
+    "name": "Overgrown Tomb",
+    "roles": []
+  },
+  {
+    "name": "Overlord of the Balemurk",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Painful Quandary",
+    "roles": []
+  },
+  {
+    "name": "Parting Gust",
+    "roles": [
+      "Protection"
+    ]
+  },
+  {
+    "name": "Patchwork Banner",
+    "roles": []
+  },
+  {
+    "name": "Peter Parker // Amazing Spider-Man",
+    "roles": []
+  },
+  {
+    "name": "Phyrexian Arena",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Plains",
+    "roles": []
+  },
+  {
+    "name": "Prime Speaker Zegana",
+    "roles": []
+  },
+  {
+    "name": "Professor Dellian Fel",
+    "roles": [
+      "Protection",
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Quintorius Kand",
+    "roles": []
+  },
+  {
+    "name": "Rakdos, Patron of Chaos",
+    "roles": []
+  },
+  {
+    "name": "Ral, Crackling Wit",
+    "roles": []
+  },
+  {
+    "name": "Ramos, Dragon Engine",
+    "roles": []
+  },
+  {
+    "name": "Rampaging Baloths",
+    "roles": []
+  },
+  {
+    "name": "Raucous Theater",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Razorkin Needlehead",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Reassembling Skeleton",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Reckless Lackey",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Reclamation Sage",
+    "roles": [
+      "Protection"
+    ]
+  },
+  {
+    "name": "Redirect Lightning",
+    "roles": []
+  },
+  {
+    "name": "Refute",
+    "roles": [
+      "Protection",
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Requisition Raid",
+    "roles": [
+      "Protection"
+    ]
+  },
+  {
+    "name": "Restoration Magic",
+    "roles": []
+  },
+  {
+    "name": "Return the Favor",
+    "roles": []
+  },
+  {
+    "name": "Rise of the Dark Realms",
+    "roles": []
+  },
+  {
+    "name": "Rite of Replication",
+    "roles": []
+  },
+  {
+    "name": "Roaming Throne",
+    "roles": []
+  },
+  {
+    "name": "Rogue's Passage",
+    "roles": []
+  },
+  {
+    "name": "Ruby, Daring Tracker",
+    "roles": []
+  },
+  {
+    "name": "Rune-Scarred Demon",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Sacred Foundry",
+    "roles": []
+  },
+  {
+    "name": "Sandsteppe Citadel",
+    "roles": []
+  },
+  {
+    "name": "Satoru, the Infiltrator",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Savage Ventmaw",
+    "roles": []
+  },
+  {
+    "name": "Sazh's Chocobo",
+    "roles": []
+  },
+  {
+    "name": "Scavenging Ooze",
+    "roles": [
+      "Protection"
+    ]
+  },
+  {
+    "name": "Scrawling Crawler",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Season of Gathering",
+    "roles": [
+      "Protection"
+    ]
+  },
+  {
+    "name": "Secluded Courtyard",
+    "roles": []
+  },
+  {
+    "name": "Seize the Spoils",
+    "roles": []
+  },
+  {
+    "name": "Sephiroth, Fabled SOLDIER // Sephiroth, One-Winged Angel",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Shadowy Backstreet",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Shared Roots",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Shattered Sanctum",
+    "roles": []
+  },
+  {
+    "name": "Sheltered by Ghosts",
+    "roles": [
+      "Protection"
+    ]
+  },
+  {
+    "name": "Shock",
+    "roles": []
+  },
+  {
+    "name": "Silent Hallcreeper",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Snakeskin Veil",
+    "roles": []
+  },
+  {
+    "name": "Snarling Gorehound",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Solemn Simulacrum",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Soul-Guide Lantern",
+    "roles": [
+      "Protection",
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Sovereign Okinec Ahau",
+    "roles": []
+  },
+  {
+    "name": "Spectral Sailor",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Spell Pierce",
+    "roles": []
+  },
+  {
+    "name": "Spell Stutter",
+    "roles": [
+      "Protection"
+    ]
+  },
+  {
+    "name": "Spelunking",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Spider-Sense",
+    "roles": []
+  },
+  {
+    "name": "Split Up",
+    "roles": [
+      "Protection"
+    ]
+  },
+  {
+    "name": "Springbloom Druid",
+    "roles": []
+  },
+  {
+    "name": "Springleaf Drum",
+    "roles": []
+  },
+  {
+    "name": "Stadium Headliner",
+    "roles": []
+  },
+  {
+    "name": "Starfall Invocation",
+    "roles": [
+      "Protection",
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Starfield Vocalist",
+    "roles": []
+  },
+  {
+    "name": "Starscape Cleric",
+    "roles": []
+  },
+  {
+    "name": "Starting Town",
+    "roles": []
+  },
+  {
+    "name": "Steam Vents",
+    "roles": []
+  },
+  {
+    "name": "Steel Hellkite",
+    "roles": []
+  },
+  {
+    "name": "Stiltzkin, Moogle Merchant",
+    "roles": []
+  },
+  {
+    "name": "Stomping Ground",
+    "roles": []
+  },
+  {
+    "name": "Stormcarved Coast",
+    "roles": []
+  },
+  {
+    "name": "Stormcatch Mentor",
+    "roles": []
+  },
+  {
+    "name": "Stroke of Midnight",
+    "roles": [
+      "Protection"
+    ]
+  },
+  {
+    "name": "Summon: Bahamut",
+    "roles": []
+  },
+  {
+    "name": "Summon: Fenrir",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Sundown Pass",
+    "roles": []
+  },
+  {
+    "name": "Sunspine Lynx",
+    "roles": []
+  },
+  {
+    "name": "Swamp",
+    "roles": []
+  },
+  {
+    "name": "Swiftfoot Boots",
+    "roles": []
+  },
+  {
+    "name": "Sword of Wealth and Power",
+    "roles": []
+  },
+  {
+    "name": "Syncopate",
+    "roles": [
+      "Protection"
+    ]
+  },
+  {
+    "name": "Talion, the Kindly Lord",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Tannuk, Memorial Ensign",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Tarrian's Soulcleaver",
+    "roles": []
+  },
+  {
+    "name": "Tatyova, Benthic Druid",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Taurean Mauler",
+    "roles": []
+  },
+  {
+    "name": "Temple Garden",
+    "roles": []
+  },
+  {
+    "name": "Temple of Abandon",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Temple of Deceit",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Temple of Enlightenment",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Temple of Epiphany",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Temple of Malady",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Temple of Malice",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Temple of Mystery",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Temple of Plenty",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Temple of Silence",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Temple of Triumph",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Temur Battlecrier",
+    "roles": []
+  },
+  {
+    "name": "Terramorphic Expanse",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Terrasymbiosis",
+    "roles": []
+  },
+  {
+    "name": "Terror of the Peaks",
+    "roles": []
+  },
+  {
+    "name": "Tezzeret, Cruel Captain",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "The Aetherspark",
+    "roles": []
+  },
+  {
+    "name": "The Earth Crystal",
+    "roles": []
+  },
+  {
+    "name": "The Eternity Elevator",
+    "roles": []
+  },
+  {
+    "name": "The Fire Crystal",
+    "roles": []
+  },
+  {
+    "name": "The Goose Mother",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "The Jolly Balloon Man",
+    "roles": []
+  },
+  {
+    "name": "The Mindskinner",
+    "roles": []
+  },
+  {
+    "name": "The Soul Stone",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "The Wind Crystal",
+    "roles": []
+  },
+  {
+    "name": "Thousand Moons Smithy // Barracks of the Thousand",
+    "roles": []
+  },
+  {
+    "name": "Three Steps Ahead",
+    "roles": [
+      "Protection"
+    ]
+  },
+  {
+    "name": "Three Tree City",
+    "roles": []
+  },
+  {
+    "name": "Thrill of Possibility",
+    "roles": []
+  },
+  {
+    "name": "Thundering Falls",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Tinybones, the Pickpocket",
+    "roles": []
+  },
+  {
+    "name": "Tishana's Tidebinder",
+    "roles": []
+  },
+  {
+    "name": "Treasure Map // Treasure Cove",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Trumpeting Carnosaur",
+    "roles": [
+      "Protection"
+    ]
+  },
+  {
+    "name": "Twinflame Tyrant",
+    "roles": []
+  },
+  {
+    "name": "Twitching Doll",
+    "roles": []
+  },
+  {
+    "name": "Ugin, Eye of the Storms",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Umbral Collar Zealot",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Undercity Sewers",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Underground Mortuary",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Unstoppable Slasher",
+    "roles": []
+  },
+  {
+    "name": "Untimely Malfunction",
+    "roles": [
+      "Protection"
+    ]
+  },
+  {
+    "name": "Valgavoth, Terror Eater",
+    "roles": []
+  },
+  {
+    "name": "Valley Floodcaller",
+    "roles": []
+  },
+  {
+    "name": "Vampiric Rites",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Vengeful Bloodwitch",
+    "roles": []
+  },
+  {
+    "name": "Vile Entomber",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Virtue of Courage // Embereth Blaze",
+    "roles": []
+  },
+  {
+    "name": "Virtue of Knowledge // Vantress Visions",
+    "roles": []
+  },
+  {
+    "name": "Virtue of Loyalty // Ardenvale Fealty",
+    "roles": []
+  },
+  {
+    "name": "Virtue of Persistence // Locthwain Scorn",
+    "roles": [
+      "Protection"
+    ]
+  },
+  {
+    "name": "Virtue of Strength // Garenbrig Growth",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Virulent Emissary",
+    "roles": []
+  },
+  {
+    "name": "Vivien Reid",
+    "roles": [
+      "Protection",
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Voice of Victory",
+    "roles": []
+  },
+  {
+    "name": "Walk-In Closet // Forgotten Cellar",
+    "roles": []
+  },
+  {
+    "name": "Wan Shi Tong, Librarian",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Warleader's Call",
+    "roles": []
+  },
+  {
+    "name": "Watery Grave",
+    "roles": []
+  },
+  {
+    "name": "Wear Down",
+    "roles": [
+      "Protection",
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Weftstalker Ardent",
+    "roles": []
+  },
+  {
+    "name": "Wildwood Scourge",
+    "roles": []
+  },
+  {
+    "name": "Wishclaw Talisman",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Withering Torment",
+    "roles": [
+      "Protection"
+    ]
+  },
+  {
+    "name": "Yenna, Redtooth Regent",
+    "roles": [
+      "Consistency"
+    ]
+  },
+  {
+    "name": "Ygra, Eater of All",
+    "roles": []
+  },
+  {
+    "name": "Zack Fair",
+    "roles": []
+  },
+  {
+    "name": "Zetalpa, Primal Dawn",
+    "roles": []
+  }
+]
