@@ -23,6 +23,7 @@ import type {
 } from "../lib/generator/types";
 import { AISettingsDrawer } from "./AISettingsDrawer";
 import { MythicViabilityPanel } from "./MythicViabilityPanel";
+import { ScenarioCoveragePanel } from "./ScenarioCoveragePanel";
 import { CONSTRUCTED_FORMATS, getFormatRules, type ConstructedFormat, type PlayEnvironment } from "../lib/formats";
 import { generateDeckName } from "../lib/deckExporter";
 import { getLiveWinRateData } from "../lib/meta/liveWinRate";
@@ -1337,6 +1338,11 @@ export function GeneratorPanel() {
                 tempoScore={active.tempoScore}
                 cardAdvantageScore={active.cardAdvantageScore}
               />
+            </div>
+          )}
+          {active.scenarioCoverage && (
+            <div className="mb-3">
+              <ScenarioCoveragePanel coverage={active.scenarioCoverage} />
             </div>
           )}
           {/* ── Synergy violations ──────────────────────────────────── */}

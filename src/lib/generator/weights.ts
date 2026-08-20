@@ -4,7 +4,7 @@ import type { Archetype } from "../archetype";
 import { assignRoles, isThreat, type CardRole } from "../roles";
 import { computePowerScore } from "../powerScore";
 import { IDEAL_CURVES, recommendColorSources, parsePips, type ArchetypeCurveProfile } from "../manaBase";
-import type { GenerateOptions, KeywordFocus, ScoreBreakdown } from "./types";
+import type { DeckScenarioCoverage, GenerateOptions, KeywordFocus, ScoreBreakdown } from "./types";
 import { axisScore, buildSynergyProfile, crossAxisCompositionBonus, keywordFocusToAxes, summarizeSynergyConnections, synergyDensityMultiplier, tribalCardBonus } from "./synergyModel";
 import { colorAffinity } from "./colorWeights";
 import {
@@ -25,6 +25,8 @@ import {
   type CurveBin,
   type RoleBucket,
 } from "../config/archetypeProfiles";
+import { computeScenarioRobustness, simulateCardAgainstScenario } from "../simulation/scenarioSimulator";
+import type { OpponentScenario } from "../simulation/scenarioTypes";
 
 /**
  * Research-backed scoring engine.
@@ -258,6 +260,7 @@ export interface CardScoreDetail {
   signalContribution: number;
   efficiencyContribution: number;
   flexibilityContribution: number;
+  scenarioRobustnessContribution: number;
   ladderContribution: number;
   focusBonus: number;
   focusCardBonus: number;
@@ -266,6 +269,11 @@ export interface CardScoreDetail {
   broadTagBonus: number;
   cmcPenalty: number;
   pricePenalty: number;
+  /**
+   * Soft scenario-coverage warning for UI display only. It must never filter,
+   * exclude, or veto a card.
+   */
+  scenarioZeroCoverageWarning: boolean;
   /**
    * Only populated when options.seedSynergyContext is set (i.e. this
    * generation call was given seedEntries). Role-gap-aware multiplier/bonus
@@ -331,6 +339,14 @@ export function cardScoreDetail(
   const efficiencyContribution = cardCfg.efficiencyScalar * efficiency;
   const flexibilityContribution = cardCfg.flexibilityScalar * flexibility;
   const ladderContribution = cardCfg.ladderScalar * ladder;
+  const activeScenarios = options.activeScenarios;
+  const scenarioRobustness = activeScenarios?.length && !card.typeLine.includes("Land")
+    ? computeScenarioRobustness(card, activeScenarios)
+    : undefined;
+  const scenarioRobustnessContribution = scenarioRobustness
+    ? cardCfg.scenarioRobustnessScalar * scenarioRobustness.rawScore
+    : 0;
+  const scenarioZeroCoverageWarning = scenarioRobustness?.zeroCoverage ?? false;
 
   const genericTotal =
     rolePowerContribution +
@@ -338,6 +354,7 @@ export function cardScoreDetail(
     compositionBonus +
     efficiencyContribution +
     flexibilityContribution +
+    scenarioRobustnessContribution +
     ladderContribution +
     focus +
     focusCard +
@@ -389,6 +406,7 @@ export function cardScoreDetail(
     signalContribution: directionalContribution * 0.12,
     efficiencyContribution,
     flexibilityContribution,
+    scenarioRobustnessContribution,
     ladderContribution,
     focusBonus: focus,
     focusCardBonus: focusCard,
@@ -397,6 +415,7 @@ export function cardScoreDetail(
     broadTagBonus: broadBonus,
     cmcPenalty: cmcPen,
     pricePenalty: pricePen + deadCardPen,
+    scenarioZeroCoverageWarning,
     seedSynergyNote,
   };
 }
@@ -488,6 +507,50 @@ export interface DeckScore {
   redundancyContribution: number;
   /** meta performance contribution term. */
   metaPerformanceContribution: number;
+  /** scenario coverage consistency contribution term. */
+  scenarioConsistencyContribution: number;
+  /** Per-scenario coverage detail when scenario scoring was enabled. */
+  scenarioCoverage?: DeckScenarioCoverage;
+}
+
+/**
+ * Summarize whether the current deck has an on-time answer to each active
+ * opponent scenario. Multiple copies of a card do not affect coverage.
+ */
+export function computeDeckScenarioCoverage(
+  entries: DeckEntry[],
+  scenarios: OpponentScenario[],
+): DeckScenarioCoverage {
+  const nonlands = entries.filter((entry) => !entry.card.typeLine.includes("Land"));
+  const coverageEntries = scenarios.map((scenario) => {
+    const answeringCards: string[] = [];
+    const seenNames = new Set<string>();
+
+    for (const entry of nonlands) {
+      if (!simulateCardAgainstScenario(entry.card, scenario).onTime || seenNames.has(entry.card.name)) continue;
+      seenNames.add(entry.card.name);
+      if (answeringCards.length < 3) answeringCards.push(entry.card.name);
+    }
+
+    return {
+      scenarioId: scenario.id,
+      scenarioName: scenario.name,
+      sourceArchetypeNames: scenario.sourceArchetypeIds.length === 0
+        ? []
+        : [scenario.name.replace(/\s+Scenario$/, "")],
+      covered: answeringCards.length > 0,
+      answeringCards,
+    };
+  });
+  const coveredCount = coverageEntries.filter((entry) => entry.covered).length;
+  const totalScenarios = coverageEntries.length;
+
+  return {
+    scenarios: coverageEntries,
+    coveredCount,
+    totalScenarios,
+    consistencyScore: totalScenarios === 0 ? 0 : Math.round((coveredCount / totalScenarios) * 100),
+  };
 }
 
 /**
@@ -611,11 +674,20 @@ export function deckScore(
     undefined, // metaContext — pass undefined until wired from snapshot
   );
   const metaPerformanceContribution = deckCfg.metaPerformanceMultiplier * metaPerf;
+  const scenarioCoverage = options.activeScenarios?.length
+    ? computeDeckScenarioCoverage(entries, options.activeScenarios)
+    : undefined;
+  const scenarioConsistencyContribution = scenarioCoverage
+    ? deckCfg.scenarioConsistencyMultiplier
+      * (scenarioCoverage.consistencyScore / 100)
+      * scenarioCoverage.totalScenarios
+    : 0;
 
   const total =
     cardScoreSum +
     redundancyContribution +
-    metaPerformanceContribution -
+    metaPerformanceContribution +
+    scenarioConsistencyContribution -
     curvePenalty -
     manaPenalty -
     profilePenalty;
@@ -633,6 +705,8 @@ export function deckScore(
     profilePenalty,
     redundancyContribution,
     metaPerformanceContribution,
+    scenarioConsistencyContribution,
+    scenarioCoverage,
   };
 }
 
@@ -666,6 +740,8 @@ export function buildScoreBreakdown(
         signalContribution: detail.signalContribution,
         efficiencyContribution: detail.efficiencyContribution,
         flexibilityContribution: detail.flexibilityContribution,
+        scenarioRobustnessContribution: detail.scenarioRobustnessContribution,
+        scenarioZeroCoverageWarning: detail.scenarioZeroCoverageWarning,
         ladderContribution: detail.ladderContribution,
         focusBonus: detail.focusBonus,
         focusCardBonus: detail.focusCardBonus,

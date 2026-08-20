@@ -40,6 +40,9 @@ export interface CardScoringConfig {
   /** Scalar applied to flexibility contribution. */
   flexibilityScalar: number;
 
+  /** Scalar applied to scenario robustness contribution. */
+  scenarioRobustnessScalar: number;
+
   /** Scalar applied to ladder/meta contribution. */
   ladderScalar: number;
 
@@ -89,6 +92,9 @@ export interface DeckScoringConfig {
 
   /** Multiplier for meta performance contribution. */
   metaPerformanceMultiplier: number;
+
+  /** Multiplier for scenario coverage consistency contribution. */
+  scenarioConsistencyMultiplier: number;
 }
 
 // ── CMC & Price Penalties ─────────────────────────────────────────────────
@@ -146,6 +152,7 @@ const DEFAULT_CARD: CardScoringConfig = {
   compositionScalar: 0.8,
   efficiencyScalar: 1.2,
   flexibilityScalar: 0.9,
+  scenarioRobustnessScalar: 1.0,
   ladderScalar: 0.8,
   rolePowerLogSlope: 6.0,
   rolePowerLinearCap: 35,
@@ -166,6 +173,7 @@ const DEFAULT_DECK: DeckScoringConfig = {
   roleProfileLossMultiplier: 4.0,  // new term for role coverage
   redundancyMultiplier: 2.5,       // new term for engine redundancy
   metaPerformanceMultiplier: 3.0,  // new term for meta positioning
+  scenarioConsistencyMultiplier: 2.0,
 };
 
 const DEFAULT_PENALTY: PenaltyConfig = {

@@ -36,6 +36,8 @@ import { assertOfflineStageOrder, enforceRuleOfNine } from "./pipeline";
 import { validateSynergyPairs } from "./synergyConstraints";
 import { computeMythicViability } from "../mythicViability";
 import { computeTempoScore, computeCardAdvantageScore } from "../scoreEngine";
+import { BUNDLED_STANDARD_SNAPSHOT } from "../meta/snapshot";
+import { getActiveScenarios } from "../simulation/scenarioLibrary";
 import {
   classifySeedRoles,
   inferResourceSpec,
@@ -163,10 +165,11 @@ export function generateDecks(
   options: GenerateOptions,
   allCards: CardRecord[]
 ): GenerateMultiResult {
+  const scenarioOptions = withActiveScenarios(options);
   const variantCount = Math.max(1, Math.min(3, options.variants ?? 1));
   const variants: GenerateResult[] = [];
   for (let i = 0; i < variantCount; i++) {
-    variants.push(generateOne(options, allCards, 0xc0ffee + i * 7919));
+    variants.push(generateOne(scenarioOptions, allCards, 0xc0ffee + i * 7919));
   }
   variants.sort((a, b) => b.diagnostics.deckScore - a.diagnostics.deckScore);
   return { variants, bestIndex: 0 };
@@ -177,7 +180,14 @@ export function generateDeck(
   options: GenerateOptions,
   allCards: CardRecord[]
 ): GenerateResult {
-  return generateOne(options, allCards, 0xc0ffee);
+  return generateOne(withActiveScenarios(options), allCards, 0xc0ffee);
+}
+
+/** Supply the shared meta-derived scenario set once, unless a caller opted in explicitly. */
+function withActiveScenarios(options: GenerateOptions): GenerateOptions {
+  return options.activeScenarios === undefined
+    ? { ...options, activeScenarios: getActiveScenarios(BUNDLED_STANDARD_SNAPSHOT) }
+    : options;
 }
 
 /**
@@ -1106,6 +1116,7 @@ function generateOne(
     focusedCards,
     cardReasons,
     scoreBreakdown,
+    scenarioCoverage: finalScore.scenarioCoverage,
     mythicViability,
     tempoScore,
     cardAdvantageScore,

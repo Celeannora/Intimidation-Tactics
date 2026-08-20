@@ -7,6 +7,7 @@ import type { ConstructedFormat, PlayEnvironment } from "../formats";
 import type { LiveWinRateDataset } from "../meta/liveWinRate";
 import type { SeedSynergyGraph } from "../analysis/synergyGraph";
 import type { RoleTarget } from "./roleTargets";
+import type { OpponentScenario } from "../simulation/scenarioTypes";
 import type {
   SeedPackage,
   SeedRoleTargets,
@@ -187,6 +188,13 @@ export interface GenerateOptions {
   liveWinRate?: LiveWinRateDataset | null;
 
   /**
+   * Per-generation opponent plans used by scenario robustness scoring. The
+   * generator computes this once and passes it through its shared options.
+   * Omit (or pass an empty array) to leave scenario scoring disabled.
+   */
+  activeScenarios?: OpponentScenario[];
+
+  /**
    * Internal, generator-computed hook — never set this directly from calling
    * code. When seedEntries is non-empty, generateOne() derives this context
    * (seed package, inferred payoff resource, inferred anthem synergy) purely
@@ -259,6 +267,9 @@ export interface CardScoreContribution {
   signalContribution: number;
   efficiencyContribution?: number;
   flexibilityContribution?: number;
+  scenarioRobustnessContribution?: number;
+  /** Soft informational warning only; never used to filter, exclude, or veto a card. */
+  scenarioZeroCoverageWarning?: boolean;
   ladderContribution?: number;
   focusBonus: number;
   focusCardBonus: number;
@@ -350,6 +361,26 @@ export interface MythicViabilityReport {
   competitive: CompetitiveStrength;
 }
 
+export interface ScenarioCoverageEntry {
+  scenarioId: string;
+  scenarioName: string;
+  /** Empty for canonical scenarios; populated with the source meta archetype name(s) when meta-derived. */
+  sourceArchetypeNames: string[];
+  /** True if at least one nonland card in the deck answers this scenario on-time. */
+  covered: boolean;
+  /** Names of up to 3 cards in the deck that answer this scenario on-time (for UI display). */
+  answeringCards: string[];
+}
+
+export interface DeckScenarioCoverage {
+  scenarios: ScenarioCoverageEntry[];
+  /** Count of scenarios.covered === true. */
+  coveredCount: number;
+  totalScenarios: number;
+  /** 0-100, coveredCount/totalScenarios × 100, rounded. */
+  consistencyScore: number;
+}
+
 /**
  * A constraint that requires a minimum number of source cards to be present
  * in the deck whenever any payoff card for a given axis is included.
@@ -402,6 +433,8 @@ export interface GenerateResult {
   cardReasons: Record<string, string[]>;
   /** Numeric score details showing which cards contributed to the deck score. */
   scoreBreakdown: ScoreBreakdown;
+  /** Scenario coverage from final deck scoring, when scenario scoring was enabled. */
+  scenarioCoverage?: DeckScenarioCoverage;
   /** AI-engine only: free-form summary of the deck's identity (2–4 sentences). */
   aiSummary?: string;
   /** AI-engine only: free-form early/mid/late game plan (2–4 sentences). */
