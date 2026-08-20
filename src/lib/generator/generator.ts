@@ -496,9 +496,15 @@ function generateOne(
   const seedCardsForGraph = seedEntries.map((e) => e.card);
   const seedGraph = seedCardsForGraph.length >= 2 ? buildSeedSynergyGraph(seedCardsForGraph) : null;
 
-  // Seed policy: log the resolved contract for this generation run.
-  // The actual locked/fuzz behaviour is controlled by seedEntries + seedFuzzSwaps above;
-  // seedPolicy is currently an advisory/display contract surfaced in diagnostics.
+  // Seed policy: "locked-core" (default) keeps every seed at exactly the
+  // quantity it was imported with -- Phase 1-3 above never add or remove
+  // copies of a seed. "strong-preference" instead treats that imported
+  // quantity as a FLOOR: Phase 3c below may promote seeds toward their
+  // recommended copy count once the rest of the deck is assembled. Seeds
+  // are never touched below their floor under either policy, so this is
+  // purely additive relative to "locked-core". "inspiration" is reserved
+  // for a future fully-unlocked mode and currently behaves like
+  // "locked-core" (not yet implemented).
   const resolvedSeedPolicy = options.seedPolicy ?? (seedEntries.length > 0 ? "locked-core" : undefined);
   if (resolvedSeedPolicy) reasoning.push(`Seed policy: ${resolvedSeedPolicy}`);
 
@@ -906,6 +912,19 @@ function generateOne(
   // with basics (color-balanced) by replacing the highest-cmc nonland slots.
   enforceLandFloor(finalEntries, landBudget, effectiveColors, allCards, lockedIds, targetMainboardSize, reasoning);
 
+  // Recommended copy count for a nonland card once it's already in the
+  // deck -- shared between Phase 3b (consolidating existing singletons)
+  // and Phase 3c (promoting "strong-preference" seeds). Not clamped to the
+  // card's current quantity, so it's safe to use as a promotion target.
+  const idealQty = (e: DeckEntry): number => {
+    const cap = Math.min(maxCopiesForCard(e.card, effectiveOptions.format), 4);
+    if (e.card.typeLine.includes("Legendary") || e.card.gameChanger) return Math.min(2, cap);
+    const roles = assignRoles(e.card);
+    if (roles.includes("BoardWipe")) return Math.min(1, cap);
+    if (isThreat(roles) && e.card.cmc <= 2) return Math.min(4, cap);
+    return Math.min(3, cap);
+  };
+
   // ── Phase 3b: copy-count consolidation ───────────────────────────────────
   // The optimizer swaps one card for another, always keeping the outgoing
   // quantity. A board-wipe slot (1 copy) swapped for a 4-of threat stays at
@@ -932,16 +951,6 @@ function generateOne(
           isLocked: lockedIds.has(e.card.oracleId),
         }))
         .sort((a, b) => b.score - a.score); // descending: best first
-
-      // Target copy count per card respecting format caps and card type.
-      const idealQty = (e: DeckEntry): number => {
-        const cap = Math.min(maxCopiesForCard(e.card, effectiveOptions.format), 4);
-        if (e.card.typeLine.includes("Legendary") || e.card.gameChanger) return Math.min(2, cap);
-        const roles = assignRoles(e.card);
-        if (roles.includes("BoardWipe")) return Math.min(1, cap);
-        if (isThreat(roles) && e.card.cmc <= 2) return Math.min(4, cap);
-        return Math.min(3, cap);
-      };
 
       // Two-pointer: i walks top (promotion candidates), j walks bottom (donors).
       // We mutate entry.quantity in-place since these are the same objects in finalEntries.
@@ -984,6 +993,52 @@ function generateOne(
           );
         }
       }
+    }
+  }
+
+  // ── Phase 3c: seed quantity promotion ("strong-preference" seeds only) ────
+  // "locked-core" seeds (the default) are exact: the count you seed with is
+  // the count you get -- Phase 3b above never touches locked seeds either
+  // direction. "strong-preference" instead treats each seed's imported
+  // quantity as a FLOOR, not a ceiling: seeds may be promoted toward their
+  // recommended copy count (idealQty -- same heuristic Phase 3b uses,
+  // respecting the format's max-copy cap and the Legendary/game-changer
+  // 2-copy convention), funded by trading a copy away from the
+  // lowest-scoring unlocked, non-seed, non-focus nonland in the deck.
+  // Donors never drop below 1 copy; seeds here only ever GAIN copies
+  // (never lose any), so a seed can never end up below what was imported.
+  // Focus entries and locked-core seeds are completely untouched.
+  if (resolvedSeedPolicy === "strong-preference" && seedEntries.length > 0) {
+    const seedOracleIds = new Set(seedEntries.map((e) => e.card.oracleId));
+    const promotable = finalEntries
+      .filter((e) => e.board === "main" && !e.card.typeLine.includes("Land") && seedOracleIds.has(e.card.oracleId))
+      .map((e) => ({
+        entry: e,
+        score: cardScore(e.card, finalEntries, effectiveOptions, targetAvgCmc),
+        want: idealQty(e),
+      }))
+      .sort((a, b) => b.score - a.score); // best seeds get first claim on donated copies
+
+    const donors = finalEntries
+      .filter((e) => e.board === "main" && !e.card.typeLine.includes("Land") && !lockedIds.has(e.card.oracleId))
+      .map((e) => ({ entry: e, score: cardScore(e.card, finalEntries, effectiveOptions, targetAvgCmc) }))
+      .sort((a, b) => a.score - b.score); // worst unlocked cards donate first
+
+    let promoted = 0;
+    let di = 0;
+    for (const p of promotable) {
+      while (p.entry.quantity < p.want) {
+        while (di < donors.length && donors[di].entry.quantity <= 1) di++;
+        if (di >= donors.length) break;
+        donors[di].entry.quantity -= 1;
+        p.entry.quantity += 1;
+        promoted++;
+      }
+    }
+    if (promoted > 0) {
+      reasoning.push(
+        `Seed promotion (strong-preference): +${promoted} cop${promoted === 1 ? "y" : "ies"} added to seed card(s) toward their recommended count, funded by the lowest-scoring unlocked nonland(s)`
+      );
     }
   }
 
