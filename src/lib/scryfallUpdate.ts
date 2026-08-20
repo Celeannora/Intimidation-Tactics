@@ -17,21 +17,15 @@
  */
 
 import type { ImportProgress, ImportResult } from "./types";
+import {
+  fetchOracleCardsManifestEntry,
+  downloadScryfallBulkFile,
+  type ScryfallBulkEntry,
+} from "./scryfallBulk";
 
-const SCRYFALL_BULK_MANIFEST = "https://api.scryfall.com/bulk-data";
 const MIN_UPDATE_INTERVAL_MS = 30 * 60 * 1000; // 30 min cooldown between refreshes
 
-export interface ScryfallBulkEntry {
-  type: string;
-  download_uri: string;
-  size?: number;
-  updated_at?: string;
-  name?: string;
-}
-
-export interface ScryfallBulkManifest {
-  data: ScryfallBulkEntry[];
-}
+export type { ScryfallBulkEntry };
 
 export type UpdatePhase =
   | "idle"
@@ -81,10 +75,7 @@ export class ScryfallUpdateController {
   /** Fetch the manifest and return the oracle_cards entry metadata without downloading. */
   async fetchManifestMeta(): Promise<ScryfallBulkEntry | null> {
     try {
-      const res = await fetch(SCRYFALL_BULK_MANIFEST);
-      if (!res.ok) return null;
-      const manifest = (await res.json()) as ScryfallBulkManifest;
-      return manifest.data.find((d) => d.type === "oracle_cards") ?? null;
+      return await fetchOracleCardsManifestEntry();
     } catch {
       return null;
     }
@@ -99,58 +90,17 @@ export class ScryfallUpdateController {
       // ── Step 1: manifest ──────────────────────────────────────────────────
       this._emit({ phase: "reading", percent: 1, processed: 0, total: 0, message: "Fetching Scryfall bulk-data manifest…" });
 
-      const manifestRes = await fetch(SCRYFALL_BULK_MANIFEST, { signal });
-      if (!manifestRes.ok) throw new Error(`Manifest fetch failed: ${manifestRes.status}`);
-      const manifest = (await manifestRes.json()) as ScryfallBulkManifest;
-      const entry = manifest.data.find((d) => d.type === "oracle_cards");
-      if (!entry) throw new Error("No oracle_cards entry found in Scryfall bulk manifest.");
-
+      const entry = await fetchOracleCardsManifestEntry(signal);
       this.onScryfallMeta?.(entry);
 
       if (this._cancelled) return;
 
-      // ── Step 2: download ─────────────────────────────────────────────────
-      this._emit({ phase: "reading", percent: 2, processed: 0, total: entry.size ?? 0, message: "Connecting to Scryfall…" });
-
-      const res = await fetch(entry.download_uri, { signal });
-      if (!res.ok || !res.body) throw new Error(`Download failed: ${res.status}`);
-
-      const contentLength = Number(res.headers.get("Content-Length") ?? entry.size ?? 0);
-      const reader = res.body.getReader();
-      const chunks: Uint8Array[] = [];
-      let received = 0;
-
-      while (true) {
-        if (this._cancelled) {
-          await reader.cancel();
-          return;
-        }
-        const { done, value } = await reader.read();
-        if (done) break;
-        if (value) {
-          chunks.push(value);
-          received += value.byteLength;
-          const percent = contentLength
-            ? Math.min(18, 2 + Math.round((received / contentLength) * 16))
-            : 10;
-          this._emit({
-            phase: "reading",
-            percent,
-            processed: received,
-            total: contentLength,
-            message: contentLength
-              ? `Downloading ${(received / 1_000_000).toFixed(1)} / ${(contentLength / 1_000_000).toFixed(1)} MB`
-              : `Downloading ${(received / 1_000_000).toFixed(1)} MB`,
-          });
-        }
-      }
+      // ── Step 2: download (+ decompress if needed) ─────────────────────────
+      const file = await downloadScryfallBulkFile(entry, (p) => this._emit(p), signal);
 
       if (this._cancelled) return;
 
       // ── Step 3: hand to importWorker ──────────────────────────────────────
-      const blob = new Blob(chunks as BlobPart[], { type: "application/json" });
-      const file = new File([blob], "oracle_cards.json", { type: "application/json" });
-
       await this._runWorker(file);
     } catch (e) {
       if (this._cancelled) return;
