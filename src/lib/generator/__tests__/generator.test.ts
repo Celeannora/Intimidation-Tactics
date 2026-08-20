@@ -190,7 +190,7 @@ describe("generateDeck seed quantity policy", () => {
     expect(nonlandTotal).toBe(options.mainboardSize! - result.entries.filter((e) => e.card.typeLine.includes("Land")).reduce((s, e) => s + e.quantity, 0));
   });
 
-  it("strong-preference: a legendary seed is never promoted past its 2-copy legend-rule convention cap", () => {
+  it("strong-preference: a legendary seed is NOT capped at 2 copies -- the legend rule only restricts the battlefield, not deck construction", () => {
     const legendarySeed = {
       ...makeBombSeed(),
       name: "Legendary Bomb Seed",
@@ -205,7 +205,10 @@ describe("generateDeck seed quantity policy", () => {
     const result = generateDeck(options, [legendarySeed, ...filler, makeBasic("Wastes")]);
 
     const seedEntry = result.entries.find((e) => e.card.oracleId === legendarySeed.oracleId);
-    expect(seedEntry?.quantity).toBeLessThanOrEqual(2);
+    // Same role-based cap as a non-legendary card of the same shape (generic -> up to 3),
+    // never artificially clamped to 2 just for being Legendary.
+    expect(seedEntry?.quantity).toBeGreaterThan(1);
+    expect(seedEntry?.quantity).toBeLessThanOrEqual(4);
   });
 
   it("strong-preference: never drops a seed below the quantity it was imported with", () => {

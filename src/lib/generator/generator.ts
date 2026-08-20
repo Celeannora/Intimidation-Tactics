@@ -916,9 +916,13 @@ function generateOne(
   // deck -- shared between Phase 3b (consolidating existing singletons)
   // and Phase 3c (promoting "strong-preference" seeds). Not clamped to the
   // card's current quantity, so it's safe to use as a promotion target.
+  // Legendary/game-changer status is NOT a quantity cap here: the legend
+  // rule only restricts the battlefield (one copy in play at a time), not
+  // deck construction, and maxCopiesForCard already reflects that -- a
+  // Legendary or game-changer card is capped by the same role-based logic
+  // as everything else.
   const idealQty = (e: DeckEntry): number => {
     const cap = Math.min(maxCopiesForCard(e.card, effectiveOptions.format), 4);
-    if (e.card.typeLine.includes("Legendary") || e.card.gameChanger) return Math.min(2, cap);
     const roles = assignRoles(e.card);
     if (roles.includes("BoardWipe")) return Math.min(1, cap);
     if (isThreat(roles) && e.card.cmc <= 2) return Math.min(4, cap);
@@ -1001,10 +1005,11 @@ function generateOne(
   // the count you get -- Phase 3b above never touches locked seeds either
   // direction. "strong-preference" instead treats each seed's imported
   // quantity as a FLOOR, not a ceiling: seeds may be promoted toward their
-  // recommended copy count (idealQty -- same heuristic Phase 3b uses,
-  // respecting the format's max-copy cap and the Legendary/game-changer
-  // 2-copy convention), funded by trading a copy away from the
-  // lowest-scoring unlocked, non-seed, non-focus nonland in the deck.
+  // recommended copy count (idealQty -- same role-based heuristic Phase 3b
+  // uses, capped only by the format's max-copy rule; Legendary/game-changer
+  // status does NOT lower the cap, since the legend rule only restricts the
+  // battlefield, not deck construction), funded by trading a copy away from
+  // the lowest-scoring unlocked, non-seed, non-focus nonland in the deck.
   // Donors never drop below 1 copy; seeds here only ever GAIN copies
   // (never lose any), so a seed can never end up below what was imported.
   // Focus entries and locked-core seeds are completely untouched.
