@@ -1013,6 +1013,17 @@ function generateOne(
   // Donors never drop below 1 copy; seeds here only ever GAIN copies
   // (never lose any), so a seed can never end up below what was imported.
   // Focus entries and locked-core seeds are completely untouched.
+  //
+  // Role floor: donating is pure score-order otherwise, which has no idea
+  // that a card is (say) the deck's only counterspell -- it would happily
+  // drain removal/counterspells/board wipes/card draw/ramp/threats below
+  // the archetype's own target for that role just because those cards
+  // scored lowest for unrelated reasons. So a donation is skipped whenever
+  // it would drop any role the donor satisfies below target[slot], using
+  // the same roleCountsIn/matchesRole/target machinery as the optimizer's
+  // role-floor guard above, tracked live as donations happen (a role can't
+  // be drained past target one copy at a time by several "individually
+  // safe" donations either).
   if (resolvedSeedPolicy === "strong-preference" && seedEntries.length > 0) {
     const seedOracleIds = new Set(seedEntries.map((e) => e.card.oracleId));
     const promotable = finalEntries
@@ -1029,20 +1040,52 @@ function generateOne(
       .map((e) => ({ entry: e, score: cardScore(e.card, finalEntries, effectiveOptions, targetAvgCmc) }))
       .sort((a, b) => a.score - b.score); // worst unlocked cards donate first
 
+    const liveRoleCounts = roleCountsIn(finalEntries);
+    const roleFloorBlockedRoles = new Set<RoleSlot>();
+    const roleFloorBlocks = (donorCard: CardRecord): boolean => {
+      let blocked = false;
+      for (const slot of ROLE_ORDER) {
+        const tgt = target[slot] ?? 0;
+        if (tgt <= 0 || !matchesRole(slot, assignRoles(donorCard))) continue;
+        if ((liveRoleCounts[slot] ?? 0) - 1 < tgt) {
+          roleFloorBlockedRoles.add(slot);
+          blocked = true;
+        }
+      }
+      return blocked;
+    };
+
     let promoted = 0;
+    let roleFloorSkips = 0;
     let di = 0;
     for (const p of promotable) {
       while (p.entry.quantity < p.want) {
-        while (di < donors.length && donors[di].entry.quantity <= 1) di++;
+        while (
+          di < donors.length &&
+          (donors[di].entry.quantity <= 1 || roleFloorBlocks(donors[di].entry.card))
+        ) {
+          if (donors[di].entry.quantity > 1) roleFloorSkips++;
+          di++;
+        }
         if (di >= donors.length) break;
         donors[di].entry.quantity -= 1;
         p.entry.quantity += 1;
+        for (const slot of ROLE_ORDER) {
+          if (matchesRole(slot, assignRoles(donors[di].entry.card))) {
+            liveRoleCounts[slot] = (liveRoleCounts[slot] ?? 0) - 1;
+          }
+        }
         promoted++;
       }
     }
     if (promoted > 0) {
       reasoning.push(
         `Seed promotion (strong-preference): +${promoted} cop${promoted === 1 ? "y" : "ies"} added to seed card(s) toward their recommended count, funded by the lowest-scoring unlocked nonland(s)`
+      );
+    }
+    if (roleFloorSkips > 0) {
+      reasoning.push(
+        `Seed promotion role floor: skipped ${roleFloorSkips} donor cop${roleFloorSkips === 1 ? "y" : "ies"} that would have dropped ${Array.from(roleFloorBlockedRoles).join(", ")} below its archetype target`
       );
     }
   }

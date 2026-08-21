@@ -169,18 +169,63 @@ describe("generateDeck seed quantity policy", () => {
     expect(result.diagnostics.reasoning.some((r) => r.startsWith("Seed promotion"))).toBe(false);
   });
 
+  // A card that satisfies TWO role slots at once (here: threats + cardDraw)
+  // gets placed by whichever role's fillRole call runs first (threats, per
+  // ROLE_ORDER), but its copies count toward BOTH roles' live totals. The
+  // other role's own fillRole call still fills up to ITS FULL target with
+  // no idea that some of its need was already met -- so the deck ends up
+  // with genuine surplus above that role's target. This is exactly how
+  // real decks (many overlapping-role cards) end up above their archetype
+  // targets; a plain single-role filler pool can never do this (Phase 1's
+  // fillRole always stops at EXACTLY the target when enough candidates
+  // exist, so a same-role donor pool alone has zero headroom under the
+  // new role floor -- surplus has to come from a genuinely different
+  // source, same as it would in the real generator).
+  function makeDualRoleThreatDrawer(): CardRecord {
+    return {
+      ...makeCard(
+        "Dual Beater Drawer",
+        "When this creature enters the battlefield, draw two cards.",
+        "Creature — Test",
+        []
+      ),
+      gameChanger: 0,
+      edhrecRank: 50, // best score among threat candidates -> reliably picked
+      rarity: "rare",
+      power: "3",
+      toughness: "3",
+    } as CardRecord;
+  }
+
+  function makeCardDrawOnlyFillers(count: number): CardRecord[] {
+    // Non-creature, so these never touch the "threats" role -- they only
+    // ever count toward cardDraw, and score far worse than every other
+    // filler in these tests so they donate first.
+    return Array.from({ length: count }, (_, i) =>
+      ({
+        ...makeCard(`Draw Filler ${i + 1}`, "Draw two cards.", "Sorcery", []),
+        gameChanger: 0,
+        edhrecRank: 90000,
+        rarity: "common",
+        cmc: 3,
+      } as CardRecord)
+    );
+  }
+
   it("strong-preference: promotes a high-scoring seed above its imported quantity, funded by the weakest unlocked filler", () => {
     const bomb = makeBombSeed();
     const filler = makeFillerCards(30);
+    const dualCard = makeDualRoleThreatDrawer();
+    const drawFillers = makeCardDrawOnlyFillers(8);
     const seedEntries: DeckEntry[] = [{ card: bomb, quantity: 1, board: "main" }];
     const options = baseOptions(seedEntries, "strong-preference");
 
-    const result = generateDeck(options, [bomb, ...filler, makeBasic("Wastes")]);
+    const result = generateDeck(options, [bomb, dualCard, ...filler, ...drawFillers, makeBasic("Wastes")]);
 
     const bombEntry = result.entries.find((e) => e.card.oracleId === bomb.oracleId);
     expect(bombEntry?.quantity).toBeGreaterThan(1);
     expect(bombEntry?.quantity).toBeLessThanOrEqual(4);
-    expect(result.diagnostics.reasoning.some((r) => r.startsWith("Seed promotion"))).toBe(true);
+    expect(result.diagnostics.reasoning.some((r) => r.startsWith("Seed promotion (strong-preference)"))).toBe(true);
 
     // Total nonland copy count must stay conserved -- promotion trades
     // copies, it never inflates the deck.
@@ -199,10 +244,12 @@ describe("generateDeck seed quantity policy", () => {
       typeLine: "Legendary Creature — Test",
     } as CardRecord;
     const filler = makeFillerCards(30);
+    const dualCard = makeDualRoleThreatDrawer();
+    const drawFillers = makeCardDrawOnlyFillers(8);
     const seedEntries: DeckEntry[] = [{ card: legendarySeed, quantity: 1, board: "main" }];
     const options = baseOptions(seedEntries, "strong-preference");
 
-    const result = generateDeck(options, [legendarySeed, ...filler, makeBasic("Wastes")]);
+    const result = generateDeck(options, [legendarySeed, dualCard, ...filler, ...drawFillers, makeBasic("Wastes")]);
 
     const seedEntry = result.entries.find((e) => e.card.oracleId === legendarySeed.oracleId);
     // Same role-based cap as a non-legendary card of the same shape (generic -> up to 3),
@@ -222,5 +269,40 @@ describe("generateDeck seed quantity policy", () => {
 
     const bombEntry = result.entries.find((e) => e.card.oracleId === bomb.oracleId);
     expect(bombEntry?.quantity).toBeGreaterThanOrEqual(2);
+  });
+
+  it("strong-preference: never drains a control role (e.g. counterspells) below its archetype target to fund a seed's promotion", () => {
+    const bomb = makeBombSeed(); // non-creature-threat role, doesn't compete for the counterspells slot
+    const counterspell = {
+      ...makeCard("Lone Counterspell", "Counter target spell.", "Instant", []),
+      gameChanger: 0,
+      edhrecRank: 5000,
+      rarity: "uncommon",
+    } as CardRecord;
+    const seedEntries: DeckEntry[] = [{ card: bomb, quantity: 1, board: "main" }];
+    const options: GenerateOptions = {
+      ...baseOptions(seedEntries, "strong-preference"),
+      // Only counterspell candidates exist in the pool, so Phase 1 fills
+      // exactly to this target (2 copies) and nothing else competes for
+      // donor slots -- an unambiguous "donor sits exactly at target" case.
+      roleTargetOverrides: { counterspells: 2 },
+    };
+
+    const result = generateDeck(options, [bomb, counterspell, makeBasic("Wastes")]);
+
+    const donorEntry = result.entries.find((e) => e.card.oracleId === counterspell.oracleId);
+    const bombEntry = result.entries.find((e) => e.card.oracleId === bomb.oracleId);
+
+    // The donor started at (and was filled to) exactly the counterspells
+    // target -- donating even one copy would drop the deck's only
+    // interaction category below what the archetype calls for, so the
+    // role floor must refuse the donation entirely.
+    expect(donorEntry?.quantity).toBe(2);
+    expect(bombEntry?.quantity).toBe(1); // seed's promotion request went unfunded
+    expect(
+      result.diagnostics.reasoning.some(
+        (r) => r.startsWith("Seed promotion role floor") && r.includes("counterspells")
+      )
+    ).toBe(true);
   });
 });
