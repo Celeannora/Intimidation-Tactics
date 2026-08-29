@@ -1,102 +1,72 @@
 {
   "schemaVersion": 1,
   "format": "standard",
-  "updatedAt": "2026-08-13",
+  "updatedAt": "2026-08-29",
   "source": "MTGGoldfish representative Standard decklists fetched by scripts/refreshMetaSnapshot.ts",
   "notes": "Inclusion frequency across 15 fetched representative mainboards; topDeckPresence is a published-list presence proxy, not a win rate.",
   "cards": [
     {
       "name": "Island",
-      "playRate": 0.6,
-      "copiesAvg": 1,
-      "topDeckPresence": 0.6
+      "playRate": 0.3333,
+      "copiesAvg": 1.6,
+      "topDeckPresence": 0.3333
     },
     {
-      "name": "Steam Vents",
-      "playRate": 0.4667,
-      "copiesAvg": 1.14,
-      "topDeckPresence": 0.4667
-    },
-    {
-      "name": "Riverpyre Verge",
-      "playRate": 0.4667,
-      "copiesAvg": 1,
-      "topDeckPresence": 0.4667
+      "name": "Swamp",
+      "playRate": 0.3333,
+      "copiesAvg": 1.2,
+      "topDeckPresence": 0.3333
     },
     {
       "name": "Multiversal Passage",
-      "playRate": 0.4,
+      "playRate": 0.3333,
       "copiesAvg": 1,
-      "topDeckPresence": 0.4
-    },
-    {
-      "name": "Spirebluff Canal",
-      "playRate": 0.4,
-      "copiesAvg": 1,
-      "topDeckPresence": 0.4
-    },
-    {
-      "name": "Starting Town",
-      "playRate": 0.4,
-      "copiesAvg": 1,
-      "topDeckPresence": 0.4
+      "topDeckPresence": 0.3333
     },
     {
       "name": "Plains",
       "playRate": 0.3333,
-      "copiesAvg": 1.4,
+      "copiesAvg": 1,
       "topDeckPresence": 0.3333
     },
     {
-      "name": "Spell Pierce",
+      "name": "Starting Town",
       "playRate": 0.3333,
       "copiesAvg": 1,
       "topDeckPresence": 0.3333
     },
     {
-      "name": "Forest",
+      "name": "Mountain",
       "playRate": 0.2667,
       "copiesAvg": 1.25,
       "topDeckPresence": 0.2667
     },
     {
-      "name": "Boomerang Basics",
+      "name": "Erode",
       "playRate": 0.2667,
       "copiesAvg": 1,
       "topDeckPresence": 0.2667
     },
     {
-      "name": "Opt",
+      "name": "Hallowed Fountain",
       "playRate": 0.2667,
       "copiesAvg": 1,
       "topDeckPresence": 0.2667
     },
     {
-      "name": "Sleight of Hand",
+      "name": "Soulstone Sanctuary",
       "playRate": 0.2667,
       "copiesAvg": 1,
       "topDeckPresence": 0.2667
     },
     {
-      "name": "Slickshot Show-Off",
+      "name": "Spell Snare",
       "playRate": 0.2667,
       "copiesAvg": 1,
       "topDeckPresence": 0.2667
     },
     {
-      "name": "Stock Up",
-      "playRate": 0.2667,
-      "copiesAvg": 1,
-      "topDeckPresence": 0.2667
-    },
-    {
-      "name": "Stormchaser's Talent",
-      "playRate": 0.2667,
-      "copiesAvg": 1,
-      "topDeckPresence": 0.2667
-    },
-    {
-      "name": "Swamp",
+      "name": "Steam Vents",
       "playRate": 0.2667,
       "copiesAvg": 1,
       "topDeckPresence": 0.2667
@@ -108,73 +78,49 @@
       "topDeckPresence": 0.2
     },
     {
-      "name": "Cavern of Souls",
+      "name": "Forest",
       "playRate": 0.2,
       "copiesAvg": 1,
       "topDeckPresence": 0.2
     },
     {
-      "name": "Eddymurk Crab",
+      "name": "Gloomlake Verge",
       "playRate": 0.2,
       "copiesAvg": 1,
       "topDeckPresence": 0.2
     },
     {
-      "name": "Firebending Lesson",
+      "name": "Godless Shrine",
       "playRate": 0.2,
       "copiesAvg": 1,
       "topDeckPresence": 0.2
     },
     {
-      "name": "Flow State",
+      "name": "Great Hall of the Biblioplex",
       "playRate": 0.2,
       "copiesAvg": 1,
       "topDeckPresence": 0.2
     },
     {
-      "name": "Get Out",
+      "name": "Requiting Hex",
       "playRate": 0.2,
       "copiesAvg": 1,
       "topDeckPresence": 0.2
     },
     {
-      "name": "Gran-Gran",
+      "name": "Riverpyre Verge",
       "playRate": 0.2,
       "copiesAvg": 1,
       "topDeckPresence": 0.2
     },
     {
-      "name": "Hallowed Fountain",
+      "name": "Spirebluff Canal",
       "playRate": 0.2,
       "copiesAvg": 1,
       "topDeckPresence": 0.2
     },
     {
-      "name": "Jennifer Walters",
-      "playRate": 0.2,
-      "copiesAvg": 1,
-      "topDeckPresence": 0.2
-    },
-    {
-      "name": "Prismari Charm",
-      "playRate": 0.2,
-      "copiesAvg": 1,
-      "topDeckPresence": 0.2
-    },
-    {
-      "name": "Roaring Furnace // Steaming Sauna",
-      "playRate": 0.2,
-      "copiesAvg": 1,
-      "topDeckPresence": 0.2
-    },
-    {
-      "name": "Tablet of Discovery",
-      "playRate": 0.2,
-      "copiesAvg": 1,
-      "topDeckPresence": 0.2
-    },
-    {
-      "name": "Vibrant Outburst",
+      "name": "Stock Up",
       "playRate": 0.2,
       "copiesAvg": 1,
       "topDeckPresence": 0.2
@@ -186,9 +132,9 @@
       "topDeckPresence": 0.2
     },
     {
-      "name": "Mountain",
+      "name": "Icetill Explorer",
       "playRate": 0.1333,
-      "copiesAvg": 2,
+      "copiesAvg": 1.5,
       "topDeckPresence": 0.1333
     },
     {
@@ -198,25 +144,13 @@
       "topDeckPresence": 0.1333
     },
     {
-      "name": "Aang, Swift Savior",
+      "name": "Tersa Lightshatter",
       "playRate": 0.1333,
-      "copiesAvg": 1,
-      "topDeckPresence": 0.1333
-    },
-    {
-      "name": "Abandon Attachments",
-      "playRate": 0.1333,
-      "copiesAvg": 1,
+      "copiesAvg": 1.5,
       "topDeckPresence": 0.1333
     },
     {
       "name": "Abandoned Air Temple",
-      "playRate": 0.1333,
-      "copiesAvg": 1,
-      "topDeckPresence": 0.1333
-    },
-    {
-      "name": "Accumulate Wisdom",
       "playRate": 0.1333,
       "copiesAvg": 1,
       "topDeckPresence": 0.1333
@@ -234,31 +168,25 @@
       "topDeckPresence": 0.1333
     },
     {
-      "name": "Bleachbone Verge",
+      "name": "Cavern of Souls",
       "playRate": 0.1333,
       "copiesAvg": 1,
       "topDeckPresence": 0.1333
     },
     {
-      "name": "Blood Crypt",
+      "name": "Channeled Dragonfire",
       "playRate": 0.1333,
       "copiesAvg": 1,
       "topDeckPresence": 0.1333
     },
     {
-      "name": "Combustion Technique",
+      "name": "Concealed Courtyard",
       "playRate": 0.1333,
       "copiesAvg": 1,
       "topDeckPresence": 0.1333
     },
     {
-      "name": "Deadly Cover-Up",
-      "playRate": 0.1333,
-      "copiesAvg": 1,
-      "topDeckPresence": 0.1333
-    },
-    {
-      "name": "Duress",
+      "name": "Earthbender Ascension",
       "playRate": 0.1333,
       "copiesAvg": 1,
       "topDeckPresence": 0.1333
@@ -270,7 +198,37 @@
       "topDeckPresence": 0.1333
     },
     {
-      "name": "Erode",
+      "name": "Escape Tunnel",
+      "playRate": 0.1333,
+      "copiesAvg": 1,
+      "topDeckPresence": 0.1333
+    },
+    {
+      "name": "Esper Origins",
+      "playRate": 0.1333,
+      "copiesAvg": 1,
+      "topDeckPresence": 0.1333
+    },
+    {
+      "name": "Fabled Passage",
+      "playRate": 0.1333,
+      "copiesAvg": 1,
+      "topDeckPresence": 0.1333
+    },
+    {
+      "name": "Firebending Lesson",
+      "playRate": 0.1333,
+      "copiesAvg": 1,
+      "topDeckPresence": 0.1333
+    },
+    {
+      "name": "Flitterwing Nuisance",
+      "playRate": 0.1333,
+      "copiesAvg": 1,
+      "topDeckPresence": 0.1333
+    },
+    {
+      "name": "Floodfarm Verge",
       "playRate": 0.1333,
       "copiesAvg": 1,
       "topDeckPresence": 0.1333
@@ -282,25 +240,13 @@
       "topDeckPresence": 0.1333
     },
     {
-      "name": "Gloomlake Verge",
+      "name": "Greasewrench Goblin",
       "playRate": 0.1333,
       "copiesAvg": 1,
       "topDeckPresence": 0.1333
     },
     {
-      "name": "Godless Shrine",
-      "playRate": 0.1333,
-      "copiesAvg": 1,
-      "topDeckPresence": 0.1333
-    },
-    {
-      "name": "Great Hall of the Biblioplex",
-      "playRate": 0.1333,
-      "copiesAvg": 1,
-      "topDeckPresence": 0.1333
-    },
-    {
-      "name": "Hearth Elemental",
+      "name": "Hexing Squelcher",
       "playRate": 0.1333,
       "copiesAvg": 1,
       "topDeckPresence": 0.1333
@@ -312,7 +258,7 @@
       "topDeckPresence": 0.1333
     },
     {
-      "name": "It'll Quench Ya!",
+      "name": "Hired Claw",
       "playRate": 0.1333,
       "copiesAvg": 1,
       "topDeckPresence": 0.1333
@@ -324,37 +270,37 @@
       "topDeckPresence": 0.1333
     },
     {
-      "name": "King T'Challa",
-      "playRate": 0.1333,
-      "copiesAvg": 1,
-      "topDeckPresence": 0.1333
-    },
-    {
       "name": "Llanowar Elves",
       "playRate": 0.1333,
       "copiesAvg": 1,
       "topDeckPresence": 0.1333
     },
     {
-      "name": "Meltstrider's Resolve",
+      "name": "Mightform Harmonizer",
       "playRate": 0.1333,
       "copiesAvg": 1,
       "topDeckPresence": 0.1333
     },
     {
-      "name": "Nowhere to Run",
+      "name": "Mistrise Village",
       "playRate": 0.1333,
       "copiesAvg": 1,
       "topDeckPresence": 0.1333
     },
     {
-      "name": "Ouroboroid",
+      "name": "No More Lies",
       "playRate": 0.1333,
       "copiesAvg": 1,
       "topDeckPresence": 0.1333
     },
     {
-      "name": "Overgrown Tomb",
+      "name": "Nova Hellkite",
+      "playRate": 0.1333,
+      "copiesAvg": 1,
+      "topDeckPresence": 0.1333
+    },
+    {
+      "name": "Petrified Hamlet",
       "playRate": 0.1333,
       "copiesAvg": 1,
       "topDeckPresence": 0.1333
@@ -366,19 +312,19 @@
       "topDeckPresence": 0.1333
     },
     {
-      "name": "Requiting Hex",
-      "playRate": 0.1333,
-      "copiesAvg": 1,
-      "topDeckPresence": 0.1333
-    },
-    {
       "name": "Restless Reef",
       "playRate": 0.1333,
       "copiesAvg": 1,
       "topDeckPresence": 0.1333
     },
     {
-      "name": "Secret Identity",
+      "name": "Sacred Foundry",
+      "playRate": 0.1333,
+      "copiesAvg": 1,
+      "topDeckPresence": 0.1333
+    },
+    {
+      "name": "Sazh's Chocobo",
       "playRate": 0.1333,
       "copiesAvg": 1,
       "topDeckPresence": 0.1333
@@ -396,7 +342,13 @@
       "topDeckPresence": 0.1333
     },
     {
-      "name": "Spell Snare",
+      "name": "Spell Pierce",
+      "playRate": 0.1333,
+      "copiesAvg": 1,
+      "topDeckPresence": 0.1333
+    },
+    {
+      "name": "Stormcarved Coast",
       "playRate": 0.1333,
       "copiesAvg": 1,
       "topDeckPresence": 0.1333
@@ -408,7 +360,13 @@
       "topDeckPresence": 0.1333
     },
     {
-      "name": "Temple Garden",
+      "name": "Sundown Pass",
+      "playRate": 0.1333,
+      "copiesAvg": 1,
+      "topDeckPresence": 0.1333
+    },
+    {
+      "name": "Tablet of Discovery",
       "playRate": 0.1333,
       "copiesAvg": 1,
       "topDeckPresence": 0.1333
@@ -420,22 +378,40 @@
       "topDeckPresence": 0.1333
     },
     {
-      "name": "Thor, God of Thunder",
-      "playRate": 0.1333,
-      "copiesAvg": 1,
-      "topDeckPresence": 0.1333
-    },
-    {
-      "name": "Undercity Sewers",
-      "playRate": 0.1333,
-      "copiesAvg": 1,
-      "topDeckPresence": 0.1333
-    },
-    {
       "name": "Voice of Victory",
       "playRate": 0.1333,
       "copiesAvg": 1,
       "topDeckPresence": 0.1333
+    },
+    {
+      "name": "Winternight Stories",
+      "playRate": 0.1333,
+      "copiesAvg": 1,
+      "topDeckPresence": 0.1333
+    },
+    {
+      "name": "Sleight of Hand",
+      "playRate": 0.0667,
+      "copiesAvg": 2,
+      "topDeckPresence": 0.0667
+    },
+    {
+      "name": "Aang, Swift Savior",
+      "playRate": 0.0667,
+      "copiesAvg": 1,
+      "topDeckPresence": 0.0667
+    },
+    {
+      "name": "Abandon Attachments",
+      "playRate": 0.0667,
+      "copiesAvg": 1,
+      "topDeckPresence": 0.0667
+    },
+    {
+      "name": "Accumulate Wisdom",
+      "playRate": 0.0667,
+      "copiesAvg": 1,
+      "topDeckPresence": 0.0667
     },
     {
       "name": "Amalia Benavides Aguirre",
@@ -444,19 +420,13 @@
       "topDeckPresence": 0.0667
     },
     {
-      "name": "Ancestral Anger",
-      "playRate": 0.0667,
-      "copiesAvg": 1,
-      "topDeckPresence": 0.0667
-    },
-    {
-      "name": "Arachne, Psionic Weaver",
-      "playRate": 0.0667,
-      "copiesAvg": 1,
-      "topDeckPresence": 0.0667
-    },
-    {
       "name": "Ardyn, the Usurper",
+      "playRate": 0.0667,
+      "copiesAvg": 1,
+      "topDeckPresence": 0.0667
+    },
+    {
+      "name": "Artist's Talent",
       "playRate": 0.0667,
       "copiesAvg": 1,
       "topDeckPresence": 0.0667
@@ -480,7 +450,25 @@
       "topDeckPresence": 0.0667
     },
     {
-      "name": "Badgermole Cub",
+      "name": "Avengers Disassembled",
+      "playRate": 0.0667,
+      "copiesAvg": 1,
+      "topDeckPresence": 0.0667
+    },
+    {
+      "name": "Bleachbone Verge",
+      "playRate": 0.0667,
+      "copiesAvg": 1,
+      "topDeckPresence": 0.0667
+    },
+    {
+      "name": "Blood Crypt",
+      "playRate": 0.0667,
+      "copiesAvg": 1,
+      "topDeckPresence": 0.0667
+    },
+    {
+      "name": "Bloodghast",
       "playRate": 0.0667,
       "copiesAvg": 1,
       "topDeckPresence": 0.0667
@@ -492,31 +480,19 @@
       "topDeckPresence": 0.0667
     },
     {
-      "name": "Brightglass Gearhulk",
-      "playRate": 0.0667,
-      "copiesAvg": 1,
-      "topDeckPresence": 0.0667
-    },
-    {
       "name": "Bringer of the Last Gift",
       "playRate": 0.0667,
       "copiesAvg": 1,
       "topDeckPresence": 0.0667
     },
     {
-      "name": "Bristly Bill, Spine Sower",
+      "name": "Broadside Barrage",
       "playRate": 0.0667,
       "copiesAvg": 1,
       "topDeckPresence": 0.0667
     },
     {
-      "name": "Bruce Banner",
-      "playRate": 0.0667,
-      "copiesAvg": 1,
-      "topDeckPresence": 0.0667
-    },
-    {
-      "name": "Callous Sell-Sword",
+      "name": "Carnage, Crimson Chaos",
       "playRate": 0.0667,
       "copiesAvg": 1,
       "topDeckPresence": 0.0667
@@ -528,37 +504,13 @@
       "topDeckPresence": 0.0667
     },
     {
-      "name": "Cecil, Dark Knight",
+      "name": "Colorstorm Stallion",
       "playRate": 0.0667,
       "copiesAvg": 1,
       "topDeckPresence": 0.0667
     },
     {
-      "name": "Celestial Reunion",
-      "playRate": 0.0667,
-      "copiesAvg": 1,
-      "topDeckPresence": 0.0667
-    },
-    {
-      "name": "Clarion Conqueror",
-      "playRate": 0.0667,
-      "copiesAvg": 1,
-      "topDeckPresence": 0.0667
-    },
-    {
-      "name": "Cloak and Dagger, Entwined",
-      "playRate": 0.0667,
-      "copiesAvg": 1,
-      "topDeckPresence": 0.0667
-    },
-    {
-      "name": "Commune with Beavers",
-      "playRate": 0.0667,
-      "copiesAvg": 1,
-      "topDeckPresence": 0.0667
-    },
-    {
-      "name": "Concealed Courtyard",
+      "name": "Combustion Technique",
       "playRate": 0.0667,
       "copiesAvg": 1,
       "topDeckPresence": 0.0667
@@ -570,7 +522,49 @@
       "topDeckPresence": 0.0667
     },
     {
+      "name": "Cool but Rude",
+      "playRate": 0.0667,
+      "copiesAvg": 1,
+      "topDeckPresence": 0.0667
+    },
+    {
+      "name": "Cori Mountain Monastery",
+      "playRate": 0.0667,
+      "copiesAvg": 1,
+      "topDeckPresence": 0.0667
+    },
+    {
+      "name": "Corpses of the Lost",
+      "playRate": 0.0667,
+      "copiesAvg": 1,
+      "topDeckPresence": 0.0667
+    },
+    {
+      "name": "Dark Knight's Greatsword",
+      "playRate": 0.0667,
+      "copiesAvg": 1,
+      "topDeckPresence": 0.0667
+    },
+    {
       "name": "Day of Black Sun",
+      "playRate": 0.0667,
+      "copiesAvg": 1,
+      "topDeckPresence": 0.0667
+    },
+    {
+      "name": "Day of Judgment",
+      "playRate": 0.0667,
+      "copiesAvg": 1,
+      "topDeckPresence": 0.0667
+    },
+    {
+      "name": "Daydream",
+      "playRate": 0.0667,
+      "copiesAvg": 1,
+      "topDeckPresence": 0.0667
+    },
+    {
+      "name": "Deadly Cover-Up",
       "playRate": 0.0667,
       "copiesAvg": 1,
       "topDeckPresence": 0.0667
@@ -588,13 +582,31 @@
       "topDeckPresence": 0.0667
     },
     {
-      "name": "Doomsday Excruciator",
+      "name": "Demolition Field",
       "playRate": 0.0667,
       "copiesAvg": 1,
       "topDeckPresence": 0.0667
     },
     {
-      "name": "Drake Hatcher",
+      "name": "Desolation Prowler",
+      "playRate": 0.0667,
+      "copiesAvg": 1,
+      "topDeckPresence": 0.0667
+    },
+    {
+      "name": "Disruptive Stormbrood",
+      "playRate": 0.0667,
+      "copiesAvg": 1,
+      "topDeckPresence": 0.0667
+    },
+    {
+      "name": "Dissection Practice",
+      "playRate": 0.0667,
+      "copiesAvg": 1,
+      "topDeckPresence": 0.0667
+    },
+    {
+      "name": "Doomsday Excruciator",
       "playRate": 0.0667,
       "copiesAvg": 1,
       "topDeckPresence": 0.0667
@@ -606,25 +618,31 @@
       "topDeckPresence": 0.0667
     },
     {
-      "name": "Dredger's Insight",
+      "name": "Duress",
       "playRate": 0.0667,
       "copiesAvg": 1,
       "topDeckPresence": 0.0667
     },
     {
-      "name": "Earthbender Ascension",
+      "name": "Dyadrine, Synthesis Amalgam",
       "playRate": 0.0667,
       "copiesAvg": 1,
       "topDeckPresence": 0.0667
     },
     {
-      "name": "Elektra, Daughter of the Hand",
+      "name": "Eddymurk Crab",
       "playRate": 0.0667,
       "copiesAvg": 1,
       "topDeckPresence": 0.0667
     },
     {
-      "name": "Elusive Otter",
+      "name": "Elven Passage",
+      "playRate": 0.0667,
+      "copiesAvg": 1,
+      "topDeckPresence": 0.0667
+    },
+    {
+      "name": "Emberheart Challenger",
       "playRate": 0.0667,
       "copiesAvg": 1,
       "topDeckPresence": 0.0667
@@ -636,31 +654,7 @@
       "topDeckPresence": 0.0667
     },
     {
-      "name": "Emptiness",
-      "playRate": 0.0667,
-      "copiesAvg": 1,
-      "topDeckPresence": 0.0667
-    },
-    {
-      "name": "Escape Tunnel",
-      "playRate": 0.0667,
-      "copiesAvg": 1,
-      "topDeckPresence": 0.0667
-    },
-    {
-      "name": "Esper Origins",
-      "playRate": 0.0667,
-      "copiesAvg": 1,
-      "topDeckPresence": 0.0667
-    },
-    {
-      "name": "Fabled Passage",
-      "playRate": 0.0667,
-      "copiesAvg": 1,
-      "topDeckPresence": 0.0667
-    },
-    {
-      "name": "Fire Magic",
+      "name": "Essence Channeler",
       "playRate": 0.0667,
       "copiesAvg": 1,
       "topDeckPresence": 0.0667
@@ -672,19 +666,43 @@
       "topDeckPresence": 0.0667
     },
     {
-      "name": "Floodfarm Verge",
-      "playRate": 0.0667,
-      "copiesAvg": 1,
-      "topDeckPresence": 0.0667
-    },
-    {
       "name": "Formidable Speaker",
       "playRate": 0.0667,
       "copiesAvg": 1,
       "topDeckPresence": 0.0667
     },
     {
-      "name": "Full Bore",
+      "name": "Forsaken Miner",
+      "playRate": 0.0667,
+      "copiesAvg": 1,
+      "topDeckPresence": 0.0667
+    },
+    {
+      "name": "Get Lost",
+      "playRate": 0.0667,
+      "copiesAvg": 1,
+      "topDeckPresence": 0.0667
+    },
+    {
+      "name": "Get Out",
+      "playRate": 0.0667,
+      "copiesAvg": 1,
+      "topDeckPresence": 0.0667
+    },
+    {
+      "name": "Glen Elendra Guardian",
+      "playRate": 0.0667,
+      "copiesAvg": 1,
+      "topDeckPresence": 0.0667
+    },
+    {
+      "name": "Glimpse the Core",
+      "playRate": 0.0667,
+      "copiesAvg": 1,
+      "topDeckPresence": 0.0667
+    },
+    {
+      "name": "Gollum, Riddle Master",
       "playRate": 0.0667,
       "copiesAvg": 1,
       "topDeckPresence": 0.0667
@@ -696,7 +714,13 @@
       "topDeckPresence": 0.0667
     },
     {
-      "name": "Hellcat, Undying Vigilante",
+      "name": "Hardened Academic",
+      "playRate": 0.0667,
+      "copiesAvg": 1,
+      "topDeckPresence": 0.0667
+    },
+    {
+      "name": "Hearth Elemental",
       "playRate": 0.0667,
       "copiesAvg": 1,
       "topDeckPresence": 0.0667
@@ -714,19 +738,13 @@
       "topDeckPresence": 0.0667
     },
     {
-      "name": "Honest Rutstein",
-      "playRate": 0.0667,
-      "copiesAvg": 1,
-      "topDeckPresence": 0.0667
-    },
-    {
       "name": "Hushwood Verge",
       "playRate": 0.0667,
       "copiesAvg": 1,
       "topDeckPresence": 0.0667
     },
     {
-      "name": "Icetill Explorer",
+      "name": "Impractical Joke",
       "playRate": 0.0667,
       "copiesAvg": 1,
       "topDeckPresence": 0.0667
@@ -738,7 +756,37 @@
       "topDeckPresence": 0.0667
     },
     {
+      "name": "Inspiring Vantage",
+      "playRate": 0.0667,
+      "copiesAvg": 1,
+      "topDeckPresence": 0.0667
+    },
+    {
+      "name": "Inti, Seneschal of the Sun",
+      "playRate": 0.0667,
+      "copiesAvg": 1,
+      "topDeckPresence": 0.0667
+    },
+    {
+      "name": "Iridescent Vinelasher",
+      "playRate": 0.0667,
+      "copiesAvg": 1,
+      "topDeckPresence": 0.0667
+    },
+    {
       "name": "Iroh's Demonstration",
+      "playRate": 0.0667,
+      "copiesAvg": 1,
+      "topDeckPresence": 0.0667
+    },
+    {
+      "name": "Iron-Shield Elf",
+      "playRate": 0.0667,
+      "copiesAvg": 1,
+      "topDeckPresence": 0.0667
+    },
+    {
+      "name": "It'll Quench Ya!",
       "playRate": 0.0667,
       "copiesAvg": 1,
       "topDeckPresence": 0.0667
@@ -756,13 +804,25 @@
       "topDeckPresence": 0.0667
     },
     {
+      "name": "Kellan, Planar Trailblazer",
+      "playRate": 0.0667,
+      "copiesAvg": 1,
+      "topDeckPresence": 0.0667
+    },
+    {
       "name": "Kiora, the Rising Tide",
       "playRate": 0.0667,
       "copiesAvg": 1,
       "topDeckPresence": 0.0667
     },
     {
-      "name": "Leatherhead, Swamp Stalker",
+      "name": "Lightning Helix",
+      "playRate": 0.0667,
+      "copiesAvg": 1,
+      "topDeckPresence": 0.0667
+    },
+    {
+      "name": "Lumbering Worldwagon",
       "playRate": 0.0667,
       "copiesAvg": 1,
       "topDeckPresence": 0.0667
@@ -780,31 +840,37 @@
       "topDeckPresence": 0.0667
     },
     {
-      "name": "Mathemagics",
+      "name": "Malcolm, Alluring Scoundrel",
       "playRate": 0.0667,
       "copiesAvg": 1,
       "topDeckPresence": 0.0667
     },
     {
-      "name": "Mightform Harmonizer",
+      "name": "Marauding Mako",
       "playRate": 0.0667,
       "copiesAvg": 1,
       "topDeckPresence": 0.0667
     },
     {
-      "name": "Miles Morales",
+      "name": "Meltstrider's Resolve",
       "playRate": 0.0667,
       "copiesAvg": 1,
       "topDeckPresence": 0.0667
     },
     {
-      "name": "Mistrise Village",
+      "name": "Meticulous Archive",
       "playRate": 0.0667,
       "copiesAvg": 1,
       "topDeckPresence": 0.0667
     },
     {
-      "name": "Mole Man, Moloid Master",
+      "name": "Momo, Friendly Flier",
+      "playRate": 0.0667,
+      "copiesAvg": 1,
+      "topDeckPresence": 0.0667
+    },
+    {
+      "name": "Moonshadow",
       "playRate": 0.0667,
       "copiesAvg": 1,
       "topDeckPresence": 0.0667
@@ -816,13 +882,25 @@
       "topDeckPresence": 0.0667
     },
     {
+      "name": "Mossborn Hydra",
+      "playRate": 0.0667,
+      "copiesAvg": 1,
+      "topDeckPresence": 0.0667
+    },
+    {
       "name": "Negate",
       "playRate": 0.0667,
       "copiesAvg": 1,
       "topDeckPresence": 0.0667
     },
     {
-      "name": "Nick Fury, Agent of S.H.I.E.L.D.",
+      "name": "Nighthowl Pursuer",
+      "playRate": 0.0667,
+      "copiesAvg": 1,
+      "topDeckPresence": 0.0667
+    },
+    {
+      "name": "North Wind Avatar",
       "playRate": 0.0667,
       "copiesAvg": 1,
       "topDeckPresence": 0.0667
@@ -834,31 +912,49 @@
       "topDeckPresence": 0.0667
     },
     {
+      "name": "Opt",
+      "playRate": 0.0667,
+      "copiesAvg": 1,
+      "topDeckPresence": 0.0667
+    },
+    {
+      "name": "Ouroboroid",
+      "playRate": 0.0667,
+      "copiesAvg": 1,
+      "topDeckPresence": 0.0667
+    },
+    {
+      "name": "Overgrown Tomb",
+      "playRate": 0.0667,
+      "copiesAvg": 1,
+      "topDeckPresence": 0.0667
+    },
+    {
       "name": "Overlord of the Balemurk",
       "playRate": 0.0667,
       "copiesAvg": 1,
       "topDeckPresence": 0.0667
     },
     {
-      "name": "Pawpatch Recruit",
+      "name": "Prismari Charm",
       "playRate": 0.0667,
       "copiesAvg": 1,
       "topDeckPresence": 0.0667
     },
     {
-      "name": "Pest Control",
+      "name": "Promising Vein",
       "playRate": 0.0667,
       "copiesAvg": 1,
       "topDeckPresence": 0.0667
     },
     {
-      "name": "Preacher of the Schism",
+      "name": "Quantum Riddler",
       "playRate": 0.0667,
       "copiesAvg": 1,
       "topDeckPresence": 0.0667
     },
     {
-      "name": "Questing Druid",
+      "name": "Raise the Past",
       "playRate": 0.0667,
       "copiesAvg": 1,
       "topDeckPresence": 0.0667
@@ -870,13 +966,25 @@
       "topDeckPresence": 0.0667
     },
     {
+      "name": "Razorkin Needlehead",
+      "playRate": 0.0667,
+      "copiesAvg": 1,
+      "topDeckPresence": 0.0667
+    },
+    {
+      "name": "Realm of Koh",
+      "playRate": 0.0667,
+      "copiesAvg": 1,
+      "topDeckPresence": 0.0667
+    },
+    {
       "name": "Restless Anchorage",
       "playRate": 0.0667,
       "copiesAvg": 1,
       "topDeckPresence": 0.0667
     },
     {
-      "name": "Sacred Foundry",
+      "name": "Sage of the Skies",
       "playRate": 0.0667,
       "copiesAvg": 1,
       "topDeckPresence": 0.0667
@@ -888,13 +996,7 @@
       "topDeckPresence": 0.0667
     },
     {
-      "name": "Sazh's Chocobo",
-      "playRate": 0.0667,
-      "copiesAvg": 1,
-      "topDeckPresence": 0.0667
-    },
-    {
-      "name": "Seam Rip",
+      "name": "Scalding Viper",
       "playRate": 0.0667,
       "copiesAvg": 1,
       "topDeckPresence": 0.0667
@@ -906,19 +1008,13 @@
       "topDeckPresence": 0.0667
     },
     {
-      "name": "Secluded Courtyard",
+      "name": "Shared Roots",
       "playRate": 0.0667,
       "copiesAvg": 1,
       "topDeckPresence": 0.0667
     },
     {
-      "name": "Serah Farron",
-      "playRate": 0.0667,
-      "copiesAvg": 1,
-      "topDeckPresence": 0.0667
-    },
-    {
-      "name": "Skateboard",
+      "name": "Shock",
       "playRate": 0.0667,
       "copiesAvg": 1,
       "topDeckPresence": 0.0667
@@ -930,25 +1026,13 @@
       "topDeckPresence": 0.0667
     },
     {
-      "name": "Soulstone Sanctuary",
+      "name": "Smaug the Magnificent",
       "playRate": 0.0667,
       "copiesAvg": 1,
       "topDeckPresence": 0.0667
     },
     {
-      "name": "Spectacular Spider-Man",
-      "playRate": 0.0667,
-      "copiesAvg": 1,
-      "topDeckPresence": 0.0667
-    },
-    {
-      "name": "Spider Manifestation",
-      "playRate": 0.0667,
-      "copiesAvg": 1,
-      "topDeckPresence": 0.0667
-    },
-    {
-      "name": "Splatter Technique",
+      "name": "Springleaf Drum",
       "playRate": 0.0667,
       "copiesAvg": 1,
       "topDeckPresence": 0.0667
@@ -960,13 +1044,43 @@
       "topDeckPresence": 0.0667
     },
     {
+      "name": "Starfield Shepherd",
+      "playRate": 0.0667,
+      "copiesAvg": 1,
+      "topDeckPresence": 0.0667
+    },
+    {
       "name": "Starscape Cleric",
       "playRate": 0.0667,
       "copiesAvg": 1,
       "topDeckPresence": 0.0667
     },
     {
-      "name": "Sundown Pass",
+      "name": "Steamcore Scholar",
+      "playRate": 0.0667,
+      "copiesAvg": 1,
+      "topDeckPresence": 0.0667
+    },
+    {
+      "name": "Stirring Hopesinger",
+      "playRate": 0.0667,
+      "copiesAvg": 1,
+      "topDeckPresence": 0.0667
+    },
+    {
+      "name": "Sunbillow Verge",
+      "playRate": 0.0667,
+      "copiesAvg": 1,
+      "topDeckPresence": 0.0667
+    },
+    {
+      "name": "Sunderflock",
+      "playRate": 0.0667,
+      "copiesAvg": 1,
+      "topDeckPresence": 0.0667
+    },
+    {
+      "name": "Sunset Saboteur",
       "playRate": 0.0667,
       "copiesAvg": 1,
       "topDeckPresence": 0.0667
@@ -978,13 +1092,25 @@
       "topDeckPresence": 0.0667
     },
     {
+      "name": "Temple Garden",
+      "playRate": 0.0667,
+      "copiesAvg": 1,
+      "topDeckPresence": 0.0667
+    },
+    {
+      "name": "Thor, God of Thunder",
+      "playRate": 0.0667,
+      "copiesAvg": 1,
+      "topDeckPresence": 0.0667
+    },
+    {
       "name": "Three Steps Ahead",
       "playRate": 0.0667,
       "copiesAvg": 1,
       "topDeckPresence": 0.0667
     },
     {
-      "name": "Titania, Rugged Rumbler",
+      "name": "Tishana's Tidebinder",
       "playRate": 0.0667,
       "copiesAvg": 1,
       "topDeckPresence": 0.0667
@@ -996,7 +1122,37 @@
       "topDeckPresence": 0.0667
     },
     {
+      "name": "Tokka & Rahzar, Terrible Twos",
+      "playRate": 0.0667,
+      "copiesAvg": 1,
+      "topDeckPresence": 0.0667
+    },
+    {
       "name": "Town Greeter",
+      "playRate": 0.0667,
+      "copiesAvg": 1,
+      "topDeckPresence": 0.0667
+    },
+    {
+      "name": "Traumatic Critique",
+      "playRate": 0.0667,
+      "copiesAvg": 1,
+      "topDeckPresence": 0.0667
+    },
+    {
+      "name": "Undercity Sewers",
+      "playRate": 0.0667,
+      "copiesAvg": 1,
+      "topDeckPresence": 0.0667
+    },
+    {
+      "name": "Vibrant Outburst",
+      "playRate": 0.0667,
+      "copiesAvg": 1,
+      "topDeckPresence": 0.0667
+    },
+    {
+      "name": "Wan Shi Tong, Librarian",
       "playRate": 0.0667,
       "copiesAvg": 1,
       "topDeckPresence": 0.0667
@@ -1014,25 +1170,13 @@
       "topDeckPresence": 0.0667
     },
     {
-      "name": "Wild Ride",
+      "name": "Wistfulness",
       "playRate": 0.0667,
       "copiesAvg": 1,
       "topDeckPresence": 0.0667
     },
     {
-      "name": "Willowrush Verge",
-      "playRate": 0.0667,
-      "copiesAvg": 1,
-      "topDeckPresence": 0.0667
-    },
-    {
-      "name": "Winternight Stories",
-      "playRate": 0.0667,
-      "copiesAvg": 1,
-      "topDeckPresence": 0.0667
-    },
-    {
-      "name": "Zack Fair",
+      "name": "Zhao, the Moon Slayer",
       "playRate": 0.0667,
       "copiesAvg": 1,
       "topDeckPresence": 0.0667
