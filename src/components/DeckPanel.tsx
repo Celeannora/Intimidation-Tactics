@@ -26,21 +26,25 @@ function DeckEntryTile({
   entry,
   pinned,
   canPin,
+  canLockQuantity,
   onIncrement,
   onDecrement,
   onRemove,
   onMove,
   onTogglePin,
+  onToggleQuantityLock,
   onCardClick,
 }: {
   entry: DeckEntry;
   pinned: boolean;
   canPin: boolean;
+  canLockQuantity: boolean;
   onIncrement: () => void;
   onDecrement: () => void;
   onRemove: () => void;
   onMove: () => void;
   onTogglePin: () => void;
+  onToggleQuantityLock: () => void;
   onCardClick?: (card: DeckEntry["card"]) => void;
 }) {
   const manaValue = entry.card.cmc || "";
@@ -85,9 +89,24 @@ function DeckEntryTile({
             📌
           </span>
         )}
+        {entry.quantityLocked && (
+          <span className="rounded-full bg-sky-500 px-1.5 py-0.5 text-[10px] font-bold text-sky-950 shadow" title="Quantity locked — exact count protected during generator overflow">
+            🔒
+          </span>
+        )}
       </div>
 
       <div className="absolute right-1.5 top-1.5 flex gap-1 opacity-100 sm:opacity-0 sm:transition-opacity sm:group-hover:opacity-100">
+        {canLockQuantity && (
+          <button
+            onClick={onToggleQuantityLock}
+            className={`h-6 w-6 rounded-full text-xs shadow ${entry.quantityLocked ? "bg-sky-500 text-sky-950 hover:bg-sky-400" : "bg-zinc-950/85 text-zinc-300 hover:bg-zinc-700 hover:text-sky-300"}`}
+            title={entry.quantityLocked ? "Quantity locked (click to allow the generator to flex this count as a seed)" : "Card locked, quantity flexible (click to pin the exact imported count as a seed)"}
+            aria-label={entry.quantityLocked ? "Unlock quantity" : "Lock quantity"}
+          >
+            🔒
+          </button>
+        )}
         {canPin && (
           <button
             onClick={onTogglePin}
@@ -151,6 +170,7 @@ export function DeckPanel({ onCardClick }: { onCardClick?: (card: DeckEntry["car
   const pins = useDeckStore((s) => s.pins);
   const pinCard = useDeckStore((s) => s.pinCard);
   const unpinCard = useDeckStore((s) => s.unpinCard);
+  const toggleQuantityLock = useDeckStore((s) => s.toggleQuantityLock);
   const [activeBoard, setActiveBoard] = useState<Board>("main");
   const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
   const [importOpen, setImportOpen] = useState(false);
@@ -427,6 +447,7 @@ export function DeckPanel({ onCardClick }: { onCardClick?: (card: DeckEntry["car
                     entry={entry}
                     pinned={entry.card.oracleId in pins}
                     canPin={entry.board === "main" && !entry.card.typeLine.includes("Land")}
+                    canLockQuantity={entry.board === "main" && !entry.card.typeLine.includes("Land")}
                     onCardClick={onCardClick}
                     onIncrement={() =>
                       setQuantity(entry.card.oracleId, entry.board, entry.quantity + 1)
@@ -443,6 +464,7 @@ export function DeckPanel({ onCardClick }: { onCardClick?: (card: DeckEntry["car
                       )
                     }
                     onTogglePin={() => togglePin(entry)}
+                    onToggleQuantityLock={() => toggleQuantityLock(entry.card.oracleId)}
                   />
                 ))}
               </div>

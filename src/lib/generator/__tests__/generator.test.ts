@@ -246,6 +246,135 @@ describe("generateDeck seed quantity policy", () => {
     expect(nonlandTotal).toBe(options.mainboardSize! - result.entries.filter((e) => e.card.typeLine.includes("Land")).reduce((s, e) => s + e.quantity, 0));
   });
 
+  it("locked-core: a large mostly-singleton seed pool is neither redistributed (copy consolidation) nor allowed to starve the real land budget down to the absolute floor", () => {
+    // Reproduces the reported bug: blending two decklists produces a seed pool
+    // that is mostly 1-ofs plus a couple of higher-count entries -- exactly
+    // the shape a union of two decklists produces. The old code
+    // unconditionally ran a "copy consolidation" pass whenever >50% of seeds
+    // were singletons -- regardless of seed policy -- cutting the low-scored
+    // multi-copy entries down and promoting high-scored singletons up,
+    // silently overriding the exact quantities the user imported. This pool
+    // is deliberately kept well under both the old and new nonland budgets so
+    // the (legitimate, policy-independent) overflow guard never has to shed
+    // anything -- isolating the consolidation-pass bug specifically.
+    const topCards = Array.from({ length: 9 }, (_, i) =>
+      ({
+        ...makeCard(`Blend Top ${i + 1}`, "A powerful build-around threat.", "Creature — Test", []),
+        gameChanger: 1,
+        edhrecRank: 50,
+        rarity: "mythic",
+        power: "3",
+        toughness: "3",
+      } as CardRecord)
+    );
+    const midCards = Array.from({ length: 6 }, (_, i) =>
+      ({
+        ...makeCard(
+          `Blend Mid ${i + 1}`,
+          "Whenever this creature deals combat damage to a player, draw a card.",
+          "Creature — Test",
+          []
+        ),
+        gameChanger: 0,
+        edhrecRank: 15000,
+        rarity: "common",
+        power: "3",
+        toughness: "3",
+      } as CardRecord)
+    );
+    const donorCards = Array.from({ length: 2 }, (_, i) =>
+      ({
+        ...makeCard(
+          `Blend Donor ${i + 1}`,
+          "Whenever this creature deals combat damage to a player, draw a card.",
+          "Creature — Test",
+          []
+        ),
+        gameChanger: 0,
+        edhrecRank: 90000, // worst score -> the pass would shed these first to fund promotions
+        rarity: "common",
+        power: "3",
+        toughness: "3",
+      } as CardRecord)
+    );
+    const importedQuantities = new Map<string, number>([
+      ...topCards.map((c) => [c.oracleId, 1] as const),
+      ...midCards.map((c) => [c.oracleId, 1] as const),
+      ...donorCards.map((c) => [c.oracleId, 3] as const), // multi-copy entries -> the singleton ratio (15/17) still clears 50%
+    ]);
+    const seedEntries: DeckEntry[] = [...topCards, ...midCards, ...donorCards].map((card) => ({
+      card,
+      quantity: importedQuantities.get(card.oracleId)!,
+      board: "main",
+    }));
+    const options = baseOptions(seedEntries); // no seedPolicy -> defaults to locked-core
+
+    const result = generateDeck(options, [...topCards, ...midCards, ...donorCards, makeBasic("Wastes")]);
+
+    // Every seed must stay at EXACTLY the quantity it was imported with --
+    // no promotion of the top-scored singletons, no cutting the donors down.
+    for (const [oracleId, importedQty] of importedQuantities) {
+      const entry = result.entries.find((e) => e.card.oracleId === oracleId);
+      expect(entry?.quantity).toBe(importedQty);
+    }
+    expect(result.diagnostics.reasoning.some((r) => r.startsWith("Seed consolidation"))).toBe(false);
+    expect(result.diagnostics.reasoning.some((r) => r.startsWith("Seed promotion"))).toBe(false);
+  });
+
+  it("locked-core: when the seed pool overflows the deck size, a per-card quantity-locked seed is shed AFTER flexible seeds, not before", () => {
+    // Per-card "lock quantity" toggle (DeckEntry.quantityLocked): when the
+    // overflow guard must free room, flexible-quantity seeds absorb the cut
+    // first (down to floor 1, then removed entirely as a last resort) --
+    // a quantity-locked seed only gives ground once every flexible entry is
+    // already at that floor.
+    const flexibleCards = Array.from({ length: 10 }, (_, i) =>
+      ({
+        ...makeCard(`Flex Filler ${i + 1}`, "A vanilla test creature.", "Creature — Test", []),
+        edhrecRank: 100 + i,
+        rarity: "uncommon",
+        power: "2",
+        toughness: "2",
+      } as CardRecord)
+    );
+    const pinnedCard = {
+      ...makeCard("Pinned Combo Piece", "A vanilla test creature.", "Creature — Test", []),
+      edhrecRank: 500000, // worst score of the pool -- would be shed FIRST under plain score-order
+      rarity: "common",
+      power: "1",
+      toughness: "1",
+    } as CardRecord;
+
+    const seedEntries: DeckEntry[] = [
+      ...flexibleCards.map((card) => ({ card, quantity: 4, board: "main" as const })),
+      { card: pinnedCard, quantity: 4, board: "main" as const, quantityLocked: true },
+    ];
+    // 11 cards * 4 copies = 44 nonland seed copies, well above the real
+    // land-aware budget (60 - ~23 recommended lands ≈ 37), so the overflow
+    // guard MUST shed something despite every entry starting above floor 1.
+    const options = baseOptions(seedEntries);
+
+    const result = generateDeck(options, [...flexibleCards, pinnedCard, makeBasic("Wastes")]);
+
+    const pinnedEntry = result.entries.find((e) => e.card.oracleId === pinnedCard.oracleId);
+    // The pinned card's worst-in-pool score would make it the FIRST thing a
+    // plain score-ordered shed touches -- confirm it was protected instead.
+    expect(pinnedEntry?.quantity).toBe(4);
+
+    const flexTotal = flexibleCards.reduce((sum, card) => {
+      const e = result.entries.find((entry) => entry.card.oracleId === card.oracleId);
+      return sum + (e?.quantity ?? 0);
+    }, 0);
+    // Flexible seeds collectively absorbed the entire cut instead.
+    expect(flexTotal).toBeLessThan(10 * 4);
+
+    // And the mana base still reaches a healthy count -- not starved by
+    // locked seeds consuming the whole nonland budget.
+    const landTotal = result.entries
+      .filter((e) => e.card.typeLine.includes("Land"))
+      .reduce((sum, e) => sum + e.quantity, 0);
+    expect(landTotal).toBeGreaterThanOrEqual(18);
+  });
+
   it("strong-preference: a legendary seed is NOT capped at 2 copies -- the legend rule only restricts the battlefield, not deck construction", () => {
     const legendarySeed = {
       ...makeBombSeed(),

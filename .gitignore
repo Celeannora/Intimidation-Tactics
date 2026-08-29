@@ -34,3 +34,4 @@ Thumbs.db
 
 # Meta refresh raw response cache
 /.cache/meta-refresh/
+dist-preview/

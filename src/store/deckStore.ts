@@ -36,6 +36,10 @@ export interface DeckState {
   removeCard: (oracleId: string, board: "main" | "side") => void;
   setQuantity: (oracleId: string, board: "main" | "side", qty: number) => void;
   moveCard: (oracleId: string, from: "main" | "side", to: "main" | "side") => void;
+  /** Toggle a mainboard entry between "card locked" (must appear, count flexible)
+   *  and "quantity locked" (exact imported count pinned). Used as seed metadata
+   *  by the generator's overflow guard -- flexible-quantity seeds are shed first. */
+  toggleQuantityLock: (oracleId: string) => void;
   clearDeck: () => void;
   setDeckName: (name: string) => void;
   loadFromSnapshot: (decoded: ShareableDecoded) => Promise<void>;
@@ -259,6 +263,16 @@ export const useDeckStore = create<DeckState>((set, get) => ({
       );
     }
     set({ entries: updated, pins: prunePin(pins, oracleId, board, clampedQty === 0, clampedQty), ...revalidate(updated) });
+  },
+
+  toggleQuantityLock(oracleId) {
+    const { entries } = get();
+    const updated = entries.map((e) =>
+      e.card.oracleId === oracleId && e.board === "main"
+        ? { ...e, quantityLocked: !e.quantityLocked }
+        : e
+    );
+    set({ entries: updated });
   },
 
   moveCard(oracleId, from, to) {

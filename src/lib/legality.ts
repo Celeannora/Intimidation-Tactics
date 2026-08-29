@@ -33,6 +33,18 @@ export interface DeckEntry {
   card: CardRecord;
   quantity: number;
   board: "main" | "side";
+  /**
+   * Per-card "lock quantity" toggle for seed entries. When true, the
+   * generator's seed-overflow guard treats this entry's copy count as
+   * lowest priority to shed -- flexible-quantity seeds are trimmed down to
+   * floor 1 (and, as a last resort, removed entirely) before a
+   * quantity-locked entry's count is ever touched. It is a priority order,
+   * not an absolute guarantee: if the pool truly cannot fit even with every
+   * flexible entry floored, a quantity-locked entry can still be trimmed or
+   * dropped so the deck stays within its target size. Ignored for
+   * non-seed entries. Defaults to false/undefined (flexible).
+   */
+  quantityLocked?: boolean;
 }
 
 export interface ValidationViolation {

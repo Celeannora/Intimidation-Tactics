@@ -305,13 +305,32 @@ function generateOne(
       `Seed fuzz: demoted ${fuzzSwaps - remainingToDrop} of ${fuzzSwaps} requested seed copies to soft-preferred (optimizer may swap them)`
     );
   }
+
+  // Seed policy resolved early (before the overflow guard below) so both the
+  // land-reserve budget and the copy-consolidation pass can respect it.
+  // "locked-core" (default) keeps every seed at exactly the quantity it was
+  // imported with; only "strong-preference" may add copies. See the fuller
+  // note near Phase 3c further down for the complete contract.
+  const resolvedSeedPolicy = options.seedPolicy ?? (seedEntries.length > 0 ? "locked-core" : undefined);
+
+  // Early, seed-only estimate of the deck's land requirement (avg-CMC based,
+  // same formula the final mana base uses). Used purely to size how much of
+  // the mainboard the overflow guard is allowed to let locked seeds consume —
+  // reserving only ABSOLUTE_MINIMUM_LANDS (10) here let a large seed pool
+  // lock in enough nonland copies to starve the *real* land budget (which is
+  // usually 18-25, not 10), producing legal-but-unplayable decks with as few
+  // as 10 lands even though nothing downstream was technically broken.
+  const earlyLandEstimate = seedEntries.length > 0 ? recommendLandCount(seedEntries).recommended : 0;
+  const seedLandReserve = Math.max(ABSOLUTE_MINIMUM_LANDS, earlyLandEstimate);
+
   // ── Seed overflow guard (synergy-aware) ──────────────────────────────────
   // When the user seeds a large imported deck into a smaller target size,
   // the total locked seed quantities can exceed the entire nonland budget
-  // (targetMainboardSize − minimum-land reserve). Seeds are immune to both
+  // (targetMainboardSize − land reserve). Seeds are immune to both
   // the mana-base-reserve shedding step and trimMainboardToSize, so an
   // unchecked overflow produces a deck that ignores the deck size setting
-  // (e.g. 163 seeds → 163-card result when size is set to 61).
+  // (e.g. 163 seeds → 163-card result when size is set to 61) or, just as
+  // bad, a deck that hits the size target but starves its own mana base.
   //
   // Fix: score every seed entry with cardScore() against the current archetype
   // and options, then shed excess copies starting from the LOWEST-scoring
@@ -319,8 +338,7 @@ function generateOne(
   // original quantities as long as possible. Each entry's quantity floors at
   // 1 so no card disappears entirely from the seed pool.
   {
-    const seedLandQty = seedLands.reduce((s, e) => s + e.quantity, 0);
-    const maxNonlandSeeds = Math.max(1, targetMainboardSize - ABSOLUTE_MINIMUM_LANDS - seedLandQty);
+    const maxNonlandSeeds = Math.max(1, targetMainboardSize - seedLandReserve);
     const totalSeedQty = seedEntries.reduce((s, e) => s + e.quantity, 0);
     if (totalSeedQty > maxNonlandSeeds) {
       const before = totalSeedQty;
@@ -328,20 +346,29 @@ function generateOne(
       // (same approach the fuzz-swap block above uses). cardScore still
       // captures role-fit, power, and keyword alignment vs the archetype.
       const tentativeAvg = 3.0;
-      const scored = seedEntries
+      const scoredAll = seedEntries
         .map((e) => ({
           entry: e,
           score: cardScore(e.card, [], { ...options, colors: effectiveColors }, tentativeAvg),
         }))
         .sort((a, b) => a.score - b.score); // ascending: lowest score first
 
+      // Quantity-locked seeds (per-card "lock quantity" toggle) are shed LAST:
+      // flexible-quantity seeds absorb the cut first, and only if that alone
+      // can't free enough room do we start trimming a quantity-locked entry's
+      // count too. Within each tier, lowest-scoring cards still go first.
+      const flexible = scoredAll.filter((s) => !s.entry.quantityLocked);
+      const quantityLockedTier = scoredAll.filter((s) => s.entry.quantityLocked);
+      const shedOrder = [...flexible, ...quantityLockedTier];
+
       // Clone so we can mutate quantities without touching the original array.
       const working = seedEntries.map((e) => ({ ...e }));
       const byOracle = new Map(working.map((e) => [e.card.oracleId, e]));
       let remaining = totalSeedQty - maxNonlandSeeds;
 
-      // Shed copies from lowest-scoring cards first (floor: 1 copy each).
-      for (const { entry } of scored) {
+      // Shed copies from lowest-scoring cards first (floor: 1 copy each),
+      // exhausting the flexible tier before ever touching a locked quantity.
+      for (const { entry } of shedOrder) {
         if (remaining <= 0) break;
         const live = byOracle.get(entry.card.oracleId);
         if (!live || live.quantity <= 1) continue;
@@ -352,9 +379,10 @@ function generateOne(
 
       // Safety valve: if we still need to shed (all entries are at 1 copy,
       // meaning unique-card count alone exceeds the budget), remove entire
-      // lowest-scoring entries until we fit.
+      // lowest-scoring entries until we fit -- again preferring flexible
+      // (non-quantity-locked) cards before quantity-locked ones.
       if (remaining > 0) {
-        for (const { entry } of scored) {
+        for (const { entry } of shedOrder) {
           if (remaining <= 0) break;
           const live = byOracle.get(entry.card.oracleId);
           if (!live || live.quantity <= 0) continue;
@@ -368,7 +396,7 @@ function generateOne(
       reasoning.push(
         `Seed overflow (synergy-aware): trimmed ${before} seed cop${before === 1 ? "y" : "ies"} down to ${after} ` +
         `to fit within ${targetMainboardSize}-card target (nonland budget: ${maxNonlandSeeds}); ` +
-        `lowest-scoring copies shed first to protect high-value cards`
+        `lowest-scoring copies shed first, flexible-quantity seeds before quantity-locked ones, to protect high-value and pinned cards`
       );
     }
 
@@ -383,12 +411,16 @@ function generateOne(
     //  - Second-quartile cards target up to 2 copies.
     //  - Bottom-half cards stay at 1 copy (or are removed to fund promotions).
     //  - Only fires when more than half the surviving entries are 1-ofs.
+    //  - Gated on "strong-preference": under "locked-core" (the default, seed
+    //    top-up checkbox off) every seed must stay at EXACTLY its imported
+    //    quantity, so this pass must not run — it used to fire unconditionally
+    //    on singleton ratio alone, silently promoting/demoting locked seed
+    //    quantities regardless of policy (e.g. a 1-of import jumping to a 4-of).
     {
-      const seedLandQty = seedLands.reduce((s, e) => s + e.quantity, 0);
-      const maxNonlandSeeds = Math.max(1, targetMainboardSize - ABSOLUTE_MINIMUM_LANDS - seedLandQty);
+      const maxNonlandSeeds = Math.max(1, targetMainboardSize - seedLandReserve);
       const singletons = seedEntries.filter((e) => e.quantity === 1).length;
       const shouldConsolidate = singletons > seedEntries.length / 2;
-      if (shouldConsolidate && seedEntries.length > 0) {
+      if (shouldConsolidate && seedEntries.length > 0 && resolvedSeedPolicy === "strong-preference") {
         const tentativeAvg = 3.0;
         const scored2 = seedEntries
           .map((e) => ({
@@ -410,10 +442,13 @@ function generateOne(
         const byOracle2 = new Map(consolidated.map((e) => [e.card.oracleId, e]));
 
         // First pass: promote top entries, cutting from the bottom to fund it.
+        // Quantity-locked seeds are excluded on BOTH sides: never promoted
+        // (their count is pinned, not a floor to build up from) and never
+        // used as a donor (their count is pinned, not a source to drain).
         for (let rank = 0; rank < scored2.length; rank++) {
           const { entry } = scored2[rank];
           const live = byOracle2.get(entry.card.oracleId);
-          if (!live) continue;
+          if (!live || live.quantityLocked) continue;
           const want = targetQty(rank);
           if (live.quantity >= want) continue; // already at or above target
           const need = want - live.quantity;
@@ -421,7 +456,7 @@ function generateOne(
           let funded = 0;
           for (let j = scored2.length - 1; j > rank && funded < need; j--) {
             const donor = byOracle2.get(scored2[j].entry.card.oracleId);
-            if (!donor || donor.quantity <= 1) continue;
+            if (!donor || donor.quantity <= 1 || donor.quantityLocked) continue;
             const give = Math.min(donor.quantity - 1, need - funded);
             donor.quantity -= give;
             funded += give;
@@ -429,17 +464,21 @@ function generateOne(
           live.quantity += funded;
         }
 
-        // Enforce budget ceiling (rounding may have drifted slightly).
+        // Enforce budget ceiling (rounding may have drifted slightly). Worst
+        // flexible entries are cut first; a quantity-locked entry only gives
+        // ground if flexible entries alone can't close the gap.
         let consolidatedTotal = consolidated.reduce((s, e) => s + e.quantity, 0);
         if (consolidatedTotal > maxNonlandSeeds) {
-          // Trim from worst entries first (excess = consolidatedTotal - maxNonlandSeeds).
-          for (let j = scored2.length - 1; j >= 0; j--) {
+          for (const lockedTier of [false, true]) {
+            for (let j = scored2.length - 1; j >= 0; j--) {
+              if (consolidatedTotal <= maxNonlandSeeds) break;
+              const donor = byOracle2.get(scored2[j].entry.card.oracleId);
+              if (!donor || donor.quantity <= 0 || Boolean(donor.quantityLocked) !== lockedTier) continue;
+              const cut = Math.min(donor.quantity, consolidatedTotal - maxNonlandSeeds);
+              donor.quantity -= cut;
+              consolidatedTotal -= cut;
+            }
             if (consolidatedTotal <= maxNonlandSeeds) break;
-            const donor = byOracle2.get(scored2[j].entry.card.oracleId);
-            if (!donor || donor.quantity <= 0) continue;
-            const cut = Math.min(donor.quantity, consolidatedTotal - maxNonlandSeeds);
-            donor.quantity -= cut;
-            consolidatedTotal -= cut;
           }
         }
 
@@ -508,16 +547,16 @@ function generateOne(
   const seedCardsForGraph = seedEntries.map((e) => e.card);
   const seedGraph = seedCardsForGraph.length >= 2 ? buildSeedSynergyGraph(seedCardsForGraph) : null;
 
-  // Seed policy: "locked-core" (default) keeps every seed at exactly the
-  // quantity it was imported with -- Phase 1-3 above never add or remove
-  // copies of a seed. "strong-preference" instead treats that imported
-  // quantity as a FLOOR: Phase 3c below may promote seeds toward their
-  // recommended copy count once the rest of the deck is assembled. Seeds
-  // are never touched below their floor under either policy, so this is
-  // purely additive relative to "locked-core". "inspiration" is reserved
+  // Seed policy (resolved earlier, right after fuzz/overflow handling —
+  // see `resolvedSeedPolicy` above): "locked-core" (default) keeps every seed
+  // at exactly the quantity it was imported with -- Phase 1-3 above never add
+  // or remove copies of a seed. "strong-preference" instead treats that
+  // imported quantity as a FLOOR: Phase 3c below may promote seeds toward
+  // their recommended copy count once the rest of the deck is assembled.
+  // Seeds are never touched below their floor under either policy, so this
+  // is purely additive relative to "locked-core". "inspiration" is reserved
   // for a future fully-unlocked mode and currently behaves like
   // "locked-core" (not yet implemented).
-  const resolvedSeedPolicy = options.seedPolicy ?? (seedEntries.length > 0 ? "locked-core" : undefined);
   if (resolvedSeedPolicy) reasoning.push(`Seed policy: ${resolvedSeedPolicy}`);
 
   // ── Graph-confirmed axes: require ≥2 DISTINCT seed cards per axis ─────────
@@ -1061,8 +1100,17 @@ function generateOne(
   // safe" donations either).
   if (resolvedSeedPolicy === "strong-preference" && seedEntries.length > 0) {
     const seedOracleIds = new Set(seedEntries.map((e) => e.card.oracleId));
+    const quantityLockedSeedIds = new Set(
+      seedEntries.filter((e) => e.quantityLocked).map((e) => e.card.oracleId)
+    );
     const promotable = finalEntries
-      .filter((e) => e.board === "main" && !e.card.typeLine.includes("Land") && seedOracleIds.has(e.card.oracleId))
+      .filter(
+        (e) =>
+          e.board === "main" &&
+          !e.card.typeLine.includes("Land") &&
+          seedOracleIds.has(e.card.oracleId) &&
+          !quantityLockedSeedIds.has(e.card.oracleId) // pinned count -- never a promotion target
+      )
       .map((e) => ({
         entry: e,
         score: cardScore(e.card, finalEntries, effectiveOptions, targetAvgCmc),
