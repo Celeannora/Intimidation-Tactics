@@ -26,6 +26,7 @@ import {
   type MechanicAxis,
 } from "./synergyModel";
 import { buildSeedSynergyGraph, buildDeckSynergyGraph } from "../analysis/synergyGraph";
+import { detectComboChains, detectComboChainsForCards } from "../analysis/comboChainDetector";
 import type {
   GenerateOptions,
   GenerateResult,
@@ -561,7 +562,7 @@ function generateOne(
     );
   }
 
-  const effectiveOptions: GenerateOptions = {
+  let effectiveOptions: GenerateOptions = {
     ...options,
     colors: effectiveColors,
     focusEntries,
@@ -578,6 +579,29 @@ function generateOne(
     (c) => !c.typeLine.includes("Land") && !lockedIds.has(c.oracleId)
   );
   reasoning.push(`Filtered pool: ${pool.length} non-land candidates`);
+
+  // Multi-hop analysis is a one-time pre-pass over the candidate pool, never
+  // a graph traversal inside cardScore()/the optimizer hot loop. Verified
+  // Spellbook results are likewise plain data supplied by the async UI layer.
+  const candidateChainCards = [...new Map(
+    [...pool, ...seedEntries.map((entry) => entry.card), ...focusEntries.map((entry) => entry.card)]
+      .map((card) => [card.oracleId, card]),
+  ).values()];
+  const candidateChains = detectComboChainsForCards(candidateChainCards);
+  const verifiedCombosForContext = options.comboSynergyContext?.verifiedCombos ?? [];
+  effectiveOptions = {
+    ...effectiveOptions,
+    comboSynergyContext: {
+      chains: candidateChains,
+      verifiedCombos: verifiedCombosForContext,
+    },
+  };
+  if (candidateChains.length > 0 || verifiedCombosForContext.length > 0) {
+    reasoning.push(
+      `Combo pre-pass: ${candidateChains.length} heuristic chain(s)/loop(s), ` +
+      `${verifiedCombosForContext.length} verified Commander Spellbook combo(s) available for scoring`,
+    );
+  }
 
   const entries: DeckEntry[] = [...cloneEntries(seedEntries), ...cloneEntries(focusEntries)];
   const pieStrength = options.colorPieStrength ?? 1.0;
@@ -1098,6 +1122,17 @@ function generateOne(
     seedFeasibilityFlags,
   };
 
+  const finalDeckSynergyGraph = buildDeckSynergyGraph(finalEntries);
+  const comboChains = detectComboChains(finalDeckSynergyGraph);
+  const finalOracleIds = new Set(
+    finalEntries.filter((entry) => entry.board === "main").map((entry) => entry.card.oracleId),
+  );
+  const verifiedCombos = (effectiveOptions.comboSynergyContext?.verifiedCombos ?? [])
+    .filter((combo) => combo.cardOracleIds.every((oracleId) => finalOracleIds.has(oracleId)));
+  if (comboChains.length > 0 || verifiedCombos.length > 0) {
+    reasoning.push(`Combo results: ${comboChains.length} chain(s)/loop(s), ${verifiedCombos.length} verified combo(s) fully present in final deck`);
+  }
+
   return {
     entries: finalEntries,
     archetype: options.archetype,
@@ -1111,7 +1146,9 @@ function generateOne(
     tempoScore,
     cardAdvantageScore,
     synergyViolations,
-    deckSynergyGraph: buildDeckSynergyGraph(finalEntries),
+    deckSynergyGraph: finalDeckSynergyGraph,
+    comboChains,
+    verifiedCombos,
   };
 }
 
@@ -1150,6 +1187,8 @@ function fillRole(
     }))
     // scoreCandidate uses -Infinity as a hard seed-role veto. Exclude it
     // before placement rather than merely sorting it below valid candidates.
+    // Combo/chain completion bonuses are added inside cardScore, but cannot
+    // make a -Infinity seed score selectable.
     .filter(({ score }) => Number.isFinite(score))
     .sort((a, b) => b.score - a.score);
 

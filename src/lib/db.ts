@@ -2,6 +2,7 @@ import Dexie, { Table } from "dexie";
 import type { CardRecord } from "./types";
 import type { LiveWinRateDataset } from "./meta/liveWinRate";
 import type { MetaSnapshot } from "./meta/types";
+import type { VerifiedCombo } from "./generator/comboLookup";
 
 export interface ImportMeta {
   key: string;
@@ -51,6 +52,13 @@ export interface MetaSnapshotCacheRow {
   cachedAt: number;
 }
 
+/** Cached Commander Spellbook response for one sorted candidate-card set. */
+export interface CommanderSpellbookComboCacheRow {
+  key: string;
+  combos: VerifiedCombo[];
+  cachedAt: number;
+}
+
 export class MTGDeckBuilderDB extends Dexie {
   cards!:        Table<CardRecord,        string>;
   meta!:         Table<ImportMeta,        string>;
@@ -58,6 +66,7 @@ export class MTGDeckBuilderDB extends Dexie {
   matchResults!: Table<MatchResult,       number>;
   liveWinRate!:  Table<LiveWinRateCacheRow, string>;
   metaSnapshot!: Table<MetaSnapshotCacheRow, string>;
+  commanderSpellbookCombos!: Table<CommanderSpellbookComboCacheRow, string>;
 
   constructor() {
     super("mtgDeckBuilderDB");
@@ -181,6 +190,14 @@ export class MTGDeckBuilderDB extends Dexie {
       matchResults: "++id, deckId, playedAt",
       liveWinRate:  "key, cachedAt",
       metaSnapshot: "key, cachedAt",
+    });
+
+    // Separate version bump: metaSnapshot (v5) already shipped on main via
+    // the live-meta-feed feature. Adding commanderSpellbookCombos as v6
+    // rather than folding it into v5 keeps the already-released v5 schema
+    // immutable, per Dexie's additive-versioning convention.
+    this.version(6).stores({
+      commanderSpellbookCombos: "key, cachedAt",
     });
   }
 }
