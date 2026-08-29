@@ -132,7 +132,18 @@ describe("generateDeck seed quantity policy", () => {
     // places them into the deck instead of leaving every role slot empty.
     return Array.from({ length: count }, (_, i) =>
       ({
-        ...makeCard(`Filler ${i + 1}`, "A vanilla creature.", "Creature — Test", []),
+        ...makeCard(
+          `Filler ${i + 1}`,
+          // Beater by stats (power>=3, cmc<=3), but also carries a genuine
+          // card-draw clause so post-synergy-review classifySeedRoles()
+          // (which hard-vetoes any candidate filling zero seed roles, see
+          // seedSynergy.ts) grants it "Consistency" and it stays eligible
+          // as a strong-preference promotion donor instead of being
+          // excluded from the candidate pool entirely.
+          "A vanilla creature. Whenever this creature deals combat damage to a player, draw a card.",
+          "Creature — Test",
+          []
+        ),
         gameChanger: 0,
         edhrecRank: 20000,
         rarity: "common",
@@ -185,7 +196,7 @@ describe("generateDeck seed quantity policy", () => {
     return {
       ...makeCard(
         "Dual Beater Drawer",
-        "When this creature enters the battlefield, draw two cards.",
+        "When this creature enters the battlefield, draw a card.",  // singular: matches the CANTRIP_HINT/CardDraw seed-role hint (see seedSynergy.ts), avoiding the zero-seed-role hard veto
         "Creature — Test",
         []
       ),
@@ -203,7 +214,7 @@ describe("generateDeck seed quantity policy", () => {
     // filler in these tests so they donate first.
     return Array.from({ length: count }, (_, i) =>
       ({
-        ...makeCard(`Draw Filler ${i + 1}`, "Draw two cards.", "Sorcery", []),
+        ...makeCard(`Draw Filler ${i + 1}`, "Draw a card.", "Sorcery", []),  // singular: matches the seed-role Consistency hint, avoiding the zero-seed-role hard veto
         gameChanger: 0,
         edhrecRank: 90000,
         rarity: "common",
