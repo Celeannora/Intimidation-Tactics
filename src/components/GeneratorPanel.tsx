@@ -23,7 +23,7 @@ import type {
 } from "../lib/generator/types";
 import { AISettingsDrawer } from "./AISettingsDrawer";
 import { MythicViabilityPanel } from "./MythicViabilityPanel";
-import { CONSTRUCTED_FORMATS, getFormatRules, type ConstructedFormat, type PlayEnvironment } from "../lib/formats";
+import { SUPPORTED_FORMATS_FOR_UI, getFormatRules, type ConstructedFormat, type PlayEnvironment } from "../lib/formats";
 import { generateDeckName } from "../lib/deckExporter";
 import { getLiveWinRateData } from "../lib/meta/liveWinRate";
 import { buildCardBreakdowns, topSynergyPairs } from "../lib/analysis/reasoningView";
@@ -117,7 +117,8 @@ export function GeneratorPanel() {
 
   // Form state
   const [engine, setEngine] = useState<GenerationEngine>("offline");
-  const [format, setFormat] = useState<ConstructedFormat>("standard");
+  const format = useDeckStore((s) => s.activeFormat);
+  const setFormat = useDeckStore((s) => s.setActiveFormat);
   const [playEnvironment, setPlayEnvironment] = useState<PlayEnvironment>("bo1");
   const [archetype, setArchetype] = useState<Archetype>("Midrange");
   const [themes, setThemes] = useState<ThemeId[]>([]);
@@ -723,7 +724,7 @@ export function GeneratorPanel() {
             onChange={(e) => onFormatChange(e.target.value as ConstructedFormat)}
             className="w-full rounded-md border border-zinc-700 bg-zinc-900 px-2 py-1.5 text-xs"
           >
-            {CONSTRUCTED_FORMATS.map((f) => <option key={f.id} value={f.id}>{f.label}</option>)}
+            {SUPPORTED_FORMATS_FOR_UI.map((f) => <option key={f.id} value={f.id}>{f.label}</option>)}
           </select>
           <p className="mt-1 text-[11px] leading-snug text-zinc-600">
             Filters the card pool by Scryfall legality. Commander/Brawl use singleton deck sizes for generation.

@@ -1,4 +1,5 @@
 import { useDeckStore } from "../store/deckStore";
+import { getFormatRules } from "../lib/formats";
 
 /**
  * Full violation list rendered in the right panel's Validate tab.
@@ -6,6 +7,7 @@ import { useDeckStore } from "../store/deckStore";
  */
 export function ValidationPanel() {
   const { legal, mainCount, sideCount, violations } = useDeckStore(s => s.validation);
+  const rules = getFormatRules(useDeckStore(s => s.activeFormat));
 
   return (
     <div className="space-y-3 text-sm">
@@ -13,23 +15,31 @@ export function ValidationPanel() {
       <div className="flex items-center gap-4 text-zinc-400">
         <span>
           Mainboard{" "}
-          <strong className={mainCount < 60 ? "text-red-400" : mainCount > 60 ? "text-yellow-400" : "text-emerald-400"}>
+          <strong
+            className={
+              mainCount < rules.minMainboardSize
+                ? "text-red-400"
+                : mainCount > rules.defaultMainboardSize
+                  ? "text-yellow-400"
+                  : "text-emerald-400"
+            }
+          >
             {mainCount}
           </strong>
-          {" "}/ 60
+          {" "}/ {rules.defaultMainboardSize}
         </span>
         <span>
           Sideboard{" "}
           <strong
             className={
-              sideCount === 0 || sideCount === 15
+              sideCount === 0 || sideCount === rules.sideboardSize
                 ? "text-emerald-400"
                 : "text-red-400"
             }
           >
             {sideCount}
           </strong>
-          {" "}/ 15
+          {" "}/ {rules.sideboardSize ?? "—"}
         </span>
       </div>
 

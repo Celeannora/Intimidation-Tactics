@@ -5,7 +5,7 @@ import { useDeckStore } from "../store/deckStore";
 import { computeSynergyScoreV2 } from "../lib/generator/synergyModel";
 import { cardSynergyTags, quickSynergyView } from "../lib/analysis/reasoningView";
 import { recommendSynergyCards, type SynergyCandidate } from "../lib/analysis/synergyRecommender";
-import { CONSTRUCTED_FORMATS, type ConstructedFormat } from "../lib/formats";
+import { SUPPORTED_FORMATS_FOR_UI, type ConstructedFormat } from "../lib/formats";
 
 // How many real synergistic cards to surface in the inline quick-check panel.
 const QUICK_SYNERGY_LIMIT = 8;
@@ -190,7 +190,7 @@ export function CardRow({
                 aria-label={`Synergy format filter for ${card.name}`}
                 className="rounded border border-zinc-700 bg-zinc-900 px-1.5 py-0.5 text-[10px] text-zinc-200"
               >
-                {CONSTRUCTED_FORMATS.map((f) => (
+                {SUPPORTED_FORMATS_FOR_UI.map((f) => (
                   <option key={f.id} value={f.id}>{f.label}</option>
                 ))}
               </select>

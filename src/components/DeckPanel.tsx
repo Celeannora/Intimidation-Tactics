@@ -163,7 +163,8 @@ export function DeckPanel({ onCardClick }: { onCardClick?: (card: DeckEntry["car
   const [pendingBlendReplace, setPendingBlendReplace] = useState<boolean | null>(null);
   const [cutsModal, setCutsModal] = useState<{ card: DeckEntry["card"]; result: SuggestCutsResult } | null>(null);
 
-  const formatRules = getFormatRules("standard");
+  const activeFormat = useDeckStore((s) => s.activeFormat);
+  const formatRules = getFormatRules(activeFormat);
   const mainTotal = entries.filter((e) => e.board === "main").reduce((s, e) => s + e.quantity, 0);
 
   const togglePin = (entry: DeckEntry) => {

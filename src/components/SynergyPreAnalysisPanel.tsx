@@ -19,6 +19,7 @@ import {
   type SynergyRecommendation,
 } from "../lib/analysis/synergyRecommender";
 import type { CardRecord } from "../lib/types";
+import { SUPPORTED_FORMATS_FOR_UI } from "../lib/formats";
 
 // ── CMC filter options ────────────────────────────────────────────────────────
 const CMC_OPTIONS = [
@@ -39,14 +40,12 @@ const TYPE_OPTIONS = [
   { label: "Planeswalkers", value: "Planeswalker" },
 ];
 
+// "Any format" is a synergy-search convenience (no legality filtering); the
+// remaining options are the UI-supported formats only, so half-finished formats
+// are never exposed here. See SUPPORTED_FORMATS_FOR_UI in ../lib/formats.
 const LEGALITY_OPTIONS = [
-  { label: "Commander", value: "commander" },
   { label: "Any format", value: "any" },
-  { label: "Standard", value: "standard" },
-  { label: "Pioneer", value: "pioneer" },
-  { label: "Modern", value: "modern" },
-  { label: "Legacy", value: "legacy" },
-  { label: "Pauper", value: "pauper" },
+  ...SUPPORTED_FORMATS_FOR_UI.map((f) => ({ label: f.label, value: f.id })),
 ];
 
 // ── Small subcomponent — one candidate row ────────────────────────────────────

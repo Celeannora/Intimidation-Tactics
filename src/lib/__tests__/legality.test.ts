@@ -353,3 +353,58 @@ describe("Legality Engine — 50 Edge Cases", () => {
     expect(result.violations.some(v => v.rule === "MAX_COPIES")).toBe(false);
   });
 });
+
+// ─── Vintage restricted list (maxCopiesForCard) ───────────────────────────────
+
+describe("Vintage restricted-list max copies", () => {
+  const restricted = makeCard({
+    oracleId: "black-lotus",
+    name: "Black Lotus",
+    legalitiesJson: JSON.stringify({ vintage: "restricted", legacy: "banned" }),
+  });
+  const vintageLegal = makeCard({
+    oracleId: "swords",
+    name: "Swords to Plowshares",
+    legalitiesJson: JSON.stringify({ vintage: "legal" }),
+  });
+
+  it("caps a Vintage-restricted card at exactly 1 copy", () => {
+    expect(maxCopiesForCard(restricted, "vintage")).toBe(1);
+  });
+
+  it("leaves a non-restricted Vintage-legal card at the blanket 4-of cap", () => {
+    expect(maxCopiesForCard(vintageLegal, "vintage")).toBe(4);
+  });
+
+  it("does not apply the restricted cap in a non-restricted-aware format (Standard)", () => {
+    // Same card, but Standard's rules row is not restrictedListAware, so the
+    // blanket 4-of cap applies rather than the Vintage 1-of restriction.
+    expect(maxCopiesForCard(restricted, "standard")).toBe(4);
+  });
+
+  it("passes validation at 1 copy but flags MAX_COPIES at 2 copies in Vintage", () => {
+    const fillers = (n: number) =>
+      Array.from({ length: n }, (_, i) =>
+        nCopies(makeCard({ oracleId: `vf${i}`, legalitiesJson: JSON.stringify({ vintage: "legal" }) }), 4)
+      );
+
+    // 1 restricted + 59 legal fillers (total 60): no MAX_COPIES violation.
+    const okDeck: DeckEntry[] = [
+      nCopies(restricted, 1),
+      ...fillers(14),
+      nCopies(makeCard({ oracleId: "vf14", legalitiesJson: JSON.stringify({ vintage: "legal" }) }), 3),
+    ];
+    const okResult = validateDeck(okDeck, "vintage");
+    expect(okResult.violations.some(v => v.rule === "MAX_COPIES")).toBe(false);
+
+    // 2 copies of the restricted card: over the 1-of restricted cap.
+    const badDeck: DeckEntry[] = [
+      nCopies(restricted, 2),
+      ...fillers(14),
+      nCopies(makeCard({ oracleId: "vf14", legalitiesJson: JSON.stringify({ vintage: "legal" }) }), 2),
+    ];
+    const badResult = validateDeck(badDeck, "vintage");
+    expect(badResult.violations.some(v => v.rule === "MAX_COPIES")).toBe(true);
+    expect(badResult.violations.find(v => v.rule === "MAX_COPIES")?.cardNames).toContain("Black Lotus");
+  });
+});
