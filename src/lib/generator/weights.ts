@@ -14,7 +14,9 @@ import {
   type MTGKeyword,
 } from "../config/scoringConfig";
 import { computeMetaPerformance } from "../meta/metaScoring";
+import { getBundledMetaContext } from "../meta/snapshot";
 import { computeCardAdvantageScore } from "../scoreEngine";
+import { getCompetitivePower } from "../competitivePower";
 import { scoreCandidate, tallyRoleCounts } from "./seedSynergy";
 import {
   ARCHETYPE_PROFILES,
@@ -284,7 +286,7 @@ export function cardScoreDetail(
   targetAvgCmc: number
 ): CardScoreDetail {
   const roles = assignRoles(card);
-  const power = computePowerScore(card);
+  const power = computePowerScore(card, getCompetitivePower(card));
   const role = roleMultiplier(card, options.archetype);
   const pieStrength = options.colorPieStrength ?? 1.0;
   const colorAff = colorAffinity(card, pieStrength);
@@ -580,7 +582,12 @@ export function deckScore(
   let cardScoreSum = 0;
   for (const e of entries) {
     if (e.card.typeLine.includes("Land")) continue;
-    cardScoreSum += cardScore(e.card, entries, options, targetAvgCmc) * e.quantity;
+    const score = cardScore(e.card, entries, options, targetAvgCmc);
+    // A rejected seed-synergy card should normally be filtered before deck
+    // construction. Keep this defensive path finite for optimizer trials or
+    // externally supplied entries, while making the invalid card decisively
+    // worse than any valid alternative.
+    cardScoreSum += Number.isFinite(score) ? score * e.quantity : -1000 * e.quantity;
   }
   const curveDev = curveDeviation(entries, options.archetype);
   const coverage = manaBaseCoverage(entries);
@@ -608,7 +615,7 @@ export function deckScore(
   const metaPerf = computeMetaPerformance(
     entries.map((e) => ({ card: e.card, quantity: e.quantity })),
     options.metaTargets ?? undefined,
-    undefined, // metaContext — pass undefined until wired from snapshot
+    getBundledMetaContext(),
   );
   const metaPerformanceContribution = deckCfg.metaPerformanceMultiplier * metaPerf;
 
@@ -701,7 +708,7 @@ export function targetAvgCmcFor(options: GenerateOptions, defaultAvg: number): n
 
 /** Used by the pool builder to pre-rank by simple heuristic before deeper scoring. */
 export function quickRank(card: CardRecord, archetype: Archetype): number {
-  return roleMultiplier(card, archetype) * computePowerScore(card)
+  return roleMultiplier(card, archetype) * computePowerScore(card, getCompetitivePower(card))
     - (card.edhrecRank ? card.edhrecRank / 1000 : 5)
     + (card.gameChanger ? 5 : 0);
 }

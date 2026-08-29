@@ -9,6 +9,8 @@ import {
   type CompetitiveSnapshot,
 } from "../competitivePower";
 import { computePowerScore, computeHeuristicPowerScore } from "../powerScore";
+import { cardScoreDetail, deckScore, quickRank } from "../generator/weights";
+import type { GenerateOptions } from "../generator/types";
 
 /** Minimal CardRecord factory — only the fields the scorers read. */
 function card(partial: Partial<CardRecord>): CardRecord {
@@ -104,5 +106,42 @@ describe("computePowerScore competitive blend", () => {
     // With heuristic ~ (common=1 + cmc<=2 creature=4) = 5 → 0.8*40 + 0.2*5 = 33
     expect(blended).toBeGreaterThan(30);
     expect(blended).toBeLessThanOrEqual(40);
+  });
+});
+
+describe("generation scoring competitive/meta wiring", () => {
+  it("uses competitive power in both generation-time card ranking paths", () => {
+    setCompetitiveSnapshot(fixtureSnapshot);
+    const staple = card({ name: "Staple Removal", rarity: "common", edhrecRank: null, typeLine: "Instant" });
+    const fringe = card({ name: "Fringe Card", rarity: "mythic", edhrecRank: 100, typeLine: "Instant" });
+    const options: GenerateOptions = {
+      engine: "offline",
+      archetype: "Midrange",
+      format: "standard",
+      colors: [],
+    };
+
+    expect(cardScoreDetail(staple, [], options, 3).powerScore)
+      .toBe(computePowerScore(staple, getCompetitivePower(staple)));
+    expect(quickRank(staple, "Midrange")).toBeGreaterThan(quickRank(fringe, "Midrange"));
+  });
+
+  it("uses the bundled meta context for requested meta targets", () => {
+    const interaction = card({
+      name: "Interaction",
+      oracleText: "Destroy target creature.",
+      typeLine: "Instant",
+      rarity: "common",
+    });
+    const options: GenerateOptions = {
+      engine: "offline",
+      archetype: "Midrange",
+      format: "standard",
+      colors: [],
+      metaTargets: ["izzet-prowess"],
+    };
+
+    expect(deckScore([{ card: interaction, quantity: 4, board: "main" }], options, 3).metaPerformance)
+      .toBeGreaterThan(0);
   });
 });

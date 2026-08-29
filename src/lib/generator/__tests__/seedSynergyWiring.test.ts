@@ -305,4 +305,35 @@ describe("seedSynergy wiring is deck-agnostic (non-Hope, non-WU seed)", () => {
       }
     }
   });
+
+  it("never places a zero-seed-role candidate, even when it is the only threat-shaped option", () => {
+    const seed = makeCard(
+      "Treasure Payoff",
+      "Treasure Payoff gets +1/+1 for each Treasure you control.",
+      "Creature — Rogue",
+      [],
+      3,
+      "{3}",
+    );
+    const rejectedThreat = {
+      ...makeCard("Vanilla Threat", "", "Creature — Giant", [], 3, "{3}"),
+      power: "5",
+      toughness: "5",
+    };
+    const options: GenerateOptions = {
+      engine: "offline",
+      format: "standard",
+      archetype: "Aggro",
+      colors: [],
+      seedEntries: [{ card: seed, quantity: 4, board: "main" }],
+      mainboardSize: 60,
+      maxMainboardSize: 60,
+      optimizationIterations: 0,
+    };
+
+    const result = generateDeck(options, [seed, rejectedThreat, makeBasic("Wastes")]);
+
+    expect(result.entries.some((entry) => entry.card.oracleId === rejectedThreat.oracleId)).toBe(false);
+    expect(Number.isFinite(result.diagnostics.deckScore)).toBe(true);
+  });
 });

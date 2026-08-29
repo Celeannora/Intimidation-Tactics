@@ -203,11 +203,12 @@ function deriveSeedSynergyContext(
   }));
   const seedCards = seedEntries.map((e) => e.card);
 
-  // A seed card's OWN role among its seed-mates decides whether it counts as
-  // a "payoff" for resource inference — mirrors the reference implementation
-  // in the (now-removed) comparison script, but computed generically here.
+  // A seed card's actual role decides whether it is a payoff for resource
+  // inference. Resource references are also accepted directly so an otherwise
+  // untagged scaling payoff remains discoverable without labeling Enablers as
+  // Payoffs by seed-package membership.
   const seedPayoffCards = seedCards.filter((card) =>
-    classifySeedRoles(card, seedPackage).includes("Payoff")
+    classifySeedRoles(card, seedPackage).includes("Payoff") || inferResourceSpec([card]) !== null
   );
   const resourceSpec = inferResourceSpec(seedPayoffCards);
   const anthemSpec = inferSeedAnthemSynergy(seedCards);
@@ -1147,6 +1148,9 @@ function fillRole(
       card,
       score: cardScore(card, deckSoFar, { ...options, keywordFocus: mergeAxesIntoKeywordFocus(options.keywordFocus, deckAxes) }, targetAvgCmc),
     }))
+    // scoreCandidate uses -Infinity as a hard seed-role veto. Exclude it
+    // before placement rather than merely sorting it below valid candidates.
+    .filter(({ score }) => Number.isFinite(score))
     .sort((a, b) => b.score - a.score);
 
   const result: DeckEntry[] = [];

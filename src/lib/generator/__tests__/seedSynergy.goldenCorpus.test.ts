@@ -42,9 +42,7 @@ const FIXTURE_PATH = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "
 
 // Same seed used across this branch's Hope Estheim / Space-Time Anomaly
 // build. Swappable: this test's job is to snapshot whatever the classifier
-// does for the ACTIVE seed, not to assert Hope-Estheim-specific outcomes. If
-// none of these names exist in the fixture pool, the resource-cadence tests
-// below skip gracefully rather than falsely asserting a resource was found.
+// does for the ACTIVE seed, not to assert Hope-Estheim-specific outcomes.
 const SEED_PACKAGE: SeedPackage = [
   { name: "Hope Estheim", quantity: 4 },
   { name: "Space-Time Anomaly", quantity: 4 },
@@ -63,6 +61,11 @@ describe("seedSynergy golden-corpus regression", () => {
     expect(pool.length).toBeGreaterThan(100);
   });
 
+  it("contains every declared seed so the corpus exercises the active package", () => {
+    const names = new Set(pool.map((card) => card.name));
+    for (const seed of SEED_PACKAGE) expect(names.has(seed.name)).toBe(true);
+  });
+
   it("role classification is stable across the fixture pool", async () => {
     const seedPayoffCards = pool.filter((c) => SEED_PACKAGE.some((s) => s.name === c.name));
     const resourceSpec = inferResourceSpec(seedPayoffCards);
@@ -78,13 +81,10 @@ describe("seedSynergy golden-corpus regression", () => {
   });
 
   it("resource cadence classification is stable across the fixture pool", async () => {
-    // The fixture pool is a general Standard snapshot and does not contain
-    // this branch's specific seed payoffs (Hope Estheim / Space-Time
-    // Anomaly), so infer whatever countable resource the fixture's OWN
-    // payoff-shaped cards expose (e.g. "Ajani, Caller of the Pride" scales
-    // with life total) rather than depending on the active branch seed
-    // existing in a general-purpose fixture -- this keeps the test
-    // pool-and-seed-agnostic instead of coupling it to Hope Estheim by name.
+    // Infer whatever countable resource the fixture's OWN payoff-shaped cards
+    // expose (e.g. "Ajani, Caller of the Pride" scales with life total).
+    // This remains independent of the active seed package even though all
+    // declared seeds are now present in the fixture.
     const lifeScalingSeed = pool.find((c) => /your life total/i.test(c.oracleText ?? ""));
     const resourceSpec = inferResourceSpec(lifeScalingSeed ? [lifeScalingSeed] : []);
     if (!resourceSpec) {

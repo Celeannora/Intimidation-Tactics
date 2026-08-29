@@ -22,7 +22,7 @@ interface OptimizeContext {
   rng: () => number;
 }
 
-type RoleSlot = "threats" | "removal" | "boardWipes" | "counterspells" | "cardDraw" | "ramp";
+type RoleSlot = "threats" | "removal" | "boardWipes" | "counterspells" | "cardDraw" | "ramp" | "support";
 
 /**
  * Pre-sort the pool into role-sorted priority buckets.
@@ -35,7 +35,7 @@ function rankPool(
   options: GenerateOptions
 ): Map<RoleSlot, CardRecord[]> {
   const buckets: Map<RoleSlot, CardRecord[]> = new Map();
-  const slots: RoleSlot[] = ["threats", "removal", "boardWipes", "counterspells", "cardDraw", "ramp"];
+  const slots: RoleSlot[] = ["threats", "removal", "boardWipes", "counterspells", "cardDraw", "ramp", "support"];
   for (const s of slots) buckets.set(s, []);
 
   for (const card of pool) {
@@ -72,8 +72,18 @@ function _getRoles(card: CardRecord): string[] {
   const isLand = tl.includes("Land");
   if (isLand) return roles;
 
+  // Synergy glue must not fall through to the generic threat bucket. During
+  // optimization that bucket is the broad fallback candidate pool, so treating
+  // tribal lords, anthems, cost reducers, and static setup pieces as threats
+  // made them especially easy to replace with standalone beaters.
+  const isSupport =
+    /other [a-z]+s? you control (?:get \+\d+\/\+\d+|have )/.test(text) ||
+    /(?:spells?|creature spells?|artifact spells?|instant and sorcery spells?) you cast cost .* less/.test(text) ||
+    /create .* token|whenever .* (?:token|artifact|creature) .* enters/.test(text);
+  if (isSupport) roles.push("support");
+
   // Threats
-  if (isCreature) {
+  if (isCreature && !isSupport) {
     const power = parseInt(card.power ?? "0", 10);
     if (!isNaN(power) && power >= 3) roles.push("threats");
   }
