@@ -1,7 +1,8 @@
 /// <reference lib="webworker" />
 import { replaceAllCards } from "../lib/db";
 import { isImportEligible, toCardRecord } from "../lib/scryfall";
-import type { CardRecord, ImportProgress, ImportResult, ScryfallCard } from "../lib/types";
+import { isJsonlFile, parseScryfallBulkText } from "../lib/bulkParse";
+import type { CardRecord, ImportProgress, ImportResult } from "../lib/types";
 
 const ctx: DedicatedWorkerGlobalScope = self as never;
 
@@ -31,7 +32,7 @@ ctx.onmessage = async (event: MessageEvent<File>) => {
       message: "Parsing JSON..."
     });
 
-    const parsed = JSON.parse(text) as ScryfallCard[];
+    const parsed = parseScryfallBulkText(text, isJsonlFile(file));
     const total = parsed.length;
     const importedAt = new Date().toISOString();
 

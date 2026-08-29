@@ -1,23 +1,11 @@
 import type React from "react";
 import { useMemo, useRef, useState } from "react";
 import type { ImportProgress, ImportResult } from "../lib/types";
+import { fetchOracleCardsManifestEntry, downloadScryfallBulkFile } from "../lib/scryfallBulk";
 
 interface BulkImporterProps {
   onImportDone?: (result: ImportResult) => void;
 }
-
-interface ScryfallBulkEntry {
-  type: string;
-  download_uri: string;
-  size?: number;
-  updated_at?: string;
-}
-
-interface ScryfallBulkManifest {
-  data: ScryfallBulkEntry[];
-}
-
-const SCRYFALL_BULK_MANIFEST = "https://api.scryfall.com/bulk-data";
 
 export function BulkImporter({ onImportDone }: BulkImporterProps = {}) {
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -69,55 +57,8 @@ export function BulkImporter({ onImportDone }: BulkImporterProps = {}) {
         message: "Fetching Scryfall bulk-data manifest..."
       });
 
-      const manifestRes = await fetch(SCRYFALL_BULK_MANIFEST);
-      if (!manifestRes.ok) {
-        throw new Error(`Scryfall manifest fetch failed: ${manifestRes.status}`);
-      }
-      const manifest = (await manifestRes.json()) as ScryfallBulkManifest;
-      const entry = manifest.data.find((d) => d.type === "oracle_cards");
-      if (!entry) throw new Error("No oracle_cards entry in Scryfall bulk manifest");
-
-      setProgress({
-        phase: "reading",
-        percent: 2,
-        processed: 0,
-        total: entry.size ?? 0,
-        message: "Downloading oracle_cards.json from Scryfall..."
-      });
-
-      const res = await fetch(entry.download_uri);
-      if (!res.ok || !res.body) {
-        throw new Error(`Scryfall download failed: ${res.status}`);
-      }
-
-      const contentLength = Number(res.headers.get("Content-Length") ?? entry.size ?? 0);
-      const reader = res.body.getReader();
-      const chunks: Uint8Array[] = [];
-      let received = 0;
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        if (value) {
-          chunks.push(value);
-          received += value.byteLength;
-          const percent = contentLength
-            ? Math.min(18, 2 + Math.round((received / contentLength) * 16))
-            : 10;
-          setProgress({
-            phase: "reading",
-            percent,
-            processed: received,
-            total: contentLength,
-            message: contentLength
-              ? `Downloading ${(received / 1_000_000).toFixed(1)} / ${(contentLength / 1_000_000).toFixed(1)} MB`
-              : `Downloading ${(received / 1_000_000).toFixed(1)} MB`
-          });
-        }
-      }
-
-      const blob = new Blob(chunks as BlobPart[], { type: "application/json" });
-      const file = new File([blob], "oracle_cards.json", { type: "application/json" });
+      const entry = await fetchOracleCardsManifestEntry();
+      const file = await downloadScryfallBulkFile(entry, setProgress);
 
       attachWorkerHandlers();
       worker.postMessage(file);

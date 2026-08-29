@@ -140,6 +140,10 @@ export function GeneratorPanel() {
   const [generateSideboard, setGenSide] = useState(false);
   const [currentDeckMode, setCurrentDeckMode] = useState<"off" | "seeds" | "keep">("seeds");
   const [seedFuzzSwaps, setSeedFuzzSwaps] = useState<number>(0);
+  // Off by default so existing behaviour (seed quantity = exact import quantity) never changes
+  // unless the user explicitly opts in. When enabled, seeds become a floor the optimizer can
+  // top up toward their recommended copy count instead of a hard-locked exact count.
+  const [seedTopUpEnabled, setSeedTopUpEnabled] = useState<boolean>(false);
   // Locked spine: AI's nonland picks (and the quantities the LLM specifies) become
   // a locked deck spine the optimizer may only gap-fill around. Default ON for AI;
   // a toggle lets the user relax it back to "soft preferences" behavior.
@@ -373,11 +377,11 @@ export function GeneratorPanel() {
     }
   };
 
-  /** Map the current-deck UI mode to the SeedPolicy contract passed to the generator. */
+  /** Map the current-deck UI mode (+ top-up toggle) to the SeedPolicy contract passed to the generator. */
   const deriveSeedPolicy = (): SeedPolicy | undefined => {
     switch (currentDeckMode) {
-      case "seeds": return "locked-core";
-      case "keep":  return "locked-core";
+      case "seeds": return seedTopUpEnabled ? "strong-preference" : "locked-core";
+      case "keep":  return seedTopUpEnabled ? "strong-preference" : "locked-core";
       default:      return undefined; // "off" — no seed policy
     }
   };
@@ -848,6 +852,28 @@ export function GeneratorPanel() {
                 can replace them with better picks while still being strongly biased toward keeping them.
                 Works with both Offline and AI engines.
               </p>
+            </div>
+
+            {/* ── Seed quantity: locked vs. top-up floor ── */}
+            <div className="rounded-md border border-zinc-800 bg-zinc-900/40 p-2">
+              <label className="flex items-start gap-2 text-xs">
+                <input
+                  type="checkbox"
+                  checked={seedTopUpEnabled}
+                  onChange={(e) => setSeedTopUpEnabled(e.target.checked)}
+                  className="mt-0.5 accent-teal-500"
+                />
+                <span>
+                  Let seeds gain extra copies (strong preference)
+                  <span className="mt-0.5 block text-[11px] leading-snug text-zinc-500">
+                    Off (default): each seed is locked to exactly the quantity it was imported with —
+                    a 1-of seed stays a 1-of. On: the imported quantity becomes a floor, and the
+                    optimizer may add more copies of a seed (up to its recommended count and the
+                    format's legal max) when doing so scores better, funded by trading away weaker
+                    unlocked cards. Seeds never lose copies either way.
+                  </span>
+                </span>
+              </label>
             </div>
 
             {/* ── Sequential seed-chain (AI only) ── */}
