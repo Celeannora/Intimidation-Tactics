@@ -5,7 +5,7 @@ import { generateDecks } from "../lib/generator/generator";
 import { generateDeckAI, generateDeckAISequential, refineDeckAI, buildAIPrompts, salvageDeckJSON, DEFAULT_AI_TEMPERATURE, DEFAULT_DIGEST_LIMIT, type AIChatTranscript } from "../lib/ai/aiGenerator";
 import { loadAISettings } from "../lib/ai/provider";
 import { makeProvider } from "../lib/ai/factory";
-import { COMMON_TRIBES, buildSynergyProfile, inferPrimaryAxes, normalizeTribe } from "../lib/generator/synergyModel";
+import { COMMON_TRIBES, buildSynergyProfile, cardGrantsTribalBenefit, inferPrimaryAxes, normalizeTribe } from "../lib/generator/synergyModel";
 import { assignRoles, isThreat } from "../lib/roles";
 import type { Archetype } from "../lib/archetype";
 import { detectArchetype } from "../lib/archetype";
@@ -2117,7 +2117,14 @@ function detectTribe(nonlands: ReturnType<typeof useMainboardEntries>): string |
   // detects as tribal. The 35% share requirement keeps detection honest for larger pools.
   const tribeFloor = totalCreatures <= 6 ? 2 : totalCreatures <= 10 ? 3 : totalCreatures <= 15 ? 4 : 6;
   if (!best || best[1] < tribeFloor || best[1] / Math.max(1, totalCreatures) < 0.35) return null;
-  return best[0][0].toUpperCase() + best[0].slice(1);
+  const tribe = best[0][0].toUpperCase() + best[0].slice(1);
+  // Sharing a creature type isn't enough on its own — a coincidental pile of
+  // Humans with no Human-specific payoffs shouldn't flip on Tribal Support.
+  // Require at least one seed card that actually grants a benefit to (or
+  // triggers off of) the detected tribe.
+  const hasPayoff = nonlands.some((entry) => cardGrantsTribalBenefit(entry.card, tribe));
+  if (!hasPayoff) return null;
+  return tribe;
 }
 
 function parseCreatureTypes(typeLine: string): string[] {

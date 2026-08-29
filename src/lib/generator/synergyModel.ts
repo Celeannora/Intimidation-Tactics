@@ -443,6 +443,36 @@ export function cardReferencesTribe(card: CardRecord, tribe: string | undefined)
   );
 }
 
+/**
+ * Stricter than cardReferencesTribe: a mere name mention isn't enough to call
+ * a pile of same-typed creatures "tribal" — the card has to actually grant a
+ * benefit to (or trigger off of) that tribe. Matches the common templates for
+ * anthems, cost reduction, triggered payoffs, and generic "chosen type" typal
+ * cards. Used to gate auto-detection so coincidental type overlap (e.g. a
+ * pile of Humans with no Human-specific payoffs) doesn't get flagged tribal.
+ */
+export function cardGrantsTribalBenefit(card: CardRecord, tribe: string | undefined): boolean {
+  const normalized = normalizeTribe(tribe);
+  if (!normalized) return false;
+  const text = card.oracleText ?? "";
+  if (!text) return false;
+  const name = escapeRegExp(normalized);
+  const benefitPattern = new RegExp(
+    `other ${name}s? you control (?:get|have)|` +
+      `each ${name} you control|` +
+      `${name}s? you control get|` +
+      `${name}s? you control have|` +
+      `${name}s? you control gain|` +
+      `whenever you cast a ${name} spell|` +
+      `for each ${name} you control|` +
+      `${name} spells? costs? \\{|` +
+      `choose a creature type|` +
+      `creatures? of the chosen type`,
+    "i"
+  );
+  return benefitPattern.test(text);
+}
+
 export function tribalCardBonus(card: CardRecord, tribal: TribalSupportOptions | undefined): number {
   if (!tribal?.tribe) return 0;
   let bonus = 0;

@@ -713,6 +713,8 @@ function generateOne(
     }
   }
 
+  let totalRoleNeed = 0;
+  let totalRolePlaced = 0;
   for (const role of ROLE_ORDER) {
     const need = Math.max(0, (target[role] ?? 0) - (seedRoleCounts[role] ?? 0));
     if (need <= 0) {
@@ -740,6 +742,48 @@ function generateOne(
       ];
     }
     reasoning.push(`${role}: placed ${placed} / ${need}`);
+    totalRoleNeed += need;
+    totalRolePlaced += placed;
+  }
+
+  // A role can undershoot its target not because the deck ran out of slots,
+  // but because the chosen colors simply don't have enough matching cards
+  // (the classic case: Control's counterspells target expects ~10 hard
+  // counters, but a non-blue deck like Mardu has essentially none). Left
+  // alone, that shortfall silently turns into extra land padding later
+  // (Phase 2 pads any unfilled mainboard slot with basics), producing a
+  // land-flooded, spell-starved deck. Instead, backfill the gap with the
+  // best remaining nonland cards from the pool regardless of which specific
+  // role they satisfy, so the deck still reaches its intended spell count.
+  const roleShortfall = totalRoleNeed - totalRolePlaced;
+  if (roleShortfall > 0) {
+    const fallbackCandidates = pool
+      .filter((c) => !used.has(c.oracleId) && !c.typeLine.includes("Land"))
+      .map((card) => ({
+        card,
+        score: cardScore(
+          card,
+          entries,
+          { ...effectiveOptions, keywordFocus: mergeAxesIntoKeywordFocus(options.keywordFocus, deckAxes) },
+          targetAvgCmc
+        ),
+      }))
+      .filter(({ score }) => Number.isFinite(score))
+      .sort((a, b) => b.score - a.score);
+
+    let backfilled = 0;
+    for (const { card } of fallbackCandidates) {
+      if (backfilled >= roleShortfall) break;
+      const qty = recommendedCopyCount(card, "removal", roleShortfall - backfilled, options.format);
+      entries.push({ card, quantity: qty, board: "main" });
+      used.add(card.oracleId);
+      backfilled += qty;
+    }
+    if (backfilled > 0) {
+      reasoning.push(
+        `Shortfall backfill: role targets undershot by ${roleShortfall} card(s), likely unavailable in this color identity (e.g. counterspells outside blue) — added ${backfilled} best-available nonland card(s) instead of letting it become extra land padding.`
+      );
+    }
   }
 
   // ── Phase 2: mana base ──

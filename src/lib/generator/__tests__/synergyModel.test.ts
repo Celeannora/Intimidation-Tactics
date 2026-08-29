@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CardRecord } from "../../types";
-import { buildSynergyProfile, crossAxisCompositionBonus, inferPrimaryAxes, inferPrimaryAxesDetailed, keywordFocusToAxes, summarizeSynergyConnections, synergyDensityMultiplier } from "../synergyModel";
+import { buildSynergyProfile, cardGrantsTribalBenefit, crossAxisCompositionBonus, inferPrimaryAxes, inferPrimaryAxesDetailed, keywordFocusToAxes, summarizeSynergyConnections, synergyDensityMultiplier } from "../synergyModel";
 
 function makeCard(name: string, oracleText: string, typeLine = "Creature — Test", quantity = 1): CardRecord[] {
   const card = {
@@ -294,5 +294,38 @@ describe("crossAxisCompositionBonus — newly credited compositions", () => {
     );
     const deck = makeCard("Yard Filler", "Flashback {2}{B}.", "Sorcery", 4).map(buildSynergyProfile);
     expect(crossAxisCompositionBonus(candidate, deck)).toBeGreaterThanOrEqual(6);
+  });
+});
+
+describe("cardGrantsTribalBenefit — gates auto-tribal detection on an actual payoff", () => {
+  it("is false for a card that merely IS the tribe, with no payoff text", () => {
+    const [vanilla] = makeCard("Ordinary Human", "", "Creature — Human Soldier");
+    expect(cardGrantsTribalBenefit(vanilla, "Human")).toBe(false);
+  });
+
+  it("is false when the tribe name only appears incidentally (not as a benefit)", () => {
+    const [flavor] = makeCard("Human Hater", "Whenever a Human deals damage to you, you lose 1 life.", "Creature — Zombie");
+    // "Human" appears, but the clause punishes the opponent, not the deck's own tribe payoff shape.
+    expect(cardGrantsTribalBenefit(flavor, "Human")).toBe(false);
+  });
+
+  it("is true for a classic anthem granting a stat buff to the tribe", () => {
+    const [lord] = makeCard("Tribal Lord", "Other Humans you control get +1/+1.", "Creature — Human Soldier");
+    expect(cardGrantsTribalBenefit(lord, "Human")).toBe(true);
+  });
+
+  it("is true for a cast-trigger payoff keyed to the tribe", () => {
+    const [payoff] = makeCard("Zombie Caller", "Whenever you cast a Zombie spell, create a 2/2 black Zombie creature token.", "Creature — Zombie");
+    expect(cardGrantsTribalBenefit(payoff, "Zombie")).toBe(true);
+  });
+
+  it("is true for generic chosen-type typal cards regardless of the specific tribe", () => {
+    const [typal] = makeCard("Shapeshifter's Blessing", "Choose a creature type. Creatures of the chosen type you control get +1/+1.", "Sorcery");
+    expect(cardGrantsTribalBenefit(typal, "Elf")).toBe(true);
+  });
+
+  it("is false when checked against a different tribe than the one it rewards", () => {
+    const [lord] = makeCard("Elf Lord", "Other Elves you control get +1/+1.", "Creature — Elf Druid");
+    expect(cardGrantsTribalBenefit(lord, "Goblin")).toBe(false);
   });
 });
