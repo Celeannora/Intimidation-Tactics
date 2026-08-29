@@ -11,6 +11,7 @@ import {
 import { computePowerScore, computeHeuristicPowerScore } from "../powerScore";
 import { cardScoreDetail, deckScore, quickRank } from "../generator/weights";
 import type { GenerateOptions } from "../generator/types";
+import { BUNDLED_STANDARD_SNAPSHOT } from "../meta/snapshot";
 
 /** Minimal CardRecord factory — only the fields the scorers read. */
 function card(partial: Partial<CardRecord>): CardRecord {
@@ -127,6 +128,18 @@ describe("generation scoring competitive/meta wiring", () => {
   });
 
   it("uses the bundled meta context for requested meta targets", () => {
+    // Pick the current top-share archetype from the bundled snapshot rather
+    // than hardcoding an id: the bundled Standard snapshot is refreshed
+    // periodically as the metagame shifts, and archetype ids/composition
+    // (e.g. "izzet-prowess") can be renamed or fall out of the top tier
+    // entirely between refreshes. This keeps the test tied to "the bundled
+    // context has *a* well-represented target with metaShare > 0", which is
+    // what the test actually exercises, instead of one specific archetype's
+    // continued existence.
+    const targetId = [...BUNDLED_STANDARD_SNAPSHOT.archetypes]
+      .sort((a, b) => b.metaShare - a.metaShare)[0]?.id;
+    expect(targetId).toBeTruthy();
+
     const interaction = card({
       name: "Interaction",
       oracleText: "Destroy target creature.",
@@ -138,7 +151,7 @@ describe("generation scoring competitive/meta wiring", () => {
       archetype: "Midrange",
       format: "standard",
       colors: [],
-      metaTargets: ["izzet-prowess"],
+      metaTargets: [targetId],
     };
 
     expect(deckScore([{ card: interaction, quantity: 4, board: "main" }], options, 3).metaPerformance)
