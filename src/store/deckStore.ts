@@ -97,7 +97,7 @@ function entriesToRecord(entries: DeckEntry[], board: "main" | "side"): Record<s
   );
 }
 
-export const useDeckStore = create<DeckState>((set, get) => ({
+export const useDeckStore = create<DeckState>()((set, get) => ({
   activeDeckId: makeId(),
   deckId: null,
   deckName: "New Deck",

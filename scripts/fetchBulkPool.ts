@@ -104,11 +104,10 @@ async function ensureBulkFile(
   }
 
   console.log(`[BULK] Downloading ${bulkType} (${((entry.size ?? 0) / 1_000_000).toFixed(1)} MB) ...`);
-  // NOTE (documented shortfall #2): Scryfall's bulk manifest no longer exposes
-  // a plain-JSON download_uri — entries now provide jsonl_download_uri
-  // (gzipped JSONL). The app's ScryfallUpdateController still expects
-  // download_uri, so the in-app "refresh database" flow is broken against the
-  // live manifest until it is updated to handle the JSONL format.
+  // Scryfall's bulk manifest no longer exposes a plain-JSON download_uri for
+  // every entry — some now provide only jsonl_download_uri (gzipped JSONL).
+  // The app's own scryfallBulk.ts already prefers jsonl_download_uri with a
+  // fallback to download_uri (see its tests); this script mirrors that here.
   const dlUri = entry.download_uri ?? entry.jsonl_download_uri;
   if (!dlUri) throw new Error(`Could not resolve ${bulkType} download uri.`);
   const res = await fetch(dlUri, {

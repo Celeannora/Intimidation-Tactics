@@ -30,7 +30,7 @@ export interface DBUpdateState {
   reset: () => void;
 }
 
-export const useDBUpdateStore = create<DBUpdateState>((set) => ({
+export const useDBUpdateStore = create<DBUpdateState>()((set) => ({
   phase: "idle",
   progress: null,
   result: null,
