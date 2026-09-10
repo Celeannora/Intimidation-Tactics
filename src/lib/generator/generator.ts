@@ -440,11 +440,22 @@ function generateOne(
 
         const consolidated = seedEntries.map((e) => ({ ...e }));
         const byOracle2 = new Map(consolidated.map((e) => [e.card.oracleId, e]));
+        // Under "strong-preference" every seed's IMPORTED quantity is a hard
+        // floor -- this pass may only ever promote a seed upward, never fund
+        // that promotion by draining another seed below what it came in
+        // with. (Regression: donors used to be drained down to a flat floor
+        // of 1 regardless of their original quantity, silently demoting a
+        // manually-bumped or multi-copy seed import to a 1-of even though
+        // the UI promises "seeds never lose copies either way".)
+        const originalQtyByOracle = new Map(seedEntries.map((e) => [e.card.oracleId, e.quantity]));
+        const floorOf = (oracleId: string): number => originalQtyByOracle.get(oracleId) ?? 1;
 
         // First pass: promote top entries, cutting from the bottom to fund it.
         // Quantity-locked seeds are excluded on BOTH sides: never promoted
         // (their count is pinned, not a floor to build up from) and never
         // used as a donor (their count is pinned, not a source to drain).
+        // Non-locked seeds MAY donate, but only the slack above their own
+        // original imported quantity -- never below it.
         for (let rank = 0; rank < scored2.length; rank++) {
           const { entry } = scored2[rank];
           const live = byOracle2.get(entry.card.oracleId);
@@ -456,8 +467,10 @@ function generateOne(
           let funded = 0;
           for (let j = scored2.length - 1; j > rank && funded < need; j--) {
             const donor = byOracle2.get(scored2[j].entry.card.oracleId);
-            if (!donor || donor.quantity <= 1 || donor.quantityLocked) continue;
-            const give = Math.min(donor.quantity - 1, need - funded);
+            if (!donor || donor.quantityLocked) continue;
+            const donorFloor = floorOf(donor.card.oracleId);
+            if (donor.quantity <= donorFloor) continue;
+            const give = Math.min(donor.quantity - donorFloor, need - funded);
             donor.quantity -= give;
             funded += give;
           }
@@ -465,16 +478,21 @@ function generateOne(
         }
 
         // Enforce budget ceiling (rounding may have drifted slightly). Worst
-        // flexible entries are cut first; a quantity-locked entry only gives
-        // ground if flexible entries alone can't close the gap.
+        // flexible entries are cut first, but never below their own original
+        // imported quantity -- a quantity-locked entry only gives ground if
+        // flexible entries alone can't close the gap, and even then never
+        // below its own floor. Promotions above are funding-neutral by
+        // construction, so this is a safety net, not the primary mechanism.
         let consolidatedTotal = consolidated.reduce((s, e) => s + e.quantity, 0);
         if (consolidatedTotal > maxNonlandSeeds) {
           for (const lockedTier of [false, true]) {
             for (let j = scored2.length - 1; j >= 0; j--) {
               if (consolidatedTotal <= maxNonlandSeeds) break;
               const donor = byOracle2.get(scored2[j].entry.card.oracleId);
-              if (!donor || donor.quantity <= 0 || Boolean(donor.quantityLocked) !== lockedTier) continue;
-              const cut = Math.min(donor.quantity, consolidatedTotal - maxNonlandSeeds);
+              if (!donor || Boolean(donor.quantityLocked) !== lockedTier) continue;
+              const donorFloor = floorOf(donor.card.oracleId);
+              if (donor.quantity <= donorFloor) continue;
+              const cut = Math.min(donor.quantity - donorFloor, consolidatedTotal - maxNonlandSeeds);
               donor.quantity -= cut;
               consolidatedTotal -= cut;
             }

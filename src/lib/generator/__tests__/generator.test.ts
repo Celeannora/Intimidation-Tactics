@@ -411,6 +411,31 @@ describe("generateDeck seed quantity policy", () => {
     expect(bombEntry?.quantity).toBeGreaterThanOrEqual(2);
   });
 
+  it("strong-preference: the majority-singleton seed consolidation pass never drains a multi-copy seed below its imported quantity to fund promoting a higher-scoring seed", () => {
+    // Regression: with a majority-singleton seed pool, the consolidation
+    // pass used to re-rank ALL seeds by score and drain any non-quantity-locked
+    // donor down to a flat floor of 1 -- even a seed imported at 3+ copies --
+    // to fund promoting a higher-scoring seed. That silently violated the
+    // "seeds never lose copies either way" contract for strong-preference.
+    const bomb = makeBombSeed(); // highest-scoring seed -- the promotion target
+    const fillers = makeFillerCards(5);
+    const seedEntries: DeckEntry[] = [
+      { card: bomb, quantity: 1, board: "main" },
+      { card: fillers[0], quantity: 1, board: "main" },
+      { card: fillers[1], quantity: 1, board: "main" },
+      { card: fillers[2], quantity: 1, board: "main" },
+      // Lowest-scoring seed in the pool, imported at 3 copies -- must never
+      // drop below 3 even though it's the natural bottom-ranked donor.
+      { card: fillers[3], quantity: 3, board: "main" },
+    ];
+    const options = baseOptions(seedEntries, "strong-preference");
+
+    const result = generateDeck(options, [bomb, ...fillers, makeBasic("Wastes")]);
+
+    const weakMultiEntry = result.entries.find((e) => e.card.oracleId === fillers[3].oracleId);
+    expect(weakMultiEntry?.quantity).toBeGreaterThanOrEqual(3);
+  });
+
   it("strong-preference: never drains a control role (e.g. counterspells) below its archetype target to fund a seed's promotion", () => {
     const bomb = makeBombSeed(); // non-creature-threat role, doesn't compete for the counterspells slot
     const counterspell = {
@@ -444,5 +469,67 @@ describe("generateDeck seed quantity policy", () => {
         (r) => r.startsWith("Seed promotion role floor") && r.includes("counterspells")
       )
     ).toBe(true);
+  });
+
+  it("strong-preference: a realistic multi-seed pool (many singleton seeds plus several imported above 1) never drops ANY seed below its imported quantity through the full generateDeck pipeline", () => {
+    // Regression for a real-world repro: a ~20-card seed pool where three
+    // seeds were bumped in the UI from 1 to a higher import quantity
+    // (mirroring Mind Stone/Rise of Sozin/Ugin each imported at 1 then
+    // bumped to 3/3/2) plus one seed imported directly at 3 copies
+    // (mirroring Raven Eagle). Exercises the FULL pipeline end-to-end
+    // (optimizer -> land floor -> Phase 3b consolidation -> Phase 3c
+    // promotion) rather than isolating a single pass, so a regression in
+    // any pass -- not just the previously-fixed consolidation pass --
+    // would be caught here too.
+    const bomb = makeBombSeed();
+    const singletons = makeFillerCards(16);
+    const bumpedA = fillers0();
+    const bumpedB = fillers1();
+    const bumpedC = fillers2();
+    const multiCopy = fillers3();
+    function fillers0(): CardRecord {
+      return { ...makeCard("Bumped Seed A", "A vanilla creature. Whenever this creature deals combat damage to a player, draw a card.", "Creature — Test", []), gameChanger: 0, edhrecRank: 15000, rarity: "common", power: "3", toughness: "3" } as CardRecord;
+    }
+    function fillers1(): CardRecord {
+      return { ...makeCard("Bumped Seed B", "A vanilla creature. Whenever this creature deals combat damage to a player, draw a card.", "Creature — Test", []), gameChanger: 0, edhrecRank: 16000, rarity: "common", power: "3", toughness: "3" } as CardRecord;
+    }
+    function fillers2(): CardRecord {
+      return { ...makeCard("Bumped Seed C", "A vanilla creature. Whenever this creature deals combat damage to a player, draw a card.", "Creature — Test", []), gameChanger: 0, edhrecRank: 17000, rarity: "common", power: "3", toughness: "3" } as CardRecord;
+    }
+    function fillers3(): CardRecord {
+      return { ...makeCard("Imported Multi-Copy Seed", "A vanilla creature. Whenever this creature deals combat damage to a player, draw a card.", "Creature — Test", []), gameChanger: 0, edhrecRank: 18000, rarity: "common", power: "3", toughness: "3" } as CardRecord;
+    }
+
+    const seedEntries: DeckEntry[] = [
+      { card: bomb, quantity: 1, board: "main" },
+      ...singletons.map((c) => ({ card: c, quantity: 1, board: "main" as const })),
+      { card: bumpedA, quantity: 3, board: "main" }, // imported at 1, bumped to 3 in the UI
+      { card: bumpedB, quantity: 3, board: "main" }, // imported at 1, bumped to 3 in the UI
+      { card: bumpedC, quantity: 2, board: "main" }, // imported at 1, bumped to 2 in the UI
+      { card: multiCopy, quantity: 3, board: "main" }, // imported directly at 3 copies
+    ];
+    const options = baseOptions(seedEntries, "strong-preference");
+
+    const result = generateDeck(options, [
+      bomb,
+      ...singletons,
+      bumpedA,
+      bumpedB,
+      bumpedC,
+      multiCopy,
+      makeBasic("Wastes"),
+    ]);
+
+    for (const [label, card, floor] of [
+      ["Bumped Seed A", bumpedA, 3],
+      ["Bumped Seed B", bumpedB, 3],
+      ["Bumped Seed C", bumpedC, 2],
+      ["Imported Multi-Copy Seed", multiCopy, 3],
+    ] as const) {
+      const entry = result.entries.find((e) => e.card.oracleId === card.oracleId);
+      expect(entry?.quantity, `${label} must never drop below its imported quantity of ${floor}`).toBeGreaterThanOrEqual(
+        floor
+      );
+    }
   });
 });
