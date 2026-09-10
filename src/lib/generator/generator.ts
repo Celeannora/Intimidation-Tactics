@@ -786,6 +786,52 @@ function generateOne(
     }
   }
 
+  // Role targets are a GUIDE for what to fill, not a hard ceiling — when seed
+  // cards already satisfy several roles (need=0) and the remaining roles have
+  // few or no legal candidates in this color identity (e.g. Control wants 10
+  // counterspells but the deck is mono-black/white), the sum of real role
+  // needs can land far below the nonland budget reserved earlier at
+  // `availableNonlandSlots`. Without this pass, that reserved-but-unused
+  // budget doesn't return to lands cleanly -- Phase 2 computes its OWN sane
+  // land count from `recommendLandCount` (18-27), so the gap between the two
+  // budgets survives Phase 2 and gets dumped wholesale into basic lands by
+  // the final "pad to target size" step, producing a legal but land-flooded,
+  // spell-starved deck (e.g. 35 lands / 25 spells in a 60-card deck). Spend
+  // the rest of the reserved nonland budget on best-available candidates now,
+  // before any land math happens, so that budget actually becomes playable
+  // spells instead of silently reverting to land padding.
+  const nonlandCopiesSoFar = entries.reduce((s, e) => s + e.quantity, 0);
+  const unusedNonlandBudget = availableNonlandSlots - (nonlandCopiesSoFar - lockedNonlandCount);
+  if (unusedNonlandBudget > 0) {
+    const budgetCandidates = pool
+      .filter((c) => !used.has(c.oracleId) && !c.typeLine.includes("Land"))
+      .map((card) => ({
+        card,
+        score: cardScore(
+          card,
+          entries,
+          { ...effectiveOptions, keywordFocus: mergeAxesIntoKeywordFocus(options.keywordFocus, deckAxes) },
+          targetAvgCmc
+        ),
+      }))
+      .filter(({ score }) => Number.isFinite(score))
+      .sort((a, b) => b.score - a.score);
+
+    let budgetFilled = 0;
+    for (const { card } of budgetCandidates) {
+      if (budgetFilled >= unusedNonlandBudget) break;
+      const qty = recommendedCopyCount(card, "removal", unusedNonlandBudget - budgetFilled, options.format);
+      entries.push({ card, quantity: qty, board: "main" });
+      used.add(card.oracleId);
+      budgetFilled += qty;
+    }
+    if (budgetFilled > 0) {
+      reasoning.push(
+        `Nonland-budget backfill: role needs (after seed) undershot the reserved ${availableNonlandSlots}-slot nonland budget by ${unusedNonlandBudget} — added ${budgetFilled} more best-available nonland card(s) so the budget becomes spells, not land padding.`
+      );
+    }
+  }
+
   // ── Phase 2: mana base ──
   // Seed lands count toward the total; add dual/nonbasic fixing first, then basics.
   const seedLandTotal = seedLands.reduce((s, e) => s + e.quantity, 0);
