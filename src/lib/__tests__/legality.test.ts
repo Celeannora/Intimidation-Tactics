@@ -225,6 +225,17 @@ describe("Legality Engine — 50 Edge Cases", () => {
     expect(result.legal).toBe(true);
   });
 
+  it("reports non-positive and fractional card quantities", () => {
+    const result = validateDeck([
+      nCopies(makeCard({ name: "Zero Copy" }), 0),
+      nCopies(makeCard({ name: "Fractional Copy" }), 1.5),
+    ]);
+
+    expect(result.legal).toBe(false);
+    expect(result.violations.find((violation) => violation.rule === "INVALID_QUANTITY")?.cardNames)
+      .toEqual(["Zero Copy", "Fractional Copy"]);
+  });
+
   // ── 17. mainCount counts only mainboard entries ───────────────────────────
   it("EC-17: mainCount reflects only mainboard quantities", () => {
     const main = fill60(makeCard({})); // 60

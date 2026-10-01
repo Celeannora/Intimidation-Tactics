@@ -184,15 +184,24 @@ describe("smoke: legality validator flags illegal decks", () => {
 
 describe("smoke: AI pipeline with mock provider", () => {
   const creatures = POOL.filter((c) => c.typeLine.includes("Creature") && !isLand(c));
-  const baseOptions = (archetype: Archetype, colors: ManaColor[]): GenerateOptions =>
-    ({ engine: "ai", format: "standard", archetype, colors, aiIterations: 1, optimizationIterations: 20 });
+  const baseOptions = (archetype: Archetype): GenerateOptions =>
+    ({
+      engine: "ai",
+      format: "standard",
+      archetype,
+      // Mock proposals are sampled from the full fixture, so give them a pool
+      // that can legally contain cards of every color identity.
+      colors: ["W", "U", "B", "R", "G"],
+      aiIterations: 1,
+      optimizationIterations: 20,
+    });
 
   it("valid JSON response → legal 60-card deck", async () => {
     const json = JSON.stringify({
       summary: "s", game_plan: "g",
       main: creatures.slice(0, 15).map((c) => ({ name: c.name, qty: 2 })), side: [],
     });
-    const res = await generateDeckAI(baseOptions("Midrange", ["B", "G"]), POOL, mockProvider("valid", json), {});
+    const res = await generateDeckAI(baseOptions("Midrange"), POOL, mockProvider("valid", json), {});
     expect(count(mainOf(res.entries))).toBe(60);
     expect(validateDeck(res.entries, "standard").legal).toBe(true);
   }, 30000);
@@ -206,14 +215,14 @@ describe("smoke: AI pipeline with mock provider", () => {
         ...creatures.slice(0, 5).map((c) => ({ name: c.name, qty: 2 })),
       ], side: [],
     });
-    const res = await generateDeckAI(baseOptions("Aggro", ["R"]), POOL, mockProvider("halluc", json), {});
+    const res = await generateDeckAI(baseOptions("Aggro"), POOL, mockProvider("halluc", json), {});
     expect(count(mainOf(res.entries))).toBe(60);
     expect(validateDeck(res.entries, "standard").legal).toBe(true);
   }, 30000);
 
   it("malformed/truncated JSON → does not crash, still legal 60", async () => {
     const truncated = '{"summary":"oops","main":[{"name":"' + (creatures[0]?.name ?? "Mountain") + '","qty":4},{"name":"Trun';
-    const res = await generateDeckAI(baseOptions("Control", ["W", "U"]), POOL, mockProvider("malformed", truncated), {});
+    const res = await generateDeckAI(baseOptions("Control"), POOL, mockProvider("malformed", truncated), {});
     expect(count(mainOf(res.entries))).toBe(60);
     expect(validateDeck(res.entries, "standard").legal).toBe(true);
   }, 30000);

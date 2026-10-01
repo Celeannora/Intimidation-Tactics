@@ -84,6 +84,7 @@ describe("generateDeck focus preservation", () => {
       "Focus: preserved 24 unique build-around card(s); no strategy card was dropped by an arbitrary focus budget"
     );
     expect(result.diagnostics.primaryAxes).toContain("mill");
+    expect(result.validation).toEqual(expect.objectContaining({ legal: true, mainCount: 60, sideCount: 0 }));
   });
 
   it("does not inflate imported focus one-ofs into playsets", () => {
@@ -113,6 +114,35 @@ describe("generateDeck focus preservation", () => {
       expect(entry?.quantity).toBe(1);
     }
     expect(result.entries.some((entry) => entry.card.name.startsWith("Fresh Candidate"))).toBe(true);
+  });
+});
+
+describe("generateDeck final format validation", () => {
+  it("reports illegal locked seed cards in the result and reasoning", () => {
+    const bannedSeed = {
+      ...makeCard("Banned Seed", "Draw a card."),
+      legalitiesJson: JSON.stringify({ standard: "banned" }),
+    } as CardRecord;
+    const filler = Array.from({ length: 24 }, (_, index) =>
+      makeCard(`Legal Filler ${index + 1}`, "Draw a card.", "Creature — Test")
+    );
+    const options: GenerateOptions = {
+      engine: "offline",
+      format: "standard",
+      archetype: "Midrange",
+      colors: [],
+      seedEntries: [{ card: bannedSeed, quantity: 1, board: "main" }],
+      mainboardSize: 60,
+      maxMainboardSize: 60,
+      optimizationIterations: 0,
+      activeScenarios: [],
+    };
+
+    const result = generateDeck(options, [bannedSeed, ...filler, makeBasic("Wastes")]);
+
+    expect(result.validation?.legal).toBe(false);
+    expect(result.validation?.violations.some((violation) => violation.rule === "BANNED")).toBe(true);
+    expect(result.diagnostics.reasoning.some((line) => line.startsWith("Final deck validation [BANNED]"))).toBe(true);
   });
 });
 

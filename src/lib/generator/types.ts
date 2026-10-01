@@ -1,7 +1,7 @@
 import type { Archetype } from "../archetype";
 import type { ThemeId } from "../archetypeVocab";
 import type { ManaColor, CardRecord } from "../types";
-import type { DeckEntry } from "../legality";
+import type { DeckEntry, ValidationResult } from "../legality";
 import type { MechanicAxis, AxisConfidence } from "./synergyModel";
 import type { ConstructedFormat, PlayEnvironment } from "../formats";
 import type { LiveWinRateDataset } from "../meta/liveWinRate";
@@ -439,6 +439,8 @@ export interface GenerateResult {
   archetype: Archetype;
   totalCards: number;
   diagnostics: GenerationDiagnostic;
+  /** Final constructed-format and deck-size validation for offline results. */
+  validation?: ValidationResult;
   /** Cards locked from the seed deck. Surface in the UI. */
   seededCards: CardRecord[];
   /** Build-around cards the generator intentionally included/tuned. */
@@ -474,10 +476,10 @@ export interface GenerateResult {
   verifiedCombos?: VerifiedCombo[];
   /**
    * AI-engine only: prominent, user-facing warnings that must NOT be buried in
-   * diagnostics.reasoning. Surfaced when the pipeline silently degraded or could
-   * not fully satisfy construction rules — e.g. JSON salvage was used, card
-   * names were dropped as unresolved, a hard feasibility violation survived the
-   * bounded re-prompt, or sequential mode fell back to the offline engine.
+   * diagnostics.reasoning. Surfaced when the pipeline could not fully satisfy
+   * construction rules — e.g. JSON salvage was used, card
+   * names were dropped as unresolved, or a hard feasibility violation survived
+   * the bounded re-prompt.
    */
   warnings?: string[];
   /**

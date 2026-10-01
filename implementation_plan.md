@@ -1,103 +1,127 @@
-# Implementation Plan
+# Offline Deck Generator, Synergy Pipeline, and Tooling Improvement Plan
 
-[Overview]
-Harden and improve the MTG deck-builder's synergy calculations and AI/API integration layer, prioritizing reliability, correctness, and token efficiency of the LLM pipeline.
+## Overview
 
-The application is an offline-first React + Vite + TypeScript PWA that generates Magic: The Gathering decks. It combines a deterministic offline scoring engine (pool building, weighted card scoring, mana-base heuristics, synergy axis tagging) with an optional LLM "feed" that proposes a nonland deck spine which is then re-scored through the offline pipeline. Investigation surfaced two clusters of weaknesses. In the AI/API layer: no structured-output schema enforcement (reliance on prompt-only "return strict JSON" plus a regex salvage fallback), no retry/backoff on transient provider failures (a single 429/network error aborts a pass), weak card-name resolution (exact/prefix/substring only — one-character LLM typos silently drop cards), an unused `feasibilityChecker` module that could pre-validate AI picks, hardcoded token/timeout limits, and quadratic transcript growth in sequential mode because the full ~220-card digest is resent every step. In the synergy layer: the seed synergy graph is seed-only, has unweighted binary edges, is never consulted by the generator/optimizer, and axis-tagging logic is duplicated across `synergyModel.ts`, `seedAnalyzer.ts`, and `synergyGraph.ts` with hand-tuned magic numbers and no golden-fixture calibration.
+Improve the offline-first deck generator as a coherent, deterministic, testable pipeline. Prioritize deck correctness and legality; make synergy signals robust and useful to selection; validate inputs at CLI boundaries; and provide reproducible playtest and calibration evidence. Preserve the existing React + Vite + TypeScript architecture, exported API compatibility where practical, and dependency-free offline operation. No new packages are planned.
 
-The approach is to make focused, well-tested, backwards-compatible changes: introduce shared retry/backoff and structured-output helpers in the provider layer, adopt each provider's native structured-output mechanism (OpenAI `json_schema`, Ollama `format` JSON schema, llama.cpp guarded `json_schema`), add a Levenshtein-based fuzzy fallback to name resolution with a safe confidence threshold, wire the existing `feasibilityChecker` into the AI result pipeline as soft diagnostics, add weighted-edge scoring to the synergy graph, and reduce sequential-mode token cost with a delta digest. All changes preserve existing public function signatures and the strict JSON response shape so the extensive existing test suite continues to pass.
+The generator already has identifiable pool, role-fill, mana-base, optimizer, sideboard, and result-assembly stages, as well as role scoring, synergy constraints, scenario metrics, legality rules, and simulator utilities. The improvements should build on those facilities rather than introduce a parallel engine or hard-code card/deck-specific behavior.
 
-[Types]
-Add configuration and structured-output types to the AI layer plus weighted-edge fields to the synergy graph; no breaking changes to existing exported types.
+## Goals and non-goals
 
-- `src/lib/ai/provider.ts`
-  - Extend `AIGenerationRequest` with two optional fields:
-    - `jsonSchema?: AIJsonSchema` — optional structured-output schema for providers that support it.
-    - `retry?: RetryOptions` — optional per-request retry override.
-  - New exported interface `AIJsonSchema { name: string; schema: Record<string, unknown>; strict?: boolean }`.
-  - New exported interface `RetryOptions { maxAttempts?: number; baseDelayMs?: number; maxDelayMs?: number; jitter?: boolean }` (defaults: `maxAttempts=3`, `baseDelayMs=600`, `maxDelayMs=8000`, `jitter=true`).
-  - Extend `AISettings` with optional `maxTokens?: number` and `requestTimeoutMs?: number` so the UI-configured limits replace the hardcoded `8000`/`120_000` when present. All new fields optional; `DEFAULT_SETTINGS` unchanged in shape.
-- `src/lib/ai/retry.ts` (new)
-  - `RetryableErrorClassifier = (err: unknown) => boolean`.
-- `src/lib/ai/deckSchema.ts` (new)
-  - `DECK_JSON_SCHEMA: AIJsonSchema` — the canonical `{summary, game_plan, main[], side[]}` schema object reused by all providers.
-- `src/lib/analysis/synergyGraph.ts`
-  - Add `weight: number` (0–1) to `SynergyGraphEdge`.
-  - Add `weightedDensity: number` to `SeedSynergyGraph` (sum of edge weights / possible directed edges).
-- `src/lib/ai/resolver.ts`
-  - Extend `ResolvedDeckLine` with optional `matchKind?: "exact" | "prefix" | "substring" | "fuzzy"` and `matchDistance?: number` for diagnostics (optional; existing consumers unaffected).
+### Goals
 
-[Files]
-Create four new files and modify seven existing files; no deletions.
+- Produce the requested mainboard size and a format-appropriate sideboard whenever the available pool permits it.
+- Report final legality and structural/synergy problems explicitly instead of silently presenting an invalid build as valid.
+- Make offline generation and all simulation/calibration runs reproducible from recorded seeds.
+- Validate CLI arguments, card pools, seed lists, and decklists before work begins; fail clearly on malformed required inputs.
+- Ensure optimizer scoring and replacement decisions use consistent canonical role and scoring semantics.
+- Make synergy analysis resilient to malformed card metadata and useful in candidate selection and diagnostics.
+- Add focused tests, a deterministic evaluation corpus, and runnable calibration/playtest workflows.
 
-New files:
-- `src/lib/ai/retry.ts` — generic async retry with exponential backoff + jitter and a default retryable-error classifier (network errors, HTTP 408/429/500/502/503/504; never retries `AbortError`).
-- `src/lib/ai/deckSchema.ts` — exports `DECK_JSON_SCHEMA` (shared JSON schema describing the deck response shape).
-- `src/lib/ai/__tests__/retry.test.ts` — unit tests for backoff, max attempts, abort passthrough, classifier.
-- `src/lib/ai/__tests__/resolver.test.ts` — unit tests for fuzzy resolution (typo tolerance, threshold rejection, DFC handling, ambiguity safety).
+### Non-goals
 
-Modified files:
-- `src/lib/ai/provider.ts` — add new optional request/settings/schema types described in [Types]; keep `withTimeoutSignal` unchanged.
-- `src/lib/ai/openai.ts` — use `response_format: { type: "json_schema", json_schema: DECK_JSON_SCHEMA }` when a schema is present (fallback to `json_object`); wrap `generate`/`generateStream` fetches in `withRetry`.
-- `src/lib/ai/ollama.ts` — pass `format: <schema>` (Ollama structured outputs) when a schema is present; wrap in `withRetry`.
-- `src/lib/ai/llamacpp.ts` — optionally send `response_format: json_schema` gated behind a settings flag (keep current safe default of NOT sending it to avoid model hangs); wrap in `withRetry`.
-- `src/lib/ai/resolver.ts` — add Damerau-Levenshtein fuzzy fallback with a normalized distance threshold and ambiguity guard; annotate `matchKind`.
-- `src/lib/ai/aiGenerator.ts` — thread `jsonSchema` into requests via `DECK_JSON_SCHEMA`; wire `checkFeasibility` into `buildResultFromAIResponse` as soft diagnostics appended to `reasoning`; add delta-digest support for sequential mode; respect `AISettings.maxTokens`/`requestTimeoutMs` if provided (via config).
-- `src/lib/analysis/synergyGraph.ts` — compute per-edge `weight` and `weightedDensity`; surface weights in `formatSynergyGraphForPrompt` and `SynergyConstraints`.
+- Reworking AI providers or adding a remote service to the offline path.
+- Introducing external dependencies, card-name-specific special cases, or hidden network I/O in generation.
+- Claiming win-rate prediction from heuristic scores or fixtures that lack provenance and real match data.
+- Splitting the generator into a new architecture before its contracts and correctness are established.
 
-Configuration: none of `package.json`, `tsconfig.json`, or build config change (no new runtime dependencies; fuzzy matching and retry are implemented in-repo).
+## Implementation sequence
 
-[Functions]
-Add new helper functions and extend a small number of existing ones without changing their external contracts.
+### 1. Establish baseline behavior and pipeline contracts
 
-New functions:
-- `withRetry<T>(fn: (attempt: number) => Promise<T>, opts?: RetryOptions, isRetryable?: RetryableErrorClassifier): Promise<T>` in `src/lib/ai/retry.ts` — runs `fn`, retrying retryable failures with exponential backoff + optional jitter; rethrows immediately on `AbortError`/`TimeoutError` and after exhausting attempts.
-- `defaultIsRetryable(err: unknown): boolean` in `src/lib/ai/retry.ts`.
-- `damerauLevenshtein(a: string, b: string): number` (private) in `src/lib/ai/resolver.ts`.
-- `resolveCardNameFuzzy(norm: string, allCards: CardRecord[]): { card: CardRecord; distance: number } | null` (private) in `src/lib/ai/resolver.ts`.
-- `edgeWeight(kind: SynergyEdgeKind, axis: MechanicAxis): number` (private) in `src/lib/analysis/synergyGraph.ts` — assigns `mutual-engine=1.0`, `source-to-payoff=0.8`, `shared-axis=0.4`.
-- `buildDeltaDigest(...)` (private) in `src/lib/ai/aiGenerator.ts` — for sequential steps ≥2, emit only newly-locked spine cards + top-N re-scored candidates instead of the full digest.
+- Review the existing public generator APIs, `GeneratorStage` contracts, stage-order assertion, legality API, current tests, and script conventions before edits.
+- Add or extend contract tests to make stage order, option defaults, copy-count handling, and entry board labels explicit.
+- Record baseline `npm run typecheck`, `npm run lint`, and full test results; distinguish existing failures/timeouts from regressions.
+- Keep all working changes scoped to the offline generator, relevant synergy utilities, and the named CLI/evaluation scripts.
 
-Modified functions:
-- `resolveCardName(name, allCards)` in `src/lib/ai/resolver.ts` — append fuzzy fallback after the substring pass; only accept a fuzzy match when normalized distance ≤ threshold (e.g. ≤ 2 absolute and ≤ 0.2 relative to name length) AND the best match is unambiguously better than the second-best.
-- `resolveLines(...)` — annotate results with `matchKind`.
-- `OpenAIProvider.generate/generateStream`, `OllamaProvider.generate/generateStream`, `LlamaCppProvider.generate/generateStream` — accept the new schema/retry fields and wrap network calls in `withRetry`.
-- `buildResultFromAIResponse(...)` in `src/lib/ai/aiGenerator.ts` — after computing final `entries`, call `checkFeasibility` on the mainboard and push soft violation summaries into `reasoning` (no rejection loop change; purely additive diagnostics).
-- `generateDeckAI` / `generateDeckAISequential` / `refineDeckAI` — build requests with `jsonSchema: DECK_JSON_SCHEMA`; sequential steps ≥2 use `buildDeltaDigest`.
-- `buildSeedSynergyGraph` / `formatSynergyGraphForPrompt` / `buildSynergyConstraints` in `src/lib/analysis/synergyGraph.ts` — populate and render edge weights and `weightedDensity`.
+### 2. Generator correctness, input and final-result validation
 
-Removed functions: none.
+- Validate numeric generation options at the generator boundary: mainboard sizes, optimizer iteration counts, variant counts, and any newly introduced random seed. Reject non-finite, out-of-range, and unsafe values with actionable errors; preserve documented defaults.
+- Review seed, focus, and preferred-entry quantities, format legality, color identity, duplicate oracle IDs, and copy limits before they can produce invalid intermediate state. Where current seed policies intentionally relax a rule, represent the exception explicitly and report it.
+- Run the existing `validateDeck` against the final assembled result using the selected format. Attach a structured validation report to generation results and explain each violation in diagnostics; do not relabel a failed validation as a legal deck.
+- Retain synergy-constraint and Rule-of-Nine warnings as diagnostics, but distinguish advisory strategy feedback from hard format-legality failures.
+- Add regression tests for short/oversized lists, copy-limit violations, illegal-format cards, invalid seeds, empty pools, out-of-identity cards, and builds that cannot satisfy targets.
 
-[Classes]
-Modify the three provider classes; no new or removed classes.
+### 3. Reproducibility and seeded offline generation
 
-- `OpenAIProvider` (`src/lib/ai/openai.ts`) — request body conditionally uses `json_schema`; both methods wrapped in `withRetry`.
-- `OllamaProvider` (`src/lib/ai/ollama.ts`) — request body uses schema-based `format`; both methods wrapped in `withRetry`.
-- `LlamaCppProvider` (`src/lib/ai/llamacpp.ts`) — optional schema gated by settings; both methods wrapped in `withRetry`; existing stream-abort guidance preserved.
+- Add an optional, documented `randomSeed` to offline generation options while retaining the existing default sequence when callers omit it.
+- Derive each variant seed deterministically from the base seed; expose the actual seed in each result for reproductions and reports.
+- Thread the same seed contract to the seed-build CLI, playtest CLI, goldfish trials, and any sampling in calibration. Repeated runs with identical inputs and seeds must produce identical entries, scores, and simulation summaries.
+- Ensure there is no unseeded `Math.random`, time-based PRNG, or iteration-order dependency in generator-critical or evaluation-critical paths. Keep intentionally nondeterministic UI identifiers out of this rule.
+- Add tests that assert same-seed equality, different-seed variation where stochastic choices exist, stable variant derivation, and invalid-seed rejection.
 
-[Dependencies]
-No new packages are introduced.
+### 4. Optimizer objective, correctness, and efficiency
 
-Damerau-Levenshtein and retry/backoff are implemented in-repo to keep the offline-first PWA dependency-free. Structured outputs use each provider's native HTTP fields, requiring no client libraries.
+- Inspect the optimizer’s simulated-annealing acceptance path. Track the current accepted score independently from the global best score; compute candidate deltas against the current state, update the global best only on improvement, and always return the best-scoring deck encountered.
+- Report the number of iterations actually executed, including early exits, rather than the requested budget when no work was performed.
+- Precompute repeated candidate ranks/role assignments where safe; avoid recomputing constant card-level values for every sort comparison.
+- Base optimizer role buckets on the shared `assignRoles` / threat semantics, retaining the dedicated support bucket for synergy glue. Avoid a second divergent card-role classifier.
+- Add tests for accepted downhill annealing moves followed by subsequent decisions, best-state preservation, zero iterations, no swappable cards, locked entries, dual-role replacements, and deterministic RNG consumption.
+- Profile representative pools before tuning iterations, bucket sizes, or score weights. Treat any speed optimization as valid only if selected decks and score ordering remain covered by tests.
 
-[Testing]
-Add focused unit tests and re-run the full existing suite to guard against regressions.
+### 5. Synergy pipeline resilience and measurable integration
 
-- New: `src/lib/ai/__tests__/retry.test.ts` — verifies success-after-transient-failure, max-attempts exhaustion, no-retry on `AbortError`, and classifier behavior for HTTP status codes.
-- New: `src/lib/ai/__tests__/resolver.test.ts` — verifies exact/prefix/substring precedence unchanged, single-typo fuzzy recovery, over-threshold rejection, ambiguous-match rejection, and DFC front-face handling.
-- Extend `src/lib/ai/__tests__/aiGenerator.test.ts` — assert feasibility diagnostics appear in reasoning for an obviously-infeasible AI proposal, and that `DECK_JSON_SCHEMA` shape matches parser expectations.
-- Add `src/lib/analysis/__tests__/synergyGraph.test.ts` (or extend existing) — assert edge weights and `weightedDensity` are computed and that `formatSynergyGraphForPrompt` includes weight info.
-- Validation commands: `npm run typecheck`, `npm run test`, `npm run lint` (must pass with `--max-warnings 0`).
+- Audit parsing and regular-expression scans in role assignment, synergy profiles, constraints, seed analysis, and graph construction. Treat missing, malformed, or wrong-shaped serialized keywords/identities as empty typed data rather than crashing generation.
+- Normalize shared Oracle-text/keyword inputs once per candidate where practical; keep role/synergy pattern semantics centralized or covered by agreement tests to prevent classifier drift.
+- Review synergy-pair validation for board filtering, duplicate printings/oracle identities, quantities, and archetype applicability. Mainboard sources/payoffs must not be accidentally satisfied by sideboard cards.
+- Use the existing graph, directional scoring, and seed-synergy context only where their meanings are defined. Add a bounded, explainable optimizer signal for verified multi-card links only if tests establish that it improves complete-package selection without overpowering role, curve, mana, and legality objectives.
+- Do not treat shared tags or a seed-only relationship as proof of a functioning combo. Surface source, payoff, edge kind/confidence, and missing-support details in diagnostics where available.
+- Add robustness tests for malformed JSON, empty profiles, no-op constraints, cross-board contamination, ambiguous source/payoff matches, multiple printings sharing an Oracle ID, and generic non-fixture seed packages.
+- Preserve existing golden corpus behavior unless a changed result is justified by a documented correctness defect and a reviewed expected-output update.
 
-[Implementation Order]
-Implement bottom-up so each layer's tests pass before the layer that depends on it.
+### 6. Mana base, sideboard, and format-aware behavior
 
-1. Create `src/lib/ai/retry.ts` and its tests; run the retry tests.
-2. Create `src/lib/ai/deckSchema.ts` (shared schema constant).
-3. Extend types in `src/lib/ai/provider.ts` (request/settings/schema fields).
-4. Update `openai.ts`, `ollama.ts`, `llamacpp.ts` to use `withRetry` and structured output.
-5. Add fuzzy resolution to `resolver.ts` and its tests; run resolver tests.
-6. Wire `DECK_JSON_SCHEMA` + `checkFeasibility` into `aiGenerator.ts`; extend aiGenerator tests.
-7. Add delta digest for sequential mode in `aiGenerator.ts`.
-8. Add weighted edges + `weightedDensity` to `synergyGraph.ts` and update prompt/constraint rendering; add/extend synergyGraph tests.
-9. Run `npm run typecheck`, `npm run test`, and `npm run lint`; fix any regressions.
+- Verify land budgets against nonland card count, selected identity, pip demands, tapped/fixing lands, and seed lands. Preserve the existing role and land-floor guards; diagnose infeasible targets instead of silently padding into a broken deck.
+- Confirm every supported constructed format’s sideboard rules are respected: formats with no sideboard produce none; formats with sideboards use their configured size rather than a duplicated Standard-only constant.
+- Enforce combined mainboard-plus-sideboard copy limits, format legality, color identity, and exclusion of mainboard cards from the sideboard.
+- Keep sideboard entries on the canonical `DeckEntry.board` label and add tests for the CLI’s output filtering so sideboard quantities are not omitted.
+- Exercise empty/small pools and pools with fewer than the target number of legal, unique sideboard candidates. Report a shortfall instead of manufacturing cards or violating limits.
+
+### 7. CLI robustness for deck building and playtesting
+
+- Extract argument parsing and data validation into testable pure functions; importing a script in tests must not execute its CLI entrypoint.
+- Reject missing flag values, unknown archetypes/colors/formats, malformed JSON, invalid quantities, duplicate seed lines or deck entries where the format requires consolidation, and invalid numerical settings with nonzero exit status and concise messages.
+- Resolve seed names using the project’s canonical card representation, including appropriate double-faced-card handling; never silently ignore unresolved seed lines.
+- Make pool loading distinguish optional files from required files: warn for intentionally optional absent files, but fail if no usable pool loads or a required file is malformed. Print loaded-card counts and sources.
+- Use platform-neutral paths and sensible defaults; avoid machine-specific absolute pool paths.
+- Preserve mana cost and produced-mana metadata in generated output where the hand simulator can use it. Validate that playtest input includes enough fields and a valid constructed mainboard size before allocating trials.
+- Expose `--trials`, `--seed-rng`, and relevant simulation settings; cap unreasonable trial counts and echo seed/settings in the result JSON.
+- Report requested goldfish targets that cannot be resolved instead of silently filtering them out. Match names case-insensitively while returning canonical card names.
+- Add CLI smoke tests for help/required options, bad JSON, missing files, invalid values, absent seed cards, short decks, and successful deterministic end-to-end output.
+
+### 8. Calibration and offline generator evaluation
+
+- Replace the copied/legacy calibration calculation with a TypeScript harness that imports the production scorer. Avoid maintaining duplicated constants, weights, and formula replicas that drift from the application.
+- Validate the known-deck fixture schema, archetypes, tiers, quantities, deck sizes, identities, and presence of examples for requested summaries. Fail with the fixture row and field when malformed.
+- Explicitly identify fixture limitations (age, format, missing Oracle text/card legality/source provenance, aggregate roles) and do not emit synthetic win-rate estimates or claim predictive validity from a hand-authored tier list.
+- Add a versioned generic seed-case corpus backed by checked-in card-pool fixtures, with source and provenance documented. Cover multiple archetypes/color identities without encoding a named featured deck as a special case.
+- Evaluate deterministic build properties: format legality, deck size, copy counts, seed preservation, mana coverage, curve, optimizer changes, and synergy/role diagnostics. Report per-case results and summary statistics in stable machine-readable and human-readable formats.
+- Keep expensive repeated full-pool generations out of normal unit tests. Use small synthetic pools for fast focused cases and a documented, bounded integration/evaluation command for full corpus runs.
+- Add a calibration/golden-metric comparison that detects large unintended score changes without auto-adjusting production weights. Weight proposals, if later added, must be labeled suggestions and backed by a holdout dataset.
+
+### 9. Verification and acceptance criteria
+
+- `npm run typecheck` and `npm run lint` pass with the repository’s strict settings and no new warnings.
+- All focused generator, optimizer, legality, synergy, CLI, playtest, and calibration tests pass.
+- The complete test suite passes under the documented runner settings; any existing timeout is separately reproduced, reported, and not hidden by a global timeout increase.
+- Repeated offline builds and simulations with identical seed/input are bit-for-bit stable for deck entries and numerical summaries.
+- Final generated decks include an explicit validation result, and no automated path reports an invalid list as legal.
+- The sideboard is canonical, format-aware, correctly sized when possible, and never exceeds shared copy or legality rules.
+- Script tests can import helpers without triggering filesystem output or process termination.
+- `npm run build` succeeds; any existing bundle-size warning is reported separately from correctness failures.
+- `git diff --check` is clean and no new dependency is introduced.
+
+## Suggested implementation order
+
+1. Baseline/contract tests and edge-case fixtures.
+2. Boundary validation, final legality report, and sideboard board-label/copy-limit correctness.
+3. Seeded generator/playtest randomness and reproducibility assertions.
+4. Optimizer current-vs-best objective correction and canonical role mapping.
+5. Synergy parser resilience and focused cross-board/golden tests.
+6. Testable CLI parsing and script output correctness.
+7. Production-scorer calibration plus bounded offline evaluation corpus.
+8. Profile, review regressions, run complete verification, and document known limitations.
+
+## Change management
+
+Implement one coherent step at a time and run focused tests before proceeding. Avoid broad coefficient tuning while correctness changes are in flight. Record behavior changes in tests and release notes, retain backwards-compatible defaults, and stop to revise this plan if the existing public APIs or fixture provenance contradict an assumption above.

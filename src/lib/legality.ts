@@ -69,6 +69,17 @@ export function validateDeck(entries: DeckEntry[], format?: ConstructedFormat): 
   const sideCount = side.reduce((s, e) => s + e.quantity, 0);
   const violations: ValidationViolation[] = [];
 
+  const invalidQuantities = entries
+    .filter((entry) => !Number.isSafeInteger(entry.quantity) || entry.quantity <= 0)
+    .map((entry) => entry.card.name);
+  if (invalidQuantities.length > 0) {
+    violations.push({
+      rule: "INVALID_QUANTITY",
+      message: `Card quantities must be positive integers: ${[...new Set(invalidQuantities)].join(", ")}`,
+      cardNames: [...new Set(invalidQuantities)],
+    });
+  }
+
   if (mainCount < rules.minMainboardSize) {
     violations.push({
       rule: "MIN_60",

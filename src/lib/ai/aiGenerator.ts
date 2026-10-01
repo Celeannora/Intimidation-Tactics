@@ -25,6 +25,7 @@ import { resolveLines } from "./resolver";
 import type { AIProvider, AIChatMessage as ChatMessage, AIGenerationRequest } from "./provider";
 import { DECK_JSON_SCHEMA } from "./deckSchema";
 import { checkFeasibility, type ProposedEntry, type FeasibilityResult } from "./feasibilityChecker";
+import { isAbortLike } from "./retry";
 // ── sonar.md metrics (Task B) ─────────────────────────────────────────────────
 import { computeMythicViability } from "../mythicViability";
 import { validateSynergyPairs } from "../generator/synergyConstraints";
@@ -610,15 +611,15 @@ export async function generateDeckAI(
         budgetHit = true;
         break;
       }
-      reasoning.push(`${passLabel}: AI call failed (${e instanceof Error ? e.message : String(e)}).`);
-      break;
+      if (isAbortLike(e)) throw e;
+      const detail = e instanceof Error ? e.message : String(e);
+      throw new Error(`AI call failed during ${passLabel}: ${detail}`, { cause: e });
     }
 
     const passReasoning: string[] = [];
     const result = buildResultFromAIResponse(options, allCards, raw, passReasoning, targetMainboardSize);
     if (!result) {
-      reasoning.push(`${passLabel}: no usable cards parsed; keeping previous best.`);
-      continue;
+      throw new Error(`AI generation failed during ${passLabel}: the response contained no usable card entries.`);
     }
     for (const line of passReasoning) reasoning.push(`  ${line}`);
     reasoning.push(`${passLabel}: final score ${result.diagnostics.deckScore.toFixed(1)} (mana ${(result.diagnostics.manaBaseCoverage * 100).toFixed(0)}%, curve dev ${result.diagnostics.curveDeviation.toFixed(2)})`);
@@ -795,6 +796,7 @@ export async function generateDeckAISequential(
   const messages: ChatMessage[] = [];
   let stepIndex = 0;
   let lastRawJSON: string | undefined;
+  let acceptedAiCards = 0;
 
   const seedNonlandCopies = () =>
     currentSeeds
@@ -838,6 +840,10 @@ export async function generateDeckAISequential(
       });
     } else {
       const { spineSummary, candidateDigest, candidateCount } = buildDeltaDigest(options, allCards, currentSeeds);
+      if (candidateCount === 0 && acceptedAiCards > 0) {
+        reasoning.push(`${passLabel}: no fresh pool candidates remain; finalizing the usable AI spine accumulated so far.`);
+        break;
+      }
       reasoning.push(`${passLabel}: delta digest — spine summary + ${candidateCount} fresh candidate(s) (was full ${digestLimit}-card digest).`);
       messages.push({
         role: "user",
@@ -865,8 +871,9 @@ export async function generateDeckAISequential(
         budgetHit = true;
         break;
       }
-      reasoning.push(`${passLabel}: AI call failed (${e instanceof Error ? e.message : String(e)}); aborting chain.`);
-      break;
+      if (isAbortLike(e)) throw e;
+      const detail = e instanceof Error ? e.message : String(e);
+      throw new Error(`AI call failed during ${passLabel}: ${detail}`, { cause: e });
     }
 
     lastRawJSON = stripCodeFences(raw);
@@ -889,8 +896,7 @@ export async function generateDeckAISequential(
       .filter((l) => l.name);
 
     if (proposedLines.length === 0) {
-      reasoning.push(`${passLabel}: AI returned no new cards; stopping chain early.`);
-      break;
+      throw new Error(`AI sequential generation failed during ${passLabel}: the response contained no usable card entries.`);
     }
 
     const { resolved, unresolved } = resolveLines(proposedLines, allCards);
@@ -911,11 +917,11 @@ export async function generateDeckAISequential(
     }
 
     if (newEntries.length === 0) {
-      reasoning.push(`${passLabel}: all proposed cards already locked; stopping chain.`);
-      break;
+      throw new Error(`AI sequential generation failed during ${passLabel}: no new usable cards were returned.`);
     }
 
     reasoning.push(`${passLabel}: accepted ${newEntries.length} new card(s): ${newEntries.map((e) => `${e.quantity}× ${e.card.name}`).join(", ")}`);
+    acceptedAiCards += newEntries.length;
     currentSeeds = [...currentSeeds, ...newEntries];
 
     if (seedNonlandCopies() >= nonlandBudget) break;
@@ -928,22 +934,10 @@ export async function generateDeckAISequential(
     (e) => e.board !== "side" && !e.card.typeLine.includes("Land")
   );
 
-  // No nonland spine to build from (e.g. every AI step failed and no seeds were
-  // supplied). Rather than aborting, fall back to the pure offline engine so the
-  // caller still receives a usable deck. This mirrors the resilience of the
-  // one-shot AI path, which also degrades to the offline pipeline on failure.
+  // The UI owns explicit offline fallback. Never turn a failed AI run into a
+  // successful-looking offline result here.
   if (fullSpineNonland.length === 0) {
-    reasoning.push("Sequential AI produced no usable cards; falling back to the offline engine.");
-    const fallback = generateOffline({ ...options, engine: "offline" }, allCards);
-    fallback.diagnostics.reasoning = [...reasoning, ...fallback.diagnostics.reasoning];
-    // Fix 8c: this is a silent-degradation seam — the user asked for an AI build
-    // and is getting a purely heuristic one. Surface it prominently, not just in
-    // the reasoning log.
-    fallback.warnings = [
-      ...(fallback.warnings ?? []),
-      "The AI produced no usable cards during the sequential build, so this deck was generated entirely by the offline heuristic engine — it is NOT an AI-authored deck.",
-    ];
-    return fallback;
+    throw new Error("AI sequential generation failed: no usable nonland cards were produced.");
   }
   const syntheticJSON = JSON.stringify({
     summary: `Sequential seed-chain build (${stepIndex} step${stepIndex === 1 ? "" : "s"}, ${seedNonlandCopies()} nonland cards locked).`,
@@ -1230,6 +1224,17 @@ function buildResultFromAIResponse(
     options,
   });
   appendAIProposalValidationReasoning(proposalValidation, reasoning);
+  const legalPoolIds = new Set(buildPool(allCards, options).map((card) => card.oracleId));
+  const usableMainPicks = resolved.filter((entry) =>
+    entry.board === "main" &&
+    !entry.card.typeLine.includes("Land") &&
+    legalPoolIds.has(entry.card.oracleId) &&
+    getCardLegality(entry.card, options.format) === "legal"
+  );
+  if (usableMainPicks.length === 0) {
+    reasoning.push("AI proposal contained no resolved, format-legal mainboard nonland cards from the selected pool.");
+    return null;
+  }
   const unresolvedNames = unresolved.map((u) => u.name);
   if (unresolvedNames.length > 0) {
     reasoning.push(`Dropped ${unresolvedNames.length} unresolved card name(s): ${unresolvedNames.slice(0, 6).join(", ")}${unresolvedNames.length > 6 ? "…" : ""}`);

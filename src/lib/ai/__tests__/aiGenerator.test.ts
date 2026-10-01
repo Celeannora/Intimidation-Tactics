@@ -491,7 +491,7 @@ describe("generateDeckAISequential", () => {
     expect(seedInDeck.length).toBeLessThanOrEqual(1);
   });
 
-  it("falls back to offline engine when provider always fails", async () => {
+  it("fails instead of silently falling back when the provider always fails", async () => {
     const pool = makePool(10);
     const failingProvider: AIProvider = {
       id: "fail",
@@ -500,15 +500,72 @@ describe("generateDeckAISequential", () => {
       generate: async () => { throw new Error("Network error"); },
     };
 
-    const result = await generateDeckAISequential(
+    await expect(generateDeckAISequential(
       { ...options, aiSequentialStepSize: 4 },
       pool,
       failingProvider
-    );
+    )).rejects.toThrow(/AI call failed.*Network error/);
+  });
 
-    // Fallback should still produce a result.
-    expect(result.entries.length).toBeGreaterThan(0);
-    expect(result.diagnostics.reasoning.some((r) => r.includes("falling back"))).toBe(true);
+  it("fails when the provider returns no usable cards", async () => {
+    const pool = makePool(10);
+    const emptyProvider: AIProvider = {
+      id: "empty",
+      label: "Empty",
+      isReady: async () => true,
+      generate: async () => JSON.stringify({ summary: "Empty", game_plan: "", main: [], side: [] }),
+    };
+
+    await expect(generateDeckAISequential(
+      { ...options, aiSequentialStepSize: 4 },
+      pool,
+      emptyProvider
+    )).rejects.toThrow(/no usable card entries/);
+  });
+
+  it("preserves cancellation instead of wrapping it as an AI failure", async () => {
+    const pool = makePool(10);
+    const provider: AIProvider = {
+      id: "abort",
+      label: "Abort",
+      isReady: async () => true,
+      generate: async () => { throw new DOMException("AI request aborted", "AbortError"); },
+    };
+
+    await expect(generateDeckAISequential(
+      { ...options, aiSequentialStepSize: 4 },
+      pool,
+      provider
+    )).rejects.toMatchObject({ name: "AbortError" });
+  });
+
+  it("does not return a partial sequential spine after a later provider failure", async () => {
+    const pool = makePool(40);
+    let calls = 0;
+    const provider: AIProvider = {
+      id: "mock",
+      label: "Mock",
+      isReady: async () => true,
+      generate: async () => {
+        calls++;
+        if (calls === 1) {
+          return JSON.stringify({
+            summary: "First step",
+            game_plan: "Build incrementally.",
+            main: pool.slice(0, 4).map((card) => ({ name: card.name, qty: 1, reason: "threat" })),
+            side: [],
+          });
+        }
+        throw new Error("second step unavailable");
+      },
+    };
+
+    await expect(generateDeckAISequential(
+      { ...options, aiSequentialStepSize: 4 },
+      pool,
+      provider
+    )).rejects.toThrow(/AI call failed during Step 2\/9.*second step unavailable/);
+    expect(calls).toBe(2);
   });
 
   it("respects the stepSize option and never exceeds the nonland budget", async () => {
@@ -633,6 +690,61 @@ describe("call budget guard (Fix 7)", () => {
     const e = new CallBudgetExceededError(5);
     expect(e.ceiling).toBe(5);
     expect(e.name).toBe("CallBudgetExceededError");
+  });
+
+  it("one-shot generation throws on provider failure rather than returning a prior pass", async () => {
+    const pool = makePool(40);
+    let calls = 0;
+    const provider: AIProvider = {
+      id: "mock",
+      label: "Mock",
+      isReady: async () => true,
+      generate: async () => {
+        calls++;
+        if (calls === 1) {
+          return JSON.stringify({
+            summary: "First pass",
+            game_plan: "Build a deck.",
+            main: pool.slice(0, 20).map((card) => ({ name: card.name, qty: 1, reason: "threat" })),
+            side: [],
+          });
+        }
+        throw new Error("provider unavailable");
+      },
+    };
+
+    await expect(generateDeckAI({ ...options, aiIterations: 2 }, pool, provider))
+      .rejects.toThrow(/AI call failed during Pass 2\/2.*provider unavailable/);
+    expect(calls).toBe(2);
+  });
+
+  it("one-shot generation throws when the provider response has no usable deck", async () => {
+    const provider: AIProvider = {
+      id: "mock",
+      label: "Mock",
+      isReady: async () => true,
+      generate: async () => JSON.stringify({ summary: "Empty", game_plan: "", main: [], side: [] }),
+    };
+
+    await expect(generateDeckAI({ ...options, aiIterations: 1 }, makePool(10), provider))
+      .rejects.toThrow(/response contained no usable card entries/);
+  });
+
+  it("one-shot generation rejects a response containing only unresolved hallucinations", async () => {
+    const provider: AIProvider = {
+      id: "mock",
+      label: "Mock",
+      isReady: async () => true,
+      generate: async () => JSON.stringify({
+        summary: "Hallucinated build",
+        game_plan: "",
+        main: [{ name: "Entirely Made Up Card", qty: 4, reason: "invented" }],
+        side: [],
+      }),
+    };
+
+    await expect(generateDeckAI({ ...options, aiIterations: 1 }, makePool(10), provider))
+      .rejects.toThrow(/response contained no usable card entries/);
   });
 
   it("stops the sequential chain at the shared ceiling and surfaces a warning", async () => {

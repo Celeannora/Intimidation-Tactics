@@ -1,6 +1,6 @@
 import type { CardRecord, ManaColor } from "../types";
 import type { DeckEntry } from "../legality";
-import { BASIC_LAND_NAMES, maxCopiesForCard } from "../legality";
+import { BASIC_LAND_NAMES, maxCopiesForCard, validateDeck } from "../legality";
 import { getFormatRules } from "../formats";
 import { assignRoles, isThreat, type CardRole } from "../roles";
 import {
@@ -102,7 +102,24 @@ function syntheticBasicLand(name: string, colors: ManaColor[]): CardRecord {
     legalityStandard: "legal",
     legalityFuture: "legal",
     bannedInStandard: 0,
-    legalitiesJson: "{}",
+    // Synthetic basics are used only when the card database is incomplete;
+    // represent their constructed legality explicitly so the final validator
+    // does not mistake an empty legalities object for an illegal card.
+    legalitiesJson: JSON.stringify({
+      standard: "legal",
+      alchemy: "legal",
+      explorer: "legal",
+      pioneer: "legal",
+      modern: "legal",
+      historic: "legal",
+      timeless: "legal",
+      legacy: "legal",
+      vintage: "legal",
+      commander: "legal",
+      brawl: "legal",
+      historicbrawl: "legal",
+      pauper: "legal",
+    }),
     setCode: "M20",
     setName: "Core Set 2020",
     setType: null,
@@ -1305,7 +1322,7 @@ function generateOne(
     const side = generateSideboard(finalEntries, allCards, effectiveOptions);
     finalEntries = [...finalEntries, ...side];
     reasoning.push(
-      `Sideboard: ${side.reduce((s, e) => s + e.quantity, 0)} cards generated against typical meta`
+      `Sideboard: ${side.reduce((s, e) => s + e.quantity, 0)} of ${formatRules.sideboardSize ?? 0} available slot(s) generated against typical meta`
     );
   }
 
@@ -1402,11 +1419,21 @@ function generateOne(
     reasoning.push(`Combo results: ${comboChains.length} chain(s)/loop(s), ${verifiedCombos.length} verified combo(s) fully present in final deck`);
   }
 
+  const validation = validateDeck(finalEntries, options.format);
+  if (!validation.legal) {
+    reasoning.push(
+      ...validation.violations.map((violation) =>
+        `Final deck validation [${violation.rule}]: ${violation.message}`
+      ),
+    );
+  }
+
   return {
     entries: finalEntries,
     archetype: options.archetype,
     totalCards: finalEntries.reduce((s, e) => s + e.quantity, 0),
     diagnostics,
+    validation,
     seededCards,
     focusedCards,
     cardReasons,

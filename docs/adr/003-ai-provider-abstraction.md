@@ -24,7 +24,7 @@ How should the AI integration be structured to support multiple backends and saf
 
 - Swap backends (OpenAI → Ollama → llama.cpp) with zero changes to deck generation logic
 - Validate all AI proposals against authoritative card pool data before acceptance
-- Graceful degradation: if all AI passes fail, fall back to the offline generator
+- Explicit recovery: if AI generation fails, report a hard error and let the user choose an offline build
 - Provider configuration (API keys, base URL, model name) stored in user preferences, not in code
 - Testable: mock providers in unit tests without network calls
 
@@ -76,9 +76,9 @@ Checks performed:
 5. `QUANTITY_CLAMPED` — AI requested more than the legal max copies
 6. `FINAL_DECK_VIOLATION` — resulting deck doesn't meet format requirements
 
-### Offline Fallback
+### Explicit Offline Fallback
 
-If all AI provider attempts raise, `generateOffline()` runs automatically (line 369 of `aiGenerator.ts`). This guarantees deck generation always completes, even with no AI configured.
+AI/provider failures are surfaced as hard errors; generation does not silently return an offline deck. The UI offers **Generate offline instead** as an explicit user action. That action runs the offline heuristic with the same captured options and card snapshot, applies the result only after selection, and labels it as not AI-authored. Cancellation does not offer or trigger fallback. Sequential AI may still finalize an AI-authored partial spine when the candidate pool is exhausted or the explicit provider-call budget is reached; the latter is surfaced with a warning.
 
 ---
 
@@ -88,7 +88,7 @@ If all AI provider attempts raise, `generateOffline()` runs automatically (line 
 
 - Adding a new provider (e.g. Anthropic Claude, Google Gemini) requires only implementing `AIProvider` — zero changes to generation logic
 - `validateAIProposal` is pure and synchronous — 100% testable without a live LLM
-- Offline fallback means the feature never hard-fails; users without API keys still get decks
+- Users retain a deliberate offline recovery path without confusing heuristic output for an AI result
 - Mock providers in tests are trivial: `{ complete: async () => mockJsonString }`
 
 ### Negative

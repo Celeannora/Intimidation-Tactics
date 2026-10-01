@@ -3,15 +3,14 @@ import type { DeckEntry } from "../legality";
 import type { GenerateOptions } from "./types";
 import { rateSideboardCard } from "../sideboardPlan";
 import { buildPool } from "./pool";
+import { getFormatRules } from "../formats";
+import { maxCopiesForCard } from "../legality";
 
 /** Default meta archetypes the sideboard targets. Order ≈ field share. */
 const META_ARCHETYPES = ["Aggro", "Midrange", "Control", "Tempo", "Combo", "Ramp", "Prison"] as const;
 
-const SIDEBOARD_SIZE = 15;
-const SLOT_PER_ARCH = Math.ceil(SIDEBOARD_SIZE / META_ARCHETYPES.length);
-
 /**
- * Heuristic 15-card sideboard. For each meta archetype, pick the top-scoring
+ * Heuristic format-sized sideboard. For each meta archetype, pick the top-scoring
  * `rateSideboardCard` candidates from the pool that aren't already maindecked.
  */
 export function generateSideboard(
@@ -19,7 +18,14 @@ export function generateSideboard(
   allCards: CardRecord[],
   options: GenerateOptions
 ): DeckEntry[] {
+  const sideboardSize = getFormatRules(options.format).sideboardSize ?? 0;
+  if (sideboardSize === 0) return [];
+  const slotsPerArchetype = Math.ceil(sideboardSize / META_ARCHETYPES.length);
   const inDeck = new Set(mainboard.map((e) => e.card.oracleId));
+  const mainboardCopies = new Map<string, number>();
+  for (const entry of mainboard) {
+    mainboardCopies.set(entry.card.oracleId, (mainboardCopies.get(entry.card.oracleId) ?? 0) + entry.quantity);
+  }
   const pool = buildPool(allCards, options).filter(
     (c) => !c.typeLine.includes("Land") && !inDeck.has(c.oracleId)
   );
@@ -36,27 +42,32 @@ export function generateSideboard(
 
     let placed = 0;
     for (const { c } of ranked) {
-      if (placed >= SLOT_PER_ARCH) break;
-      const remainingSpace = SIDEBOARD_SIZE - out.reduce((s, e) => s + e.quantity, 0);
+      if (placed >= slotsPerArchetype) break;
+      const remainingSpace = sideboardSize - out.reduce((s, e) => s + e.quantity, 0);
       if (remainingSpace <= 0) break;
-      const qty = Math.min(2, remainingSpace, SLOT_PER_ARCH - placed);
+      const remainingCopies = maxCopiesForCard(c, options.format) - (mainboardCopies.get(c.oracleId) ?? 0);
+      const qty = Math.min(2, remainingCopies, remainingSpace, slotsPerArchetype - placed);
+      if (qty <= 0) continue;
       out.push({ card: c, quantity: qty, board: "side" });
       taken.add(c.oracleId);
       placed += qty;
     }
   }
 
-  // Pad to exactly 15 with the highest-scoring remaining pool cards if needed.
+  // Pad to the format's configured size with remaining eligible cards if needed.
   let total = out.reduce((s, e) => s + e.quantity, 0);
-  if (total < SIDEBOARD_SIZE) {
+  if (total < sideboardSize) {
     const fillers = pool
       .filter((c) => !taken.has(c.oracleId))
-      .slice(0, SIDEBOARD_SIZE - total);
+      .slice(0, sideboardSize - total);
     for (const c of fillers) {
-      out.push({ card: c, quantity: 1, board: "side" });
+      const remainingCopies = maxCopiesForCard(c, options.format) - (mainboardCopies.get(c.oracleId) ?? 0);
+      if (remainingCopies <= 0) continue;
+      const quantity = Math.min(1, remainingCopies, sideboardSize - total);
+      out.push({ card: c, quantity, board: "side" });
       taken.add(c.oracleId);
-      total++;
-      if (total >= SIDEBOARD_SIZE) break;
+      total += quantity;
+      if (total >= sideboardSize) break;
     }
   }
 

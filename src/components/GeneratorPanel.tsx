@@ -10,7 +10,7 @@ import { assignRoles, isThreat } from "../lib/roles";
 import type { Archetype } from "../lib/archetype";
 import { detectArchetype } from "../lib/archetype";
 import { THEMES, THEME_ID_TO_LABEL, type ThemeId } from "../lib/archetypeVocab";
-import type { ManaColor } from "../lib/types";
+import type { CardRecord, ManaColor } from "../lib/types";
 import type {
   GenerateOptions,
   GenerateResult,
@@ -34,6 +34,11 @@ import { getCommanderSpellbookCombos } from "../lib/generator/comboLookup";
 const ARCHETYPES: Archetype[] = [
   "Aggro", "Midrange", "Control", "Tempo", "Combo", "Ramp", "Prison",
 ];
+
+interface OfflineFallbackInput {
+  options: GenerateOptions;
+  allCards: CardRecord[];
+}
 
 const COLORS: { code: ManaColor; bg: string }[] = [
   { code: "W", bg: "bg-yellow-200 text-yellow-900" },
@@ -152,6 +157,8 @@ export function GeneratorPanel() {
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [offlineFallback, setOfflineFallback] = useState<OfflineFallbackInput | null>(null);
+  const [usedOfflineFallback, setUsedOfflineFallback] = useState(false);
   const [results, setResults] = useState<GenerateResult[]>([]);
   const [activeIdx, setActiveIdx] = useState(0);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -450,13 +457,14 @@ export function GeneratorPanel() {
     abortRef.current = abortController;
     setBusy(true);
     setError(null);
-    setResults([]);
+    setOfflineFallback(null);
     setStreamedText("");
     setRawResponse(null);
     setAiTranscript(null);
     setChatHistory([]);
     setChatInput("");
     setDeckDelta(null);
+    let fallbackInput: OfflineFallbackInput | null = null;
     try {
       const allCards = await db.cards.toArray();
       if (allCards.length === 0) {
@@ -523,19 +531,23 @@ export function GeneratorPanel() {
         opts.comboSynergyContext = { chains: [], verifiedCombos };
       }
 
+      if (engine === "ai") {
+        // Capture exactly the options and card snapshot used for the AI attempt.
+        // The user may explicitly reuse them for an offline build if AI fails.
+        fallbackInput = { options: { ...opts, engine: "offline" }, allCards };
+      }
+
       let produced: GenerateResult[];
 
       if (engine === "ai") {
         const settings = loadAISettings();
         const provider = makeProvider(settings);
         if (!provider) {
-          setError("AI engine selected but no provider configured. Open AI Settings.");
-          return;
+          throw new Error("AI engine selected but no provider configured. Open AI Settings.");
         }
-        if (!(await provider.isReady())) {
-          setError(`AI provider (${provider.label}) not ready. Open AI Settings.`);
-          return;
-        }
+        const providerReady = await provider.isReady();
+        if (abortController.signal.aborted || abortRef.current !== abortController) return;
+        if (!providerReady) throw new Error(`AI provider (${provider.label}) not ready. Open AI Settings.`);
         // AI mode produces a single result; ignore variants count.
         // When sequential seed-chain mode is enabled (and seeds are present)
         // we use the incremental builder instead of the one-shot path.
@@ -562,6 +574,7 @@ export function GeneratorPanel() {
         const aiResult = useSequential
           ? await generateDeckAISequential(opts, allCards, provider, aiCallConfig)
           : await generateDeckAI(opts, allCards, provider, aiCallConfig);
+        if (abortController.signal.aborted || abortRef.current !== abortController) return;
         produced = [aiResult];
         if (aiResult.transcript) setAiTranscript(aiResult.transcript);
         lastOptionsRef.current = opts;
@@ -569,17 +582,54 @@ export function GeneratorPanel() {
         produced = generateDecks(opts, allCards).variants;
       }
 
+      if (abortController.signal.aborted || abortRef.current !== abortController) return;
+
       setResults(produced);
       setActiveIdx(0);
+      setUsedOfflineFallback(false);
       applyToDeck(produced[0]);
       const seedsForDelta = opts.seedEntries ?? [];
       if (seedsForDelta.length > 0) {
         setDeckDelta(computeDeckDelta(seedsForDelta, produced[0].entries));
       }
     } catch (e) {
-      setError(isAbortError(e) ? "AI generation cancelled." : e instanceof Error ? e.message : String(e));
+      const cancelled = isAbortError(e) || abortController.signal.aborted;
+      if (abortRef.current === abortController) {
+        setError(cancelled ? "AI generation cancelled." : e instanceof Error ? e.message : String(e));
+        setOfflineFallback(cancelled ? null : fallbackInput);
+      }
     } finally {
-      if (abortRef.current === abortController) abortRef.current = null;
+      if (abortRef.current === abortController) {
+        abortRef.current = null;
+        setBusy(false);
+      }
+    }
+  };
+
+  const onUseOfflineFallback = () => {
+    if (!offlineFallback || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const { options, allCards } = offlineFallback;
+      const fallbackResults = generateDecks({ ...options, engine: "offline" }, allCards).variants;
+      if (fallbackResults.length === 0) throw new Error("Offline fallback did not produce any deck variants.");
+      for (const result of fallbackResults) {
+        result.diagnostics.reasoning.unshift(
+          "Explicit offline fallback selected after AI generation failed; this deck is not AI-authored."
+        );
+      }
+      setResults(fallbackResults);
+      setActiveIdx(0);
+      setAiTranscript(null);
+      setChatHistory([]);
+      setDeckDelta(null);
+      setOfflineFallback(null);
+      setUsedOfflineFallback(true);
+      applyToDeck(fallbackResults[0]);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
       setBusy(false);
     }
   };
@@ -592,19 +642,23 @@ export function GeneratorPanel() {
     abortRef.current = abortController;
     setBusy(true);
     setError(null);
+    setOfflineFallback(null);
     setStreamedText("");
     setRawResponse(null);
     setDeckDelta(null);
     const prevEntries = results[activeIdx]?.entries ?? [];
+    const refineOptions = lastOptionsRef.current;
     setChatHistory((h) => [...h, { role: "user", text: message }]);
     setChatInput("");
+    let fallbackCards: CardRecord[] | null = null;
     try {
       const allCards = await db.cards.toArray();
+      fallbackCards = allCards;
       const settings = loadAISettings();
       const provider = makeProvider(settings);
       if (!provider) throw new Error("AI provider not configured.");
       const refined = await refineDeckAI(
-        lastOptionsRef.current,
+        refineOptions,
         allCards,
         provider,
         aiTranscript,
@@ -621,8 +675,10 @@ export function GeneratorPanel() {
           },
         }
       );
+      if (abortController.signal.aborted || abortRef.current !== abortController) return;
       setResults([refined]);
       setActiveIdx(0);
+      setUsedOfflineFallback(false);
       setAiTranscript(refined.transcript);
       setChatHistory((h) => [...h, { role: "assistant", text: `Updated deck (score ${refined.diagnostics.deckScore.toFixed(1)}).${refined.aiSummary ? " " + refined.aiSummary : ""}` }]);
       applyToDeck(refined);
@@ -630,10 +686,20 @@ export function GeneratorPanel() {
         setDeckDelta(computeDeckDelta(prevEntries, refined.entries));
       }
     } catch (e) {
-      setError(isAbortError(e) ? "AI refinement cancelled." : e instanceof Error ? e.message : String(e));
+      const cancelled = isAbortError(e) || abortController.signal.aborted;
+      if (abortRef.current === abortController) {
+        setError(cancelled ? "AI refinement cancelled." : e instanceof Error ? e.message : String(e));
+        setOfflineFallback(
+          cancelled || !fallbackCards || !lastOptionsRef.current
+            ? null
+            : { options: { ...refineOptions, engine: "offline" }, allCards: fallbackCards }
+        );
+      }
     } finally {
-      if (abortRef.current === abortController) abortRef.current = null;
-      setBusy(false);
+      if (abortRef.current === abortController) {
+        abortRef.current = null;
+        setBusy(false);
+      }
     }
   };
 
@@ -641,6 +707,7 @@ export function GeneratorPanel() {
     abortRef.current?.abort();
     abortRef.current = null;
     setBusy(false);
+    setOfflineFallback(null);
     setError("Generation cancelled.");
   };
 
@@ -1302,6 +1369,20 @@ export function GeneratorPanel() {
       {error && (
         <div className="rounded-lg border border-red-800 bg-red-950/40 p-3 text-xs text-red-200">
           {error}
+          {offlineFallback && (
+            <div className="mt-3 border-t border-red-900/70 pt-3">
+              <p className="mb-2 text-red-100">
+                The AI operation did not produce a deck. You can retry later or explicitly replace the current deck with an offline heuristic build instead.
+              </p>
+              <button
+                onClick={onUseOfflineFallback}
+                disabled={busy}
+                className="rounded-md border border-amber-700 bg-amber-950/50 px-3 py-1.5 font-medium text-amber-200 hover:bg-amber-900/60 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Generate offline instead
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -1366,6 +1447,17 @@ export function GeneratorPanel() {
               <div className="mt-2 text-[11px] font-semibold uppercase tracking-wide text-teal-300">Game plan</div>
               <p className="text-zinc-200 leading-snug">{active.aiGamePlan}</p>
             </>
+          )}
+        </div>
+      )}
+
+      {active && usedOfflineFallback && (
+        <div className="rounded-lg border border-amber-700/70 bg-amber-950/40 p-3 text-xs text-amber-100">
+          <strong>Offline fallback — not AI-authored.</strong> This deck was generated by the offline heuristic after AI generation failed.
+          {active.validation && (
+            <div className="mt-1">
+              Final deck validation: {active.validation.legal ? "passed" : `${active.validation.violations.length} issue(s)`}.
+            </div>
           )}
         </div>
       )}
@@ -1837,7 +1929,7 @@ function clampInteger(value: number, min: number, max: number, fallback: number)
 }
 
 function isAbortError(e: unknown): boolean {
-  return e instanceof DOMException && (e.name === "AbortError" || e.name === "TimeoutError");
+  return e instanceof Error && (e.name === "AbortError" || e.name === "TimeoutError");
 }
 
 function detectDeckColors(entries: ReturnType<typeof useMainboardEntries>): ManaColor[] {
