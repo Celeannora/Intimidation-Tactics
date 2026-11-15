@@ -37,6 +37,8 @@ providers to suggest or generate decks.
 
 ## Quick start
 
+Use a supported Node.js LTS release, such as 22.x or 24.x, for the development toolchain. Vitest 4 supports Node.js 20.x, 22.x, or 24 and newer (not 23.x).
+
 ```bash
 npm install
 npm run dev          # Vite dev server
@@ -67,7 +69,7 @@ the UI to populate the local card database.
 - **Zustand 5** — single deck store
 - **Dexie 4** + `dexie-react-hooks` — IndexedDB abstraction
 - **Tailwind 3.4** + PostCSS / Autoprefixer
-- **Vitest 3** + `fake-indexeddb` for tests
+- **Vitest 4** + `fake-indexeddb` for tests
 
 ## Project layout
 

@@ -6,7 +6,7 @@ export interface CompanionCheckResult {
   failureReason?: string;
 }
 
-type CompanionChecker = (mainboard: CardRecord[]) => CompanionCheckResult;
+type CompanionChecker = (mainboard: CardRecord[], mainboardCount: number) => CompanionCheckResult;
 
 function allCardsHaveCmcCondition(
   mainboard: CardRecord[],
@@ -25,14 +25,14 @@ function allCardsHaveCmcCondition(
   };
 }
 
-const COMPANION_CHECKERS: Map<string, CompanionChecker> = new Map([
+const COMPANION_CHECKERS = new Map<string, CompanionChecker>([
   [
     "Yorion, Sky Nomad",
-    (mainboard) => ({
+    (_mainboard, mainboardCount) => ({
       companionName: "Yorion, Sky Nomad",
-      satisfied: mainboard.length >= 80,
-      failureReason: mainboard.length < 80
-        ? `Deck has ${mainboard.length} cards — Yorion requires 80+ card mainboard.`
+      satisfied: mainboardCount >= 80,
+      failureReason: mainboardCount < 80
+        ? `Deck has ${mainboardCount} cards — Yorion requires 80+ card mainboard.`
         : undefined
     })
   ],
@@ -153,11 +153,12 @@ const COMPANION_CHECKERS: Map<string, CompanionChecker> = new Map([
 
 export function checkCompanionRestriction(
   sideboardCards: CardRecord[],
-  mainboardCards: CardRecord[]
+  mainboardCards: CardRecord[],
+  mainboardCount = mainboardCards.length
 ): CompanionCheckResult | null {
   for (const card of sideboardCards) {
     const checker = COMPANION_CHECKERS.get(card.name);
-    if (checker) return checker(mainboardCards);
+    if (checker) return checker(mainboardCards, mainboardCount);
   }
   return null;
 }

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { parseDecklistText, resolveDeckEntries } from "../lib/deckParser";
+import { parseDeckJSON, parseDecklistText, resolveDeckEntries } from "../lib/deckParser";
 import { importFromMTGGoldfish, importFromMoxfield } from "../lib/deckImportSources";
 import type { DeckImportResult } from "../lib/deckParser";
 
@@ -43,11 +43,7 @@ export function DeckImportPanel({ onImported }: Props) {
   const handleJSON = async () => {
     setError(null); setLoading(true);
     try {
-      const data = JSON.parse(value);
-      const allEntries = [
-        ...(data.mainboard ?? []).map((c: { quantity: number; name: string }) => ({ quantity: c.quantity, cardName: c.name, board: "main" as const })),
-        ...(data.sideboard ?? []).map((c: { quantity: number; name: string }) => ({ quantity: c.quantity, cardName: c.name, board: "side" as const })),
-      ];
+      const allEntries = parseDeckJSON(value);
       const res = await resolveDeckEntries(allEntries);
       setResult(res);
       onImported(res);

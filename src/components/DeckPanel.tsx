@@ -165,7 +165,7 @@ function DeckEntryTile({
 }
 
 export function DeckPanel({ onCardClick }: { onCardClick?: (card: DeckEntry["card"]) => void }) {
-  const { deckName, setDeckName, entries, validation, removeCard, setQuantity, moveCard, clearDeck, addCard } =
+  const { deckName, setDeckName, entries, validation, removeCard, setQuantity, moveCard, clearDeck, importEntries } =
     useDeckStore();
   const pins = useDeckStore((s) => s.pins);
   const pinCard = useDeckStore((s) => s.pinCard);
@@ -212,14 +212,7 @@ export function DeckPanel({ onCardClick }: { onCardClick?: (card: DeckEntry["car
     try {
       const parsed = parseDecklistText(importText);
       const result = await resolveDeckEntries([...parsed.mainboard, ...parsed.sideboard]);
-      if (replace) clearDeck();
-      let added = 0;
-      for (const entry of result.resolved) {
-        for (let i = 0; i < entry.quantity; i++) {
-          addCard(entry.card, entry.board);
-          added++;
-        }
-      }
+      const added = importEntries(result.resolved, replace);
       const unmatched = [...parsed.unmatched, ...result.unmatched];
       setImportStatus(
         `Imported ${added} card${added === 1 ? "" : "s"}` +
@@ -242,7 +235,13 @@ export function DeckPanel({ onCardClick }: { onCardClick?: (card: DeckEntry["car
       return;
     }
     // Pre-parse to detect multiple decklists before doing any async DB work.
-    const parsed = parseDecklistText(importText);
+    let parsed: ReturnType<typeof parseDecklistText>;
+    try {
+      parsed = parseDecklistText(importText);
+    } catch (error) {
+      setImportStatus(`Import failed: ${error instanceof Error ? error.message : String(error)}`);
+      return;
+    }
     if (parsed.multipleDecksDetected) {
       // Soft confirmation: show a banner and let the user decide whether to
       // blend the decks together or cancel.  The mana-base engine now handles

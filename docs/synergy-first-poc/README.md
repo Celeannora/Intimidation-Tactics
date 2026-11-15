@@ -1,5 +1,10 @@
 # Synergy-First Deckbuilding — Proof of Concept
 
+> Historical record, not a current run result. The one-off comparison report,
+> decklist exports, summary JSON and chart formerly stored beside this document
+> were removed during cleanup. Filenames mentioned below describe that original
+> experiment; they are not current application inputs or test fixtures.
+
 Branch: `synergy-first/hope-estheim-space-time-anomaly`
 Seed: Hope Estheim, Authority of the Consuls, Space-Time Anomaly (Standard, Azorius lifegain-mill-control)
 

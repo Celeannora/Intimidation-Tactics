@@ -1,4 +1,6 @@
 import { db } from "./db";
+import { maxCopiesForCard } from "./legality";
+import { assertDeckBudget, assertDeckQuantity, MAX_DECK_INPUT_LENGTH, MAX_DECK_ROWS } from "./deckInput";
 import type { CardRecord } from "./types";
 
 export interface ParsedDeckEntry {
@@ -39,6 +41,7 @@ export interface DeckImportResult {
 
 // Parse MTGO / Arena decklist text
 export function parseDecklistText(raw: string): ParsedDeck {
+  if (raw.length > MAX_DECK_INPUT_LENGTH) throw new Error("Deck input is too large.");
   const lines = raw.split("\n").map((l) => l.trim()).filter(Boolean);
   const mainboard: ParsedDeckEntry[] = [];
   const sideboard: ParsedDeckEntry[] = [];
@@ -49,6 +52,7 @@ export function parseDecklistText(raw: string): ParsedDeck {
   let deckHeaderCount = 0;
 
   for (const rawLine of lines) {
+    if (rawLine.length > 1_024) throw new Error("Deck input line exceeds 1024 characters.");
     // Skip Arena "About" section headers and "Name ..." deck-title lines so that
     // re-importing an exported Arena decklist doesn't produce unmatched entries.
     const lowerRaw = rawLine.toLowerCase();
@@ -70,7 +74,7 @@ export function parseDecklistText(raw: string): ParsedDeck {
     if (lower === "sideboard" || lower === "side") { board = "side"; continue; }
     if (line.startsWith("//") || line.startsWith("#")) continue;
 
-    const entry = parseArenaLine(line) ?? parseMTGOLine(line);
+    const entry = parseCardLine(line);
     if (!entry) { unmatched.push(line); continue; }
     entry.board = board;
     if (board === "main") mainboard.push(entry);
@@ -83,7 +87,28 @@ export function parseDecklistText(raw: string): ParsedDeck {
   const mainboardTotal = mainboard.reduce((s, e) => s + e.quantity, 0);
   const multipleDecksDetected = deckHeaderCount > 1 || mainboardTotal > 100;
 
+  assertDeckBudget([...mainboard, ...sideboard]);
   return { mainboard, sideboard, unmatched, multipleDecksDetected };
+}
+
+export function parseDeckJSON(raw: string): ParsedDeckEntry[] {
+  if (raw.length > MAX_DECK_INPUT_LENGTH) throw new Error("Deck input is too large.");
+  const data = JSON.parse(raw);
+  if (!data || typeof data !== "object" || Array.isArray(data) ||
+      (!Object.hasOwn(data, "mainboard") && !Object.hasOwn(data, "sideboard"))) throw new Error("Invalid JSON deck.");
+  const entries: ParsedDeckEntry[] = [];
+  for (const [key, board] of [["mainboard", "main"], ["sideboard", "side"]] as const) {
+    const rows: unknown = Object.hasOwn(data, key) ? data[key] : [];
+    if (!Array.isArray(rows) || rows.length + entries.length > MAX_DECK_ROWS) throw new Error("Invalid or oversized JSON board.");
+    for (const row of rows) {
+      if (!row || typeof row !== "object" || typeof row.name !== "string" || !row.name.trim() || row.name.length > 512) {
+        throw new Error("Invalid JSON card name.");
+      }
+      entries.push({ quantity: row.quantity, cardName: row.name, board });
+    }
+  }
+  assertDeckBudget(entries);
+  return entries;
 }
 
 function parseSectionHeader(line: string): "main" | "side" | null {
@@ -122,33 +147,52 @@ function stripInlineComment(line: string): string {
   return line;
 }
 
-function parseArenaLine(line: string): ParsedDeckEntry | null {
-  // Arena format: "4 Lightning Bolt (M21) 150"
-  const arenaRe = /^(\d+)\s+(.+?)\s+\((\w+)\)\s+(\d+)$/;
-  const m = line.match(arenaRe);
-  if (m) return { quantity: Number(m[1]), cardName: m[2].trim(), setCode: m[3].toLowerCase(), collectorNumber: m[4], board: "main" };
-  return null;
-}
-
-function parseMTGOLine(line: string): ParsedDeckEntry | null {
-  // MTGO format: "4 Lightning Bolt"
-  const re = /^(\d+)x?\s+(.+)$/;
-  const m = line.match(re);
-  if (m) return { quantity: Number(m[1]), cardName: m[2].trim(), board: "main" };
-  return null;
+function parseCardLine(line: string): ParsedDeckEntry | null {
+  // Split the quantity once. Overlapping whitespace/name regexes can backtrack
+  // polynomially when an attacker omits the optional Arena suffix.
+  const separator = line.search(/\s/u);
+  if (separator < 1) return null;
+  const token = line.slice(0, separator);
+  if (!/^\d+x?$/.test(token)) return null;
+  const quantity = Number(token.endsWith("x") ? token.slice(0, -1) : token);
+  assertDeckQuantity(quantity);
+  const remainder = line.slice(separator).trim();
+  if (!remainder) return null;
+  const paren = remainder.lastIndexOf("(");
+  if (paren > 0 && /\s/u.test(remainder[paren - 1])) {
+    const suffix = remainder.slice(paren).match(/^\((\w{1,32})\)\s+(\d{1,32})$/);
+    if (suffix) return {
+      quantity, cardName: remainder.slice(0, paren).trim(),
+      setCode: suffix[1].toLowerCase(), collectorNumber: suffix[2], board: "main",
+    };
+  }
+  return { quantity, cardName: remainder, board: "main" };
 }
 
 export async function resolveDeckEntries(entries: ParsedDeckEntry[]): Promise<DeckImportResult> {
-  const resolved: ResolvedDeckEntry[] = [];
+  if (!Array.isArray(entries)) throw new Error("Deck entries must be an array.");
+  assertDeckBudget(entries);
+  for (const entry of entries) {
+    if (typeof entry.cardName !== "string" || !entry.cardName.trim() || entry.cardName.length > 512 ||
+        (entry.board !== "main" && entry.board !== "side") ||
+        (entry.setCode !== undefined && (typeof entry.setCode !== "string" || entry.setCode.length > 32))) {
+      throw new Error("Invalid deck card name or board.");
+    }
+  }
+  const resolved = new Map<string, ResolvedDeckEntry>();
   const unmatched: string[] = [];
 
   for (const entry of entries) {
     const card = await fuzzyMatchCard(entry.cardName, entry.setCode);
-    if (card) resolved.push({ quantity: entry.quantity, card, board: entry.board });
-    else unmatched.push(`${entry.quantity} ${entry.cardName}`);
+    if (card) {
+      const key = JSON.stringify([entry.board, card.oracleId]);
+      const existing = resolved.get(key);
+      const quantity = Math.min((existing?.quantity ?? 0) + entry.quantity, maxCopiesForCard(card));
+      resolved.set(key, { quantity, card: existing?.card ?? card, board: entry.board });
+    } else unmatched.push(`${entry.quantity} ${entry.cardName}`);
   }
 
-  return { resolved, unmatched };
+  return { resolved: [...resolved.values()], unmatched };
 }
 
 export function cardNameCandidates(name: string): string[] {

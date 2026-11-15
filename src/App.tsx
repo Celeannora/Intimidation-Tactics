@@ -147,7 +147,7 @@ export default function App() {
   const { isReady, refresh } = useDBStatus();
   const activeDeckId         = useDeckStore(s => s.activeDeckId);
   const loadFromSnapshot     = useDeckStore(s => s.loadFromSnapshot);
-  const addCard              = useDeckStore(s => s.addCard);
+  const importEntries        = useDeckStore(s => s.importEntries);
   const newDeck              = useDeckStore(s => s.newDeck);
   const saveCurrentDeck      = useDeckStore(s => s.saveCurrentDeck);
 
@@ -192,10 +192,7 @@ export default function App() {
   }, []);
 
   const handleDeckImported = (result: DeckImportResult) => {
-    useDeckStore.getState().clearDeck();
-    for (const { card, quantity, board } of result.resolved) {
-      for (let i = 0; i < quantity; i++) addCard(card, board);
-    }
+    importEntries(result.resolved, true);
     setView("builder");
   };
 

@@ -7,11 +7,8 @@ import type { DeckEntry, ValidationResult } from "../lib/legality";
 import type { CompanionCheckResult } from "../lib/companion";
 import type { SavedDeck } from "../lib/db";
 
-export interface ShareableDecoded {
-  name: string;
-  main: [number, string][];
-  side: [number, string][];
-}
+import { assertDeckBudget, assertShareableDecoded, type ShareableDecoded } from "../lib/deckInput";
+export type { ShareableDecoded } from "../lib/deckInput";
 
 export interface DeckState {
   activeDeckId: string;
@@ -33,6 +30,8 @@ export interface DeckState {
   newDeck: () => void;
 
   addCard: (card: CardRecord, board: "main" | "side") => void;
+  /** Bounded, atomic import; returns the number of copies actually added. */
+  importEntries: (entries: DeckEntry[], replace: boolean) => number;
   removeCard: (oracleId: string, board: "main" | "side") => void;
   setQuantity: (oracleId: string, board: "main" | "side", qty: number) => void;
   moveCard: (oracleId: string, from: "main" | "side", to: "main" | "side") => void;
@@ -85,9 +84,10 @@ function revalidate(
   entries: DeckEntry[]
 ): { validation: ValidationResult; companionCheck: CompanionCheckResult | null } {
   const validation = validateDeck(entries);
-  const sideCards  = entries.filter(e => e.board === "side").flatMap(e => Array(e.quantity).fill(e.card) as CardRecord[]);
-  const mainCards  = entries.filter(e => e.board === "main").flatMap(e => Array(e.quantity).fill(e.card) as CardRecord[]);
-  const companionCheck = checkCompanionRestriction(sideCards, mainCards);
+  // Check properties once per entry; never allocate one slot per untrusted copy.
+  const sideCards = entries.filter(e => e.board === "side" && e.quantity > 0).map(e => e.card);
+  const mainCards = entries.filter(e => e.board === "main" && e.quantity > 0).map(e => e.card);
+  const companionCheck = checkCompanionRestriction(sideCards, mainCards, validation.mainCount);
   return { validation, companionCheck };
 }
 
@@ -229,6 +229,35 @@ export const useDeckStore = create<DeckState>()((set, get) => ({
     set({ entries: updated, ...revalidate(updated) });
   },
 
+  importEntries(incoming, replace) {
+    if (!Array.isArray(incoming)) throw new Error("Deck entries must be an array.");
+    assertDeckBudget(incoming);
+    for (const entry of incoming) {
+      if (!entry.card || typeof entry.card.oracleId !== "string" || !entry.card.oracleId ||
+          (entry.board !== "main" && entry.board !== "side")) throw new Error("Invalid imported card or board.");
+    }
+    const current = get();
+    const updated = new Map<string, DeckEntry>();
+    if (!replace) {
+      for (const entry of current.entries) updated.set(JSON.stringify([entry.board, entry.card.oracleId]), { ...entry });
+    }
+    let added = 0;
+    for (const entry of incoming) {
+      const key = JSON.stringify([entry.board, entry.card.oracleId]);
+      const existing = updated.get(key);
+      const previous = existing?.quantity ?? 0;
+      // Preserve the editing cap without looping once per requested copy.
+      const quantity = Math.max(previous, Math.min(previous + entry.quantity, maxCopiesForCard(existing?.card ?? entry.card)));
+      updated.set(key, { ...(existing ?? entry), quantity });
+      added += quantity - previous;
+    }
+    const entries = [...updated.values()];
+    assertDeckBudget(entries);
+    const validation = revalidate(entries); // All work completes before any state change.
+    set({ entries, ...validation, ...(replace ? { pins: {}, activeDeckId: makeId() } : {}) });
+    return added;
+  },
+
   removeCard(oracleId, board) {
     const { entries, pins } = get();
     const existing   = entries.find(e => e.card.oracleId === oracleId && e.board === board);
@@ -305,6 +334,8 @@ export const useDeckStore = create<DeckState>()((set, get) => ({
   },
 
   async loadFromSnapshot(decoded: ShareableDecoded) {
+    // Re-check here: callers can bypass the URL decoder entirely.
+    assertShareableDecoded(decoded);
     const allPairs  = [
       ...decoded.main.map(([q, id]) => ({ q, id, board: "main" as const })),
       ...decoded.side.map(([q, id]) => ({ q, id, board: "side" as const })),

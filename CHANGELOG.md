@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased] — security hardening
+
+- Bound text/JSON/share inputs to 1,048,576 characters, 1,000 entries and
+  10,000 requested copies, with positive integer quantities from 1 to 99.
+  These are resource limits, not format legality rules; bounded multi-deck
+  blends still use the existing confirmation flow.
+- Reject unsafe inputs before replacing the active deck; import in one bounded
+  state update instead of looping once per copy. Preserve Add-mode pins and
+  quantity locks, and retain unknown-card reporting.
+- Remove copy-array expansion from companion validation while keeping Yorion's
+  quantity-dependent count. Violator diagnostics now list stored entries rather
+  than repeating the same card name once for each copy.
+- Escape CSV fields and neutralize spreadsheet formula/control prefixes without
+  altering stored card values.
+- Update Vite, Vitest and affected development dependencies; pin a scoped
+  minimatch override for typescript-estree until its dependency range is updated.
+- Remove `_new_fns.ts` and five historical proof-of-concept output files.
+  Preserve planning documents, the historical narrative and regression fixtures.
+
 ## [Unreleased] — repo cleanup pass
 
 ### Added

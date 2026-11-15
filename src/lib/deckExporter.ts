@@ -1,4 +1,5 @@
 import type { CardRecord } from "./types";
+import { assertShareableDecoded, MAX_DECK_INPUT_LENGTH, MAX_DECK_ROWS, type ShareableDecoded } from "./deckInput";
 
 export interface DeckCard { quantity: number; card: CardRecord; }
 export interface ExportDeck { mainboard: DeckCard[]; sideboard: DeckCard[]; name: string; notes?: string; }
@@ -204,12 +205,23 @@ export function exportJSON(deck: ExportDeck): string {
   }, null, 2);
 }
 
+function csvCell(value: string | number | null | undefined): string {
+  let text = String(value ?? "");
+  // CSV quoting alone does not stop spreadsheets from interpreting formulas.
+  let start = 0;
+  while (start < text.length && (text.charCodeAt(start) <= 32 || /\s/u.test(text[start]))) start++;
+  const formula = typeof value === "string" && (/^[=+@-]/.test(text.slice(start)) || /^[\t\r\n]/.test(text));
+  if (formula) text = `'${text}`;
+  return formula || /[",\r\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
+}
+
 export function exportCSV(deck: ExportDeck): string {
   const rows = ["name,quantity,board,setCode,collectorNumber,priceUsd"];
-  for (const { quantity, card } of deck.mainboard)
-    rows.push(`"${card.name}",${quantity},main,${card.setCode},${card.collectorNumber ?? ""},${card.priceUsd ?? ""}`);
-  for (const { quantity, card } of deck.sideboard)
-    rows.push(`"${card.name}",${quantity},side,${card.setCode},${card.collectorNumber ?? ""},${card.priceUsd ?? ""}`);
+  for (const board of ["main", "side"] as const) {
+    for (const { quantity, card } of board === "main" ? deck.mainboard : deck.sideboard) {
+      rows.push([card.name, quantity, board, card.setCode, card.collectorNumber, card.priceUsd].map(csvCell).join(","));
+    }
+  }
   return rows.join("\n");
 }
 
@@ -219,16 +231,25 @@ export function encodeShareableLink(deck: ExportDeck): string {
   return `${window.location.origin}${window.location.pathname}#deck=${b64}`;
 }
 
-export function decodeShareableLink(hash: string): { name: string; main: [number, string][]; side: [number, string][] } | null {
+export function decodeShareableLink(hash: string): ShareableDecoded | null {
   try {
-    const match = hash.match(/#deck=([A-Za-z0-9+/=]+)/);
+    if (hash.length > MAX_DECK_INPUT_LENGTH) return null;
+    const match = hash.match(/^#deck=([A-Za-z0-9+/=]+)$/);
     if (!match) return null;
     const parsed = JSON.parse(atob(match[1]));
-    return {
-      name: parsed.n ?? "Imported Deck",
-      main: (parsed.m as string[]).map((s) => { const [q, id] = s.split(":"); return [Number(q), id]; }),
-      side: (parsed.s as string[]).map((s) => { const [q, id] = s.split(":"); return [Number(q), id]; }),
+    if (!parsed || typeof parsed !== "object") return null;
+    const decodeBoard = (board: unknown): [number, string][] => {
+      if (!Array.isArray(board) || board.length > MAX_DECK_ROWS) throw new Error("Invalid shared board.");
+      return board.map((row: unknown) => {
+        if (typeof row !== "string") throw new Error("Invalid shared card.");
+        const fields = row.match(/^([1-9]\d?):([^:]+)$/);
+        if (!fields) throw new Error("Invalid shared quantity or identifier.");
+        return [Number(fields[1]), fields[2]];
+      });
     };
+    const decoded = { name: parsed.n ?? "Imported Deck", main: decodeBoard(parsed.m), side: decodeBoard(parsed.s) };
+    assertShareableDecoded(decoded);
+    return decoded;
   } catch { return null; }
 }
 
