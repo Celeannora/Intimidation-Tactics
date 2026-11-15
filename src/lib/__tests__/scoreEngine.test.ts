@@ -12,9 +12,8 @@
  *   - Adding a perfect-fit card to an empty deck yields a higher score than a
  *     completely off-plan card.
  *
- * These tests do NOT lock specific numeric totals — that is the calibration
- * harness's job (scripts/calibrate.ts). They only enforce structural invariants
- * and directional correctness.
+ * These tests intentionally avoid exact numeric calibration targets. They enforce
+ * structural invariants and directional correctness in the shared scoring engine.
  */
 
 import { describe, expect, it } from "vitest";

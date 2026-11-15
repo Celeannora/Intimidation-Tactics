@@ -40,8 +40,9 @@ Do not provide real credentials as part of a release smoke test.
 
 ## Repository boundaries
 
-Source, tests, fixtures, build configuration and snapshot-maintenance scripts are
-tracked so releases can be reproduced. Only `dist/` is deployed.
+Source, tests, fixtures, build configuration and the active snapshot-refresh tool
+are tracked so releases can be reproduced. Only `dist/` is deployed. One-off pool,
+calibration and playtest drivers are archived locally rather than shipped in Git.
 
 All new plans belong in `/.hermes/plans/`. Local planning history, diagnostic
 reports and one-off outputs belong in `/.hermes/archive/` or another directory
