@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit && vite build",
+    "build": "tsc --noEmit && vite build && node --input-type=module -e \"import { copyFileSync } from 'node:fs'; copyFileSync('LICENSE', 'dist/LICENSE');\"",
     "preview": "vite preview",
     "lint": "eslint . --max-warnings 0",
     "typecheck": "tsc --noEmit",
