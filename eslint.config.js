@@ -8,6 +8,7 @@ import globals from "globals";
 export default [
   {
     ignores: [
+      ".hermes/**",
       "dist/**",
       "coverage/**",
       "*.config.{js,ts}",
