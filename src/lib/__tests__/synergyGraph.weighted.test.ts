@@ -80,7 +80,24 @@ describe("weighted synergy edges", () => {
 });
 
 describe("weightedDensity", () => {
-  it("equals sum(edge weights) / possible directed edges", () => {
+  it("normalizes multi-axis typed edges by strongest edge per ordered pair", () => {
+    const engine = (name: string) => makeCard({
+      name,
+      oracleText: "Sacrifice a creature: Draw a card. Whenever you sacrifice a creature, you gain 1 life. Whenever you gain life, draw a card.",
+    });
+    const graph = buildSeedSynergyGraph([engine("A"), engine("B"), makeCard({ name: "Isolated", typeLine: "Sorcery" })]);
+    expect(graph.edges.length).toBeGreaterThan(2);
+    expect(new Set(graph.edges.map((e) => e.axis)).size).toBeGreaterThan(1);
+    expect(graph.edges.some((e) => e.kind === "source-to-payoff")).toBe(true);
+    expect(graph.edges.some((e) => e.kind === "mutual-engine")).toBe(true);
+    expect(graph.density).toBe(0.33);
+    expect(graph.weightedDensity).toBe(0.33);
+    expect(graph.weightedDensity).toBeLessThanOrEqual(graph.density);
+    const complete = buildSeedSynergyGraph([engine("A"), engine("B")]);
+    expect(complete.density).toBe(1);
+    expect(complete.weightedDensity).toBe(1);
+  });
+  it("equals sum(strongest ordered-pair weights) / possible directed edges", () => {
     const tokenSource = makeCard({
       name: "Token Maker", oracleId: "token-maker",
       oracleText: "Create a 1/1 white Soldier creature token.",
@@ -93,7 +110,12 @@ describe("weightedDensity", () => {
 
     const n = graph.nodes.length;
     const possible = n * (n - 1);
-    const totalWeight = graph.edges.reduce((s, e) => s + e.weight, 0);
+    const strongest = new Map<string, number>();
+    for (const e of graph.edges) {
+      const pair = JSON.stringify([e.fromOracleId, e.toOracleId]);
+      strongest.set(pair, Math.max(strongest.get(pair) ?? 0, e.weight));
+    }
+    const totalWeight = [...strongest.values()].reduce((s, weight) => s + weight, 0);
     const expected = Math.round((totalWeight / possible) * 100) / 100;
     expect(graph.weightedDensity).toBe(expected);
   });

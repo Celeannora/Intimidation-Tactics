@@ -25,6 +25,7 @@ export interface PipCount {
  * - Mono symbols  {W}         → 1.0 of that color
  * - Hybrid        {W/U}       → 0.5 W + 0.5 U
  * - Phyrexian     {W/P}       → 0.5 W (life can pay the other 0.5)
+ * - Hybrid/life   {W/U/P}     → 0.25 W + 0.25 U
  * - Generic       {N}, {X}    → no colored contribution
  * - Snow          {S}         → ignored for color purposes
  */
@@ -42,7 +43,7 @@ export function parsePips(manaCost: string | null): PipCount {
     const colorParts = parts.filter(p => COLORS.has(p));
     if (colorParts.length === 0) continue;
 
-    const weight = 1 / colorParts.length;
+    const weight = (parts.includes("P") ? 0.5 : 1) / colorParts.length;
     const bag = counts as unknown as Record<string, number>;
     for (const c of colorParts) {
       bag[c] += weight;
@@ -146,6 +147,32 @@ export function recommendLandCount(entries: DeckEntry[]): LandRecommendation {
 
 // ─── Color distribution algorithm ────────────────────────────────────────────
 
+/** Select the card requiring the most table sources, not necessarily most pips. */
+export function colorSourceDemands(
+  cards: ReadonlyArray<Pick<CardRecord, "typeLine" | "manaCost" | "cmc">>
+): Map<Color, { pips: number; turn: number }> {
+  const demands = new Map<Color, { pips: number; turn: number }>();
+  const colors: Color[] = ["W", "U", "B", "R", "G"];
+  for (const card of cards) {
+    if (card.typeLine.toLowerCase().includes("land")) continue;
+    const pips = parsePips(card.manaCost);
+    for (const color of colors) {
+      if (pips[color] <= 0) continue;
+      const cardPips = Math.ceil(pips[color]);
+      const turn = naturalTurn(card.cmc, cardPips);
+      const current = demands.get(color);
+      const sources = karstenSourcesNeeded(cardPips, turn);
+      const currentSources = current ? karstenSourcesNeeded(current.pips, current.turn) : 0;
+      if (!current || sources > currentSources ||
+        (sources === currentSources && (turn < current.turn ||
+          (turn === current.turn && cardPips > current.pips)))) {
+        demands.set(color, { pips: cardPips, turn });
+      }
+    }
+  }
+  return demands;
+}
+
 export interface ColorSourceRecommendation {
   color: Color;
   /** Total weighted pips of this color across all nonland cards (pip *share* input). */
@@ -186,15 +213,7 @@ export function recommendColorSources(
   const nonlands = entries.filter(e => !e.card.typeLine.includes("Land"));
 
   const totalPips: PipCount = { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0, total: 0 };
-  // Track, per color, the most demanding requirement: the highest single-card
-  // pip count and the natural turn of the card imposing it.
-  const demand: Record<Color, { pips: number; turn: number }> = {
-    W: { pips: 0, turn: 0 },
-    U: { pips: 0, turn: 0 },
-    B: { pips: 0, turn: 0 },
-    R: { pips: 0, turn: 0 },
-    G: { pips: 0, turn: 0 },
-  };
+  const demand = colorSourceDemands(nonlands.map(entry => entry.card));
 
   const COLORS: Color[] = ["W", "U", "B", "R", "G"];
 
@@ -202,21 +221,7 @@ export function recommendColorSources(
     const pips = parsePips(entry.card.manaCost);
     const qty = entry.quantity;
     for (const c of COLORS) {
-      const colorPips = pips[c];
-      totalPips[c] += colorPips * qty;
-      if (colorPips <= 0) continue;
-      // Demand is per single card, not multiplied by copies.
-      const cardPips = Math.ceil(colorPips);
-      const turn = naturalTurn(entry.card.cmc, cardPips);
-      const current = demand[c];
-      // Prefer the higher pip requirement; for equal pips, the earlier turn is
-      // the more demanding (needs more sources sooner).
-      if (
-        cardPips > current.pips ||
-        (cardPips === current.pips && (current.turn === 0 || turn < current.turn))
-      ) {
-        demand[c] = { pips: cardPips, turn };
-      }
+      totalPips[c] += pips[c] * qty;
     }
     totalPips.total += pips.total * qty;
   }
@@ -226,7 +231,7 @@ export function recommendColorSources(
 
   return activeColors.map(color => {
     const ratio = totalPips.total > 0 ? totalPips[color] / totalPips.total : 0;
-    const { pips: requiredPips, turn: requiredByTurn } = demand[color];
+    const { pips: requiredPips, turn: requiredByTurn } = demand.get(color)!;
     const recommendedSources = karstenSourcesNeeded(requiredPips, requiredByTurn);
     const actualSources = Math.round(actual[color] * 10) / 10;
     return {

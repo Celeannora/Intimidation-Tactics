@@ -1,11 +1,14 @@
 import type { CardRecord } from "../types";
 import type { DeckEntry } from "../legality";
+import { maxCopiesForCard } from "../legality";
+import { isCardLegalInFormat } from "../formats";
 import type { GenerateOptions } from "./types";
 import { deckScore, quickRank } from "./weights";
 
 export interface OptimizeResult {
   entries: DeckEntry[];
   finalScore: number;
+  /** Scored single-swap rounds plus scored deterministic pair trials. */
   steps: number;
   improvements: number;
 }
@@ -16,13 +19,35 @@ interface OptimizeContext {
   targetAvgCmc: number;
   /** oracleIds locked from the seed deck — never swapped out. */
   locked: Set<string>;
-  /** Maximum number of swap attempts. */
+  /** Single-swap round budget; <= 0 also disables the optional pair pass. */
   iterations: number;
   /** RNG (deterministic if seeded). */
   rng: () => number;
 }
 
 type RoleSlot = "threats" | "removal" | "boardWipes" | "counterspells" | "cardDraw" | "ramp" | "support";
+
+const MAX_PACKAGES = 8;
+const MAX_PACKAGE_DONORS = 6;
+const MAX_SIGNALS_PER_KIND = 32;
+const MAX_PACKAGE_CARDS = 8;
+
+interface PackageSignal {
+  oracleIds: string[];
+  requiredQuantities?: Record<string, number>;
+  prerequisites?: string;
+  prerequisitesSatisfied?: boolean;
+}
+
+function isSwappable(entry: DeckEntry, locked: Set<string>): boolean {
+  return entry.board === "main" && !locked.has(entry.card.oracleId)
+    && !entry.card.typeLine.includes("Land");
+}
+
+function canInheritQuantity(card: CardRecord, quantity: number, options: GenerateOptions): boolean {
+  return Number.isSafeInteger(quantity) && quantity > 0
+    && quantity <= maxCopiesForCard(card, options.format);
+}
 
 /**
  * Pre-sort the pool into role-sorted priority buckets.
@@ -39,7 +64,7 @@ function rankPool(
   for (const s of slots) buckets.set(s, []);
 
   for (const card of pool) {
-    if (card.typeLine.includes("Land")) continue;
+    if (card.typeLine.includes("Land") || !isCardLegalInFormat(card, options.format)) continue;
     const roles = _getRoles(card);
     for (const slot of slots) {
       if (_matchesSlot(slot, roles)) {
@@ -124,16 +149,22 @@ function _matchesSlot(slot: RoleSlot, roles: string[]): boolean {
  *   4. Accept the best candidate if it raises the score (greedy).
  *      Else accept with prob = exp(Δ/T) (annealing).
  *
- * Temperature decays linearly. Final pass (T=0) is pure greedy.
+ * Temperature decays linearly but stays positive throughout the single-swap
+ * loop. The best visited deck is saved separately from the annealing walk.
+ * With combo context and a positive iteration budget, a deterministic greedy
+ * pair pass then starts from that best deck. Signals guide proposals, not a
+ * claim that a combo is executable. See improvePackages for its fixed budget.
  */
 export function optimize(
   startingEntries: DeckEntry[],
   ctx: OptimizeContext
 ): OptimizeResult {
   let entries = cloneEntries(startingEntries);
-  let bestScore = deckScore(entries, ctx.options, ctx.targetAvgCmc).total;
+  let currentScore = deckScore(entries, ctx.options, ctx.targetAvgCmc).total;
+  let bestScore = currentScore;
   let bestEntries = cloneEntries(entries);
   let improvements = 0;
+  let steps = 0;
 
   // Pre-rank pool into role buckets
   const roleBuckets = rankPool(ctx.pool, entries, ctx.options);
@@ -143,10 +174,10 @@ export function optimize(
   for (let i = 0; i < ctx.iterations; i++) {
     const t = Math.max(0, startTemp * (1 - i / ctx.iterations));
 
-    // Pick a candidate slot to replace: prefer entries with low individual contribution.
+    // Pick a random eligible mainboard entry.
     const swappable = entries
       .map((e, idx) => ({ e, idx }))
-      .filter(({ e }) => !ctx.locked.has(e.card.oracleId) && !e.card.typeLine.includes("Land"));
+      .filter(({ e }) => isSwappable(e, ctx.locked));
     if (swappable.length === 0) break;
 
     const targetIdx = swappable[Math.floor(ctx.rng() * swappable.length)].idx;
@@ -162,24 +193,28 @@ export function optimize(
 
     // Filter to candidates not already in deck
     const inDeck = new Set(entries.map((e) => e.card.oracleId));
-    const candidates = bucket.filter((c) => !inDeck.has(c.oracleId));
+    const candidates = bucket.filter((c) => !inDeck.has(c.oracleId)
+      && canInheritQuantity(c, target.quantity, ctx.options));
 
     if (candidates.length === 0) continue;
+    steps++;
 
     // Try top B candidates (B = min(8, bucket size))
     const B = Math.min(8, candidates.length);
     let bestCandidate: CardRecord | null = null;
     let bestDelta = -Infinity;
+    let bestCandidateScore = currentScore;
 
     for (let k = 0; k < B; k++) {
       const cand = candidates[k];
       const trial = entries.slice();
-      trial[targetIdx] = { card: cand, quantity: target.quantity, board: target.board };
+      trial[targetIdx] = { ...target, card: cand };
       const trialScore = deckScore(trial, ctx.options, ctx.targetAvgCmc).total;
-      const delta = trialScore - bestScore;
+      const delta = trialScore - currentScore;
       if (delta > bestDelta) {
         bestDelta = delta;
         bestCandidate = cand;
+        bestCandidateScore = trialScore;
       }
     }
 
@@ -192,11 +227,11 @@ export function optimize(
     if (accept) {
       entries = entries.slice();
       entries[targetIdx] = {
+        ...target,
         card: bestCandidate,
-        quantity: target.quantity,
-        board: target.board,
       };
-      const newScore = deckScore(entries, ctx.options, ctx.targetAvgCmc).total;
+      currentScore = bestCandidateScore;
+      const newScore = currentScore;
       if (newScore > bestScore) {
         bestScore = newScore;
         bestEntries = cloneEntries(entries);
@@ -205,16 +240,106 @@ export function optimize(
     }
   }
 
+  if (ctx.iterations > 0 && ctx.options.comboSynergyContext) {
+    const pairResult = improvePackages(bestEntries, bestScore, ctx);
+    bestEntries = pairResult.entries;
+    bestScore = pairResult.finalScore;
+    steps += pairResult.steps;
+    improvements += pairResult.improvements;
+  }
+
   return {
     entries: bestEntries,
     finalScore: bestScore,
-    steps: ctx.iterations,
+    steps,
     improvements,
   };
 }
 
+/**
+ * Inspect at most 32 signals of each kind, each with 2..8 distinct cards.
+ * Try at most 8 distinct two-missing-card packages and the first 6 eligible
+ * donors: 6 * 5 ordered assignments each, at most 240 extra deckScore calls.
+ * Whole-entry substitutions preserve both quantities and mainboard size;
+ * existing package members, lands, sideboard entries and locks are not donors.
+ * Missing cards must be absent across both boards, so the incoming quantity
+ * check also enforces the combined-board copy cap without merging entries.
+ * Explicit requiredQuantities are honored (legacy signals default to one).
+ * This pass does not top up existing entries or prove textual prerequisites;
+ * nonempty prerequisite prose requires explicit prerequisitesSatisfied=true.
+ */
+function improvePackages(entries: DeckEntry[], score: number, ctx: OptimizeContext): OptimizeResult {
+  const context = ctx.options.comboSynergyContext!;
+  const signals: PackageSignal[] = [
+    ...context.verifiedCombos.slice(0, MAX_SIGNALS_PER_KIND).map((combo) => ({ ...combo, oracleIds: combo.cardOracleIds })),
+    ...context.chains.slice(0, MAX_SIGNALS_PER_KIND),
+  ];
+  const poolById = new Map(ctx.pool
+    .filter((card) => !card.typeLine.includes("Land") && isCardLegalInFormat(card, ctx.options.format))
+    .map((card) => [card.oracleId, card]));
+  const seen = new Set<string>();
+  let steps = 0;
+  let improvements = 0;
+
+  for (const signal of signals) {
+    if (seen.size >= MAX_PACKAGES) break;
+    if (signal.prerequisites?.trim() && signal.prerequisitesSatisfied !== true) continue;
+    if (signal.oracleIds.length < 2 || signal.oracleIds.length > MAX_PACKAGE_CARDS) continue;
+    const ids = [...new Set(signal.oracleIds)];
+    if (ids.length !== signal.oracleIds.length) continue;
+    const requirements = signal.requiredQuantities ?? {};
+    const requirementIds = Object.keys(requirements);
+    if (requirementIds.length > MAX_PACKAGE_CARDS || requirementIds.some((id) => !ids.includes(id)
+      || !Number.isSafeInteger(requirements[id]) || requirements[id] <= 0)) continue;
+    const counts = new Map<string, number>();
+    for (const entry of entries) {
+      if (entry.board === "main") {
+        counts.set(entry.card.oracleId, (counts.get(entry.card.oracleId) ?? 0) + entry.quantity);
+      }
+    }
+    const missing = ids.filter((id) => (counts.get(id) ?? 0) < (requirements[id] ?? 1));
+    if (missing.length !== 2) continue;
+    const key = JSON.stringify(missing.slice().sort());
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    const inDeck = new Set(entries.map((entry) => entry.card.oracleId));
+    const first = poolById.get(missing[0]);
+    const second = poolById.get(missing[1]);
+    if (!first || !second || missing.some((id) => inDeck.has(id))) continue;
+    const donors = entries.map((entry, idx) => ({ entry, idx }))
+      .filter(({ entry }) => isSwappable(entry, ctx.locked) && !ids.includes(entry.card.oracleId))
+      .slice(0, MAX_PACKAGE_DONORS);
+    let bestTrial = entries;
+    let bestTrialScore = score;
+    for (const a of donors) {
+      if (!canInheritQuantity(first, a.entry.quantity, ctx.options)
+        || a.entry.quantity < (requirements[first.oracleId] ?? 1)) continue;
+      for (const b of donors) {
+        if (a.idx === b.idx || !canInheritQuantity(second, b.entry.quantity, ctx.options)
+          || b.entry.quantity < (requirements[second.oracleId] ?? 1)) continue;
+        const trial = entries.slice();
+        trial[a.idx] = { ...a.entry, card: first };
+        trial[b.idx] = { ...b.entry, card: second };
+        steps++;
+        const trialScore = deckScore(trial, ctx.options, ctx.targetAvgCmc).total;
+        if (trialScore > bestTrialScore) {
+          bestTrial = trial;
+          bestTrialScore = trialScore;
+        }
+      }
+    }
+    if (bestTrialScore > score) {
+      entries = bestTrial;
+      score = bestTrialScore;
+      improvements++;
+    }
+  }
+  return { entries, finalScore: score, steps, improvements };
+}
+
 function cloneEntries(entries: DeckEntry[]): DeckEntry[] {
-  return entries.map((e) => ({ card: e.card, quantity: e.quantity, board: e.board }));
+  return entries.map((e) => ({ ...e }));
 }
 
 /** Mulberry32 — small deterministic RNG so variants can be reproducible if seeded. */

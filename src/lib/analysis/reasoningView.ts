@@ -47,24 +47,35 @@ export interface CardBreakdown {
  * values so a reader sees exactly why a card scored what it did.
  */
 export function buildCardBreakdown(score: CardScoreContribution): CardBreakdown {
-  const focusTribal = (score.focusBonus ?? 0) + (score.tribalBonus ?? 0);
   const raw: Array<{ label: string; value: number }> = [
     { label: "Role & power", value: score.rolePowerContribution },
-    { label: "Synergy", value: score.synergyContribution },
     { label: "Directional synergy", value: score.directionalContribution },
-    { label: "Meta signal", value: score.signalContribution },
     { label: "Efficiency", value: score.efficiencyContribution ?? 0 },
     { label: "Flexibility", value: score.flexibilityContribution ?? 0 },
+    { label: "Scenario robustness", value: score.scenarioRobustnessContribution ?? 0 },
     { label: "Ladder meta", value: score.ladderContribution ?? 0 },
     { label: "Composition", value: score.compositionBonus ?? 0 },
+    { label: "Combo", value: score.comboContribution ?? 0 },
     { label: "Focus card", value: score.focusCardBonus ?? 0 },
-    { label: "Focus / tribal", value: focusTribal },
+    { label: "Keyword focus", value: score.focusBonus ?? 0 },
+    { label: "Tribal", value: score.tribalBonus ?? 0 },
+    { label: "Preferred card", value: score.preferCardBonus ?? 0 },
+    { label: "Broad role", value: score.broadTagBonus ?? 0 },
+    { label: "Seed adjustment", value: score.seedAdjustment ?? 0 },
     { label: "Off-curve penalty", value: -(score.cmcPenalty ?? 0) },
     { label: "Price penalty", value: -(score.pricePenalty ?? 0) },
   ];
 
+  // Historical records did not export all additive terms. Label their exact
+  // remainder honestly; never reinterpret it as a seed bonus or conceal a
+  // mismatch when all three modern fields are explicitly available.
+  if (score.preferCardBonus === undefined || score.broadTagBonus === undefined || score.seedAdjustment === undefined) {
+    const explained = raw.reduce((sum, factor) => sum + factor.value, 0);
+    raw.push({ label: "Legacy unitemized adjustment", value: score.perCopyScore - explained });
+  }
+
   const factors: BreakdownFactor[] = raw
-    .filter((f) => Math.abs(f.value) >= 0.05)
+    .filter((f) => f.value !== 0)
     .map((f): BreakdownFactor => ({ label: f.label, value: f.value, sign: f.value >= 0 ? "positive" : "negative" }))
     .sort((a, b) => Math.abs(b.value) - Math.abs(a.value));
 

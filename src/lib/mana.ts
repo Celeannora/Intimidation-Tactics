@@ -8,7 +8,8 @@ const COLOUR_SYMBOLS: ColourKey[] = ["W", "U", "B", "R", "G"];
 /**
  * Parses a Scryfall mana cost string into a pip count.
  * Handles generic ({1},{2},…,{X},{C}), mono-colour ({W},{U},{B},{R},{G}),
- * hybrid ({W/U},{W/P}), and Phyrexian ({W/P}) symbols.
+ * hybrid ({W/U}) and Phyrexian ({W/P}) symbols. Phyrexian symbols contribute
+ * half a colored pip, shared equally across colors for {W/U/P}.
  */
 export function parseManaPips(manaCost: string | null | undefined): PipCount {
   const result: PipCount = {};
@@ -25,14 +26,19 @@ export function parseManaPips(manaCost: string | null | undefined): PipCount {
     if (inner.includes("/")) {
       const parts = inner.split("/");
       const colourParts = parts.filter(p => COLOUR_SYMBOLS.includes(p as ColourKey));
-      if (colourParts.length === 2) {
+      if (parts.includes("P") && colourParts.length > 0) {
+        for (const c of colourParts) {
+          const key = c as ColourKey;
+          result[key] = (result[key] ?? 0) + 0.5 / colourParts.length;
+        }
+      } else if (colourParts.length === 2) {
         // Standard hybrid — 0.5 each
         for (const c of colourParts) {
           const key = c as ColourKey;
           result[key] = (result[key] ?? 0) + 0.5;
         }
       } else if (colourParts.length === 1) {
-        // Phyrexian — 0.5 of that colour
+        // Other single-color alternatives (e.g. {2/W}) retain half weight.
         const key = colourParts[0] as ColourKey;
         result[key] = (result[key] ?? 0) + 0.5;
       }

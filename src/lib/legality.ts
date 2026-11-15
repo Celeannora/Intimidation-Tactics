@@ -87,12 +87,10 @@ export function validateDeck(entries: DeckEntry[], format?: ConstructedFormat): 
     });
   }
 
-  if (mainCount > rules.defaultMainboardSize) {
+  if (mainCount > rules.maxMainboardSize) {
     violations.push({
       rule: "OVER_60",
-      message: mainCount > rules.maxMainboardSize
-        ? `Mainboard has ${mainCount} cards. Maximum for ${rules.label} is ${rules.maxMainboardSize}.`
-        : `Mainboard has ${mainCount} cards. ${rules.defaultMainboardSize} is the recommended ${rules.label} deck size — extra cards dilute your best draws.`
+      message: `Mainboard has ${mainCount} cards. Maximum for ${rules.label} is ${rules.maxMainboardSize}.`
     });
   }
 
@@ -101,10 +99,10 @@ export function validateDeck(entries: DeckEntry[], format?: ConstructedFormat): 
       rule: "SIDE_SIZE",
       message: `${rules.label} decks do not use a sideboard in this builder mode.`
     });
-  } else if (rules.sideboardSize != null && sideCount > 0 && sideCount !== rules.sideboardSize) {
+  } else if (rules.sideboardSize != null && sideCount > rules.sideboardSize) {
     violations.push({
       rule: "SIDE_SIZE",
-      message: `Sideboard has ${sideCount} cards — must be exactly 0 or ${rules.sideboardSize}.`
+      message: `Sideboard has ${sideCount} cards — maximum is ${rules.sideboardSize}.`
     });
   }
 

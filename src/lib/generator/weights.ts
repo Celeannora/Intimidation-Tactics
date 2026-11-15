@@ -1,3 +1,5 @@
+import { countLandSources } from '../landSources';
+import { isComboPackagePresent } from './comboRequirements';
 import type { CardRecord } from "../types";
 import type { DeckEntry } from "../legality";
 import type { Archetype } from "../archetype";
@@ -248,6 +250,8 @@ export function cardScore(
 
 export interface CardScoreDetail {
   total: number;
+  /** Score before seed transformation; keeps rejection exports additive. */
+  genericTotal?: number;
   roleMultiplier: number;
   powerScore: number;
   colorAffinity: number;
@@ -287,6 +291,8 @@ export interface CardScoreDetail {
    * candidates by score must treat -Infinity as "exclude", not clamp it.
    */
   seedSynergyNote?: string;
+  /** Net transform applied by seed scoring, for additive explanation. */
+  seedAdjustment?: number;
 }
 
 export function cardScoreDetail(
@@ -307,7 +313,7 @@ export function cardScoreDetail(
   const deckProfiles = deckSoFar
     .filter((e) => !e.card.typeLine.includes("Land"))
     .map((e) => buildSynergyProfile(e.card));
-  const deckAxes = keywordFocusToAxes(options.keywordFocus ?? []);
+  const deckAxes = options.synergyAxes ?? keywordFocusToAxes(options.keywordFocus ?? []);
   const profile = buildSynergyProfile(card);
   const broadBonus = broadTagBonus(card, profile.broadTags, {
     archetype: options.archetype,
@@ -398,6 +404,7 @@ export function cardScoreDetail(
 
   return {
     total,
+    genericTotal,
     roleMultiplier: role,
     powerScore: power,
     colorAffinity: colorAff,
@@ -424,6 +431,7 @@ export function cardScoreDetail(
     pricePenalty: pricePen + deadCardPen,
     scenarioZeroCoverageWarning,
     seedSynergyNote,
+    seedAdjustment: total - genericTotal,
   };
 }
 
@@ -468,17 +476,7 @@ export function manaBaseCoverage(entries: DeckEntry[]): number {
   const totalLands = lands.reduce((s, e) => s + e.quantity, 0);
   if (totalLands === 0) return 0;
 
-  const sourcesPerColor: Record<"W" | "U" | "B" | "R" | "G", number> = { W: 0, U: 0, B: 0, R: 0, G: 0 };
-  for (const e of lands) {
-    const ci = (() => {
-      try {
-        return JSON.parse(e.card.colorIdentityJson) as ("W" | "U" | "B" | "R" | "G")[];
-      } catch {
-        return [] as ("W" | "U" | "B" | "R" | "G")[];
-      }
-    })();
-    for (const c of ci) sourcesPerColor[c] += e.quantity;
-  }
+  const sourcesPerColor = countLandSources(entries);
 
   const recs = recommendColorSources(entries, totalLands);
   if (recs.length === 0) return 1;
@@ -647,6 +645,8 @@ export function deckScore(
   options: GenerateOptions,
   targetAvgCmc: number
 ): DeckScore {
+  // A sideboard is a separate configuration, not extra support in game one.
+  entries = entries.filter((entry) => entry.board === "main");
   const deckCfg = getDeckConfig(options.format, options.playEnvironment);
 
   let cardScoreSum = 0;
@@ -670,6 +670,7 @@ export function deckScore(
     profile.curve,
     profile.landCount,
     archetypeProfile,
+    entries.reduce((sum, entry) => sum + entry.quantity, 0) || 60,
   );
 
   // Compute redundancy score
@@ -735,17 +736,19 @@ export function buildScoreBreakdown(
   options: GenerateOptions,
   targetAvgCmc: number
 ): ScoreBreakdown {
+  entries = entries.filter((entry) => entry.board === "main");
   const cardScores = entries
     .filter((e) => !e.card.typeLine.includes("Land"))
     .map((entry) => {
       const detail = cardScoreDetail(entry.card, entries, options, targetAvgCmc);
+      const perCopyScore = Number.isFinite(detail.total) ? detail.total : -1000;
       return {
         oracleId: entry.card.oracleId,
         name: entry.card.name,
         quantity: entry.quantity,
         board: entry.board,
-        perCopyScore: detail.total,
-        contribution: detail.total * entry.quantity,
+        perCopyScore,
+        contribution: perCopyScore * entry.quantity,
         roleMultiplier: detail.roleMultiplier,
         powerScore: detail.powerScore,
         rolePowerContribution: detail.rolePowerContribution,
@@ -764,6 +767,9 @@ export function buildScoreBreakdown(
         scenarioZeroCoverageWarning: detail.scenarioZeroCoverageWarning,
         ladderContribution: detail.ladderContribution,
         comboContribution: detail.comboContribution,
+        preferCardBonus: detail.preferCardBonus,
+        broadTagBonus: detail.broadTagBonus,
+        seedAdjustment: Number.isFinite(detail.total) ? detail.seedAdjustment ?? 0 : perCopyScore - (detail.genericTotal ?? 0),
         focusBonus: detail.focusBonus,
         focusCardBonus: detail.focusCardBonus,
         tribalBonus: detail.tribalBonus,
@@ -784,6 +790,8 @@ export function buildScoreBreakdown(
       profilePenalty: score.profilePenalty,
       redundancyContribution: score.redundancyContribution,
       comboContribution: score.comboContribution,
+      metaPerformanceContribution: score.metaPerformanceContribution,
+      scenarioConsistencyContribution: score.scenarioConsistencyContribution,
       finalScore: score.total,
     },
   };
@@ -805,7 +813,8 @@ export function comboCandidateBonus(card: CardRecord, deckSoFar: DeckEntry[], op
     }
   }
   for (const combo of context.verifiedCombos) {
-    if (combo.cardOracleIds.includes(card.oracleId) && combo.cardOracleIds.every((id) => id === card.oracleId || present.has(id))) {
+    const withCandidate: DeckEntry[] = present.has(card.oracleId) ? deckSoFar : [...deckSoFar, { card, quantity: 1, board: "main" }];
+    if (combo.cardOracleIds.includes(card.oracleId) && isComboPackagePresent(combo, withCandidate)) {
       bonus += 8;
     }
   }
@@ -821,7 +830,7 @@ export function deckComboBonus(entries: DeckEntry[], options: GenerateOptions): 
     .filter((chain) => containsAll(present, chain.oracleIds))
     .reduce((sum, chain) => sum + Math.min(8, chain.chainScore * 1.5), 0);
   const verifiedBonus = context.verifiedCombos
-    .filter((combo) => containsAll(present, combo.cardOracleIds))
+    .filter((combo) => isComboPackagePresent(combo, entries))
     .length * 12;
   return Math.min(32, chainBonus + verifiedBonus);
 }

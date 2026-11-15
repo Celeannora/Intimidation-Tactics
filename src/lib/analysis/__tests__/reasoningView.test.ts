@@ -30,6 +30,60 @@ function makeScore(overrides: Partial<CardScoreContribution> & { oracleId: strin
 }
 
 describe("buildCardBreakdown", () => {
+  it("retains small nonzero factors so rounding thresholds cannot break reconciliation", () => {
+    const values = [0.01, 0.02, -0.005];
+    const b = buildCardBreakdown(makeScore({
+      oracleId: "small", name: "Small terms", rolePowerContribution: values[0], compositionBonus: values[1],
+      pricePenalty: -values[2], preferCardBonus: 0, broadTagBonus: 0, seedAdjustment: 0,
+      perCopyScore: values.reduce((sum, value) => sum + value, 0),
+    }));
+    expect(b.factors).toHaveLength(3);
+    expect(b.factors.reduce((sum, factor) => sum + factor.value, 0)).toBeCloseTo(b.perCopy, 12);
+    const legacy = buildCardBreakdown(makeScore({ oracleId: "tiny-legacy", name: "Tiny legacy", perCopyScore: 0.001 }));
+    expect(legacy.factors[0]?.value).toBe(0.001);
+  });
+  it("transparently reconciles legacy scores missing the newer exported terms", () => {
+    const b = buildCardBreakdown(makeScore({
+      oracleId: "legacy", name: "Legacy", rolePowerContribution: 10, perCopyScore: 13,
+    }));
+    expect(b.factors.find((f) => f.label === "Legacy unitemized adjustment")).toEqual({
+      label: "Legacy unitemized adjustment", value: 3, sign: "positive",
+    });
+    expect(b.factors.reduce((sum, factor) => sum + factor.value, 0)).toBe(b.perCopy);
+  });
+  it.each([-5, 7])("shows the explicit seed transformation (%s) rather than deriving a catch-all", (seedAdjustment) => {
+    const score = makeScore({
+      oracleId: "seed", name: "Seed adjusted", rolePowerContribution: 10,
+      preferCardBonus: 0, broadTagBonus: 0, seedAdjustment,
+      perCopyScore: 10 + seedAdjustment,
+    });
+    const b = buildCardBreakdown(score);
+    expect(b.factors.find((f) => f.label === "Seed adjustment")?.value).toBe(seedAdjustment);
+    expect(b.factors.reduce((sum, factor) => sum + factor.value, 0)).toBe(b.perCopy);
+    // Corrupt totals must not be hidden by changing an explicitly exported term.
+    const inconsistent = buildCardBreakdown({ ...score, perCopyScore: 999 });
+    expect(inconsistent.factors).toEqual(b.factors);
+  });
+  it("explains every actual additive score term including scenario, combo and preferences", () => {
+    const expected = {
+      "Role & power": 10, "Directional synergy": 4, Efficiency: 2, Flexibility: 1,
+      "Scenario robustness": 3, "Ladder meta": 5, Composition: 6, "Keyword focus": 7,
+      "Focus card": 8, "Preferred card": 9, Tribal: 11, "Broad role": 12, Combo: 15,
+      "Off-curve penalty": -13, "Price penalty": -14,
+    };
+    const perCopyScore = Object.values(expected).reduce((sum, value) => sum + value, 0);
+    const score = makeScore({
+      oracleId: "all-terms", name: "All terms", quantity: 2, perCopyScore, contribution: perCopyScore * 2,
+      rolePowerContribution: 10, synergyContribution: 4, directionalContribution: 4, signalContribution: 0.48,
+      efficiencyContribution: 2, flexibilityContribution: 1, scenarioRobustnessContribution: 3,
+      ladderContribution: 5, compositionBonus: 6, focusBonus: 7, focusCardBonus: 8,
+      preferCardBonus: 9, tribalBonus: 11, broadTagBonus: 12, comboContribution: 15,
+      seedAdjustment: 0, cmcPenalty: 13, pricePenalty: 14,
+    });
+    const b = buildCardBreakdown(score);
+    expect(Object.fromEntries(b.factors.map((f) => [f.label, f.value]))).toEqual(expected);
+    expect(b.factors.reduce((sum, factor) => sum + factor.value, 0)).toBe(perCopyScore);
+  });
   it("labels non-zero factors and orders them by magnitude", () => {
     const b = buildCardBreakdown(
       makeScore({
@@ -40,15 +94,16 @@ describe("buildCardBreakdown", () => {
         contribution: 60,
         rolePowerContribution: 12,
         synergyContribution: 18,
-        directionalContribution: 3,
-        signalContribution: 0,
+        directionalContribution: 18,
+        signalContribution: 5,
       }),
     );
     expect(b.name).toBe("Test Card");
     expect(b.total).toBe(60);
     expect(b.perCopy).toBe(30);
-    // Ordered by absolute magnitude: synergy(18) > role(12) > directional(3).
-    expect(b.factors.map((f) => f.label)).toEqual(["Synergy", "Role & power", "Directional synergy"]);
+    // Directional is the scored term; synergy is its alias and signal is metadata.
+    expect(b.factors.map((f) => f.label)).toEqual(["Directional synergy", "Role & power"]);
+    expect(b.factors.reduce((sum, factor) => sum + factor.value, 0)).toBe(b.perCopy);
     expect(b.factors.every((f) => f.sign === "positive")).toBe(true);
   });
 

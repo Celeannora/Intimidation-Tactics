@@ -4,13 +4,16 @@ import { BASIC_LAND_NAMES, maxCopiesForCard, validateDeck } from "../legality";
 import { getCardLegality, getFormatRules } from "../formats";
 import { assignRoles } from "../roles";
 import { buildPool } from "../generator/pool";
-import { generateDeck as generateOffline } from "../generator/generator";
+import { validateGenerationResult } from "../generator/validation";
+import { isComboPackagePresent } from "../generator/comboRequirements";
+import { generateDecksInWorker } from "../generator/client";
 import { buildScoreBreakdown, cardScoreDetail, deckScore, targetAvgCmcFor } from "../generator/weights";
 import { blendRoleTargets } from "../generator/roleTargets";
-import { buildSynergyProfile, generateCardReasons, generateTribalReasons, keywordFocusToAxes } from "../generator/synergyModel";
+import { buildSynergyProfile, generateCardReasons, generateTribalReasons, inferPrimaryAxesDetailed } from "../generator/synergyModel";
 import type { MechanicAxis } from "../generator/synergyModel";
 import { analyzeSeeds, formatSeedSummaryForPrompt } from "../analysis/seedAnalyzer";
 import { buildSeedSynergyGraph, buildDeckSynergyGraph, formatSynergyGraphForPrompt } from "../analysis/synergyGraph";
+import { detectComboChains } from "../analysis/comboChainDetector";
 import type {
   GenerateOptions,
   GenerateResult,
@@ -111,10 +114,12 @@ async function invokeProvider(
     if (budget.used >= budget.ceiling) throw new CallBudgetExceededError(budget.ceiling);
     budget.used += 1;
   }
-  if (provider.generateStream && onToken) {
-    return provider.generateStream(req, onToken);
-  }
-  return provider.generate(req);
+  config.signal?.throwIfAborted();
+  const raw = provider.generateStream && onToken
+    ? await provider.generateStream(req, (chunk) => { if (!config.signal?.aborted) onToken(chunk); })
+    : await provider.generate(req);
+  config.signal?.throwIfAborted();
+  return raw;
 }
 
 /**
@@ -571,7 +576,9 @@ export async function generateDeckAI(
   const temperature = config.temperature ?? DEFAULT_AI_TEMPERATURE;
   const iterations = Math.max(1, Math.min(4, options.aiIterations ?? 1));
   // Fix 7: establish (or reuse) the shared provider-call budget for this generation.
-  config = { ...config, callBudget: config.callBudget ?? createCallBudget() };
+  const generationSignal = config.signal ?? new AbortController().signal;
+  generationSignal.throwIfAborted();
+  config = { ...config, signal: generationSignal, callBudget: config.callBudget ?? createCallBudget() };
   let budgetHit = false;
 
   const reasoning: string[] = [
@@ -617,7 +624,7 @@ export async function generateDeckAI(
     }
 
     const passReasoning: string[] = [];
-    const result = buildResultFromAIResponse(options, allCards, raw, passReasoning, targetMainboardSize);
+    const result = await buildResultFromAIResponse(options, allCards, raw, passReasoning, targetMainboardSize, generationSignal);
     if (!result) {
       throw new Error(`AI generation failed during ${passLabel}: the response contained no usable card entries.`);
     }
@@ -676,7 +683,7 @@ export async function generateDeckAI(
       const raw = await invokeProvider(provider, req, config, config.onToken);
       config.onRaw?.(raw);
       const passReasoning: string[] = [];
-      const retry = buildResultFromAIResponse(options, allCards, raw, passReasoning, targetMainboardSize);
+      const retry = await buildResultFromAIResponse(options, allCards, raw, passReasoning, targetMainboardSize, generationSignal);
       if (retry) {
         for (const line of passReasoning) reasoning.push(`  ${line}`);
         const before = (signal.rejectionSummary ? 1 : 0) + signal.unresolvedNames.length;
@@ -695,6 +702,7 @@ export async function generateDeckAI(
         reasoning.push("Re-prompt produced no usable cards; keeping original deck with issues surfaced as warnings.");
       }
     } catch (e) {
+      if (generationSignal.aborted || isAbortLike(e)) throw e;
       if (e instanceof CallBudgetExceededError) {
         reasoning.push(`Re-prompt skipped: ${e.message}`);
         budgetHit = true;
@@ -776,7 +784,9 @@ export async function generateDeckAISequential(
   const digestLimit = config.digestLimit ?? DEFAULT_DIGEST_LIMIT;
   const temperature = config.temperature ?? DEFAULT_AI_TEMPERATURE;
   // Fix 7: establish (or reuse) the shared provider-call budget for this generation.
-  config = { ...config, callBudget: config.callBudget ?? createCallBudget() };
+  const generationSignal = config.signal ?? new AbortController().signal;
+  generationSignal.throwIfAborted();
+  config = { ...config, signal: generationSignal, callBudget: config.callBudget ?? createCallBudget() };
   let budgetHit = false;
 
   // Nonland budget: 60 % of the mainboard (midpoint of the 55–65 % heuristic).
@@ -890,10 +900,10 @@ export async function generateDeckAISequential(
     const proposedLines = (parsed.main ?? [])
       .map((m) => ({
         name: m.name ?? "",
-        quantity: Math.max(1, Math.floor(Number(m.qty ?? m.quantity ?? 1))),
+        quantity: Math.floor(Number(m.qty ?? m.quantity ?? 1)),
         board: "main" as const,
       }))
-      .filter((l) => l.name);
+      .filter((l) => l.name && Number.isSafeInteger(l.quantity) && l.quantity > 0);
 
     if (proposedLines.length === 0) {
       throw new Error(`AI sequential generation failed during ${passLabel}: the response contained no usable card entries.`);
@@ -905,14 +915,27 @@ export async function generateDeckAISequential(
     }
 
     const lockedIds = new Set(currentSeeds.map((e) => e.card.oracleId));
+    const eligibleIds = new Set(buildPool(allCards, options).map((card) => card.id));
     const newEntries: DeckEntry[] = [];
+    let stepRemaining = thisStepTarget;
     for (const r of resolved) {
+      if (r.card.typeLine.includes("Land") || !eligibleIds.has(r.card.id)) {
+        reasoning.push(`${passLabel}: dropped ineligible/nonland-core pick ${r.card.name}.`);
+        continue;
+      }
       if (lockedIds.has(r.card.oracleId)) {
         reasoning.push(`${passLabel}: skipped already-locked card ${r.card.name}.`);
         continue;
       }
+      if (stepRemaining <= 0) {
+        reasoning.push(`${passLabel}: omitted ${r.card.name}; requested step total already reached.`);
+        continue;
+      }
       const cap = maxCopiesForCard(r.card, options.format);
-      newEntries.push({ card: r.card, quantity: Math.min(cap, r.quantity), board: "main" });
+      const quantity = Math.min(cap, r.quantity, stepRemaining);
+      if (quantity < r.quantity) reasoning.push(`${passLabel}: capped ${r.card.name} from ${r.quantity} to ${quantity} copies for format/step limits.`);
+      newEntries.push({ ...r, quantity, board: "main" });
+      stepRemaining -= quantity;
       lockedIds.add(r.card.oracleId);
     }
 
@@ -952,7 +975,7 @@ export async function generateDeckAISequential(
     seedEntries: currentSeeds,
     aiPicksAsFinal: true,
   };
-  const result = buildResultFromAIResponse(finalOptions, allCards, syntheticJSON, finalPassReasoning, targetMainboardSize);
+  const result = await buildResultFromAIResponse(finalOptions, allCards, syntheticJSON, finalPassReasoning, targetMainboardSize, generationSignal);
 
   if (!result) {
     throw new Error(
@@ -993,7 +1016,9 @@ export async function refineDeckAI(
   const targetMainboardSize = normalizedMainboardSize(options);
   const temperature = config.temperature ?? DEFAULT_AI_TEMPERATURE;
   // Fix 7: establish (or reuse) the shared provider-call budget for this generation.
-  config = { ...config, callBudget: config.callBudget ?? createCallBudget() };
+  const generationSignal = config.signal ?? new AbortController().signal;
+  generationSignal.throwIfAborted();
+  config = { ...config, signal: generationSignal, callBudget: config.callBudget ?? createCallBudget() };
 
   const wrapped =
     `User feedback on the previous deck:\n${userMessage.trim()}\n\n` +
@@ -1013,7 +1038,7 @@ export async function refineDeckAI(
     `Engine: AI chat-refine (${provider.label})`,
     `User comment: ${userMessage.trim().slice(0, 200)}${userMessage.trim().length > 200 ? "…" : ""}`,
   ];
-  const result = buildResultFromAIResponse(options, allCards, raw, passReasoning, targetMainboardSize);
+  const result = await buildResultFromAIResponse(options, allCards, raw, passReasoning, targetMainboardSize, generationSignal);
   if (!result) {
     throw new Error("AI refinement returned no usable cards.");
   }
@@ -1094,7 +1119,9 @@ export async function runRefinementLoop(
   let transcript: AIChatTranscript = (current as GenerateResult & { transcript?: AIChatTranscript }).transcript ?? { messages: [] };
   // Fix 7: one budget shared across every refine iteration in this loop so the
   // loop cannot fan out beyond the ceiling. refineDeckAI reuses it via config.
-  config = { ...config, callBudget: config.callBudget ?? createCallBudget() };
+  const generationSignal = config.signal ?? new AbortController().signal;
+  generationSignal.throwIfAborted();
+  config = { ...config, signal: generationSignal, callBudget: config.callBudget ?? createCallBudget() };
 
   for (let i = 0; i < maxIterations; i++) {
     const mv = current.mythicViability;
@@ -1111,6 +1138,7 @@ export async function runRefinementLoop(
       // If the AI call fails mid-loop, keep the last good result. When the loop
       // stops because the shared call budget ran out, surface it to the user
       // rather than silently ending refinement.
+      if (generationSignal.aborted || isAbortLike(e)) throw e;
       if (e instanceof CallBudgetExceededError) {
         current.warnings = [
           ...(current.warnings ?? []),
@@ -1168,13 +1196,15 @@ export interface ValidateAIProposalInput {
   finalEntries?: DeckEntry[];
 }
 
-function buildResultFromAIResponse(
+async function buildResultFromAIResponse(
   options: GenerateOptions,
   allCards: CardRecord[],
   raw: string,
   reasoning: string[],
-  targetMainboardSize: number
-): GenerateResult | null {
+  targetMainboardSize: number,
+  signal: AbortSignal
+): Promise<GenerateResult | null> {
+  signal.throwIfAborted();
   const warnings: string[] = [];
   let parsed: Parsed;
   try {
@@ -1224,13 +1254,16 @@ function buildResultFromAIResponse(
     options,
   });
   appendAIProposalValidationReasoning(proposalValidation, reasoning);
-  const legalPoolIds = new Set(buildPool(allCards, options).map((card) => card.oracleId));
-  const usableMainPicks = resolved.filter((entry) =>
-    entry.board === "main" &&
-    !entry.card.typeLine.includes("Land") &&
-    legalPoolIds.has(entry.card.oracleId) &&
+  const legalPoolIds = new Set(buildPool(allCards, options).map((card) => card.id));
+  const eligiblePicks = resolved.filter((entry) =>
+    legalPoolIds.has(entry.card.id) &&
     getCardLegality(entry.card, options.format) === "legal"
   );
+  const droppedPicks = resolved.filter((entry) => !eligiblePicks.includes(entry));
+  if (droppedPicks.length > 0) {
+    warnings.push(`Dropped ${droppedPicks.length} AI pick(s) outside the legal selected pool: ${[...new Set(droppedPicks.map((entry) => entry.card.name))].join(", ")}.`);
+  }
+  const usableMainPicks = eligiblePicks.filter((entry) => entry.board === "main" && !entry.card.typeLine.includes("Land"));
   if (usableMainPicks.length === 0) {
     reasoning.push("AI proposal contained no resolved, format-legal mainboard nonland cards from the selected pool.");
     return null;
@@ -1244,7 +1277,7 @@ function buildResultFromAIResponse(
   }
 
   const aggregated = new Map<string, DeckEntry>();
-  for (const r of resolved) {
+  for (const r of eligiblePicks) {
     const key = `${r.card.oracleId}|${r.board}`;
     const cap = maxCopiesForCard(r.card, options.format);
     const prev = aggregated.get(key);
@@ -1277,41 +1310,54 @@ function buildResultFromAIResponse(
   // lands, and the land-floor guard cannot shed any locked card — shipping decks
   // with 7-land mana bases.
   const useAIPicksAsFinal = options.aiPicksAsFinal === true;
+  const preserveSeedQuantity = options.seedPolicy !== "strong-preference" && options.seedPolicy !== "inspiration";
+  const originalSeedKeys = new Set((options.seedEntries ?? []).map((entry) => `${entry.card.oracleId}|${entry.board}`));
+  const overlappingPicks = aiNonlandPreferences.filter((entry) => originalSeedKeys.has(`${entry.card.oracleId}|${entry.board}`));
+  const reconciledSeeds = mergeEntries(options.seedEntries ?? [], overlappingPicks, preserveSeedQuantity);
   let lockedAIPreferences = aiNonlandPreferences;
   if (useAIPicksAsFinal) {
-    const clamp = clampAINonlandSpine(aiNonlandPreferences, options.seedEntries ?? [], targetMainboardSize);
-    lockedAIPreferences = clamp.entries;
+    const freshPicks = aiNonlandPreferences.filter((entry) => !originalSeedKeys.has(`${entry.card.oracleId}|${entry.board}`));
+    const clamp = clampAINonlandSpine(freshPicks, reconciledSeeds, targetMainboardSize);
+    lockedAIPreferences = [...overlappingPicks, ...clamp.entries];
     if (clamp.trimmedCopies > 0) {
       reasoning.push(
         `AI overshot its nonland budget: returned ${clamp.originalCopies} nonland copies, clamped to ${clamp.maxCopies} (trimmed ${clamp.trimmedCopies} highest-cmc cop${clamp.trimmedCopies === 1 ? "y" : "ies"}) to reserve ${clamp.landBudget} slots for the offline mana base.`
       );
     }
   }
-  const offlineRun = generateOffline(
+  const assembled = await generateDecksInWorker(
     {
       ...options,
       engine: "offline",
+      variants: 1,
       ...(useAIPicksAsFinal
         ? {
-            seedEntries: mergeEntries(options.seedEntries ?? [], lockedAIPreferences),
+            seedEntries: mergeEntries(options.seedEntries ?? [], lockedAIPreferences, preserveSeedQuantity),
             preferEntries: options.preferEntries,
           }
         : { preferEntries: mergeEntries(options.preferEntries ?? [], aiNonlandPreferences) }),
-      allowSeedColorExpansion: true,
+      allowSeedColorExpansion: options.allowSeedColorExpansion === true,
       generateSideboard: false,
     },
-    allCards
+    allCards,
+    signal
   );
+  signal.throwIfAborted();
+  const offlineRun = assembled.variants[assembled.bestIndex];
   if (useAIPicksAsFinal) {
     const lockedCopies = lockedAIPreferences.reduce((s, e) => s + e.quantity, 0);
     reasoning.push(`aiPicksAsFinal=true: AI's ${lockedAIPreferences.length} nonland pick(s) (${lockedCopies} copies) locked as the deck spine at requested quantities — optimizer gap-fills remaining slots only.`);
   }
 
-  const normalizedSide = normalizeSideboard(aiSideEntries, options, reasoning);
-  let entries = [...offlineRun.entries.filter((e) => e.board === "main"), ...normalizedSide];
-  const lockedSpineIds = useAIPicksAsFinal
-    ? new Set([...(options.seedEntries ?? []), ...lockedAIPreferences].map((e) => e.card.oracleId))
-    : undefined;
+  const retainedOriginalSeeds = (options.seedEntries ?? []).filter((entry) => preserveSeedQuantity || entry.quantityLocked);
+  const restoredMain = mergeEntries(retainedOriginalSeeds.filter((entry) => entry.board === "main"), offlineRun.entries.filter((entry) => entry.board === "main"), true);
+  const originalSide = retainedOriginalSeeds.filter((entry) => entry.board === "side");
+  const normalizedSide = normalizeSideboard(aiSideEntries, [...restoredMain, ...originalSide], options, reasoning);
+  let entries = [...restoredMain, ...originalSide, ...normalizedSide].map((entry) => {
+    const original = options.seedEntries?.find((seed) => seed.card.oracleId === entry.card.oracleId && seed.board === entry.board);
+    return original ? { ...original, ...entry } : entry;
+  });
+  const lockedSpineIds = new Set([...retainedOriginalSeeds, ...(useAIPicksAsFinal ? lockedAIPreferences : [])].map((entry) => entry.card.oracleId));
   // CRITICAL: trimMainboardToSize prefers cutting lands over nonlands (lands sort
   // first for removal). After trimming, restore the land floor with enforceLandFloor.
   // The offline generator already runs this internally, but the post-trim step above
@@ -1328,6 +1374,10 @@ function buildResultFromAIResponse(
     finalEntries: entries,
   });
   appendAIProposalValidationReasoning(finalValidation, reasoning);
+  const validation = validateGenerationResult(entries, options);
+  if (!validation.legal) {
+    warnings.push(`Final result validation failed: ${validation.violations.map((violation) => violation.message).join(" ")}`);
+  }
 
   // Structural feasibility diagnostics on the assembled mainboard. These are
   // advisory only (they do not reject the deck) but surface construction issues
@@ -1347,12 +1397,13 @@ function buildResultFromAIResponse(
   reasoning.push("— Offline pipeline (AI cards as soft preferences) —");
   for (const line of offlineRun.diagnostics.reasoning) reasoning.push(line);
 
-  const target = blendRoleTargets(options.archetype, options.secondaryArchetypes);
-  const targetAvgCmc = targetAvgCmcFor(options, target.maxAvgCmc);
-  const score = deckScore(entries, options, targetAvgCmc);
-  const scoreBreakdown = buildScoreBreakdown(entries, options, targetAvgCmc);
+  const scoringOptions = offlineRun.scoringOptions ?? options;
+  const target = blendRoleTargets(scoringOptions.archetype, scoringOptions.secondaryArchetypes);
+  const targetAvgCmc = targetAvgCmcFor(scoringOptions, target.maxAvgCmc);
+  const score = deckScore(entries, scoringOptions, targetAvgCmc);
+  const scoreBreakdown = buildScoreBreakdown(entries, scoringOptions, targetAvgCmc);
 
-  const primaryAxes = keywordFocusToAxes(options.keywordFocus ?? []);
+  const primaryAxes = offlineRun.diagnostics.primaryAxes;
   const diagnostics: GenerationDiagnostic = {
     reasoning: [...reasoning],
     deckScore: score.total,
@@ -1361,6 +1412,8 @@ function buildResultFromAIResponse(
     manaBaseCoverage: score.manaBaseCoverage,
     optimizerSteps: offlineRun.diagnostics.optimizerSteps,
     primaryAxes,
+    axisConfidence: inferPrimaryAxesDetailed(entries.filter((entry) => entry.board === "main" && !entry.card.typeLine.includes("Land")).map((entry) => buildSynergyProfile(entry.card))),
+    seedFeasibilityFlags: offlineRun.diagnostics.seedFeasibilityFlags,
   };
 
   const deckProfiles = entries
@@ -1413,6 +1466,8 @@ function buildResultFromAIResponse(
   );
   reasoning.push(`Tempo score: ${tempoScore.toFixed(0)} | Card advantage score: ${cardAdvantageScore.toFixed(0)}`);
 
+  const deckSynergyGraph = buildDeckSynergyGraph(entries);
+
   return {
     entries,
     archetype: options.archetype,
@@ -1424,13 +1479,18 @@ function buildResultFromAIResponse(
     focusedCards: (options.focusEntries ?? []).map((e) => e.card),
     cardReasons,
     scoreBreakdown,
+    validation,
+    scoringOptions,
+    scenarioCoverage: score.scenarioCoverage,
+    comboChains: detectComboChains(deckSynergyGraph),
+    verifiedCombos: (offlineRun.verifiedCombos ?? []).filter((combo) => isComboPackagePresent(combo, entries)),
     aiSummary: parsed.summary?.trim() || undefined,
     aiGamePlan: parsed.game_plan?.trim() || undefined,
     mythicViability,
     tempoScore,
     cardAdvantageScore,
     synergyViolations,
-    deckSynergyGraph: buildDeckSynergyGraph(entries),
+    deckSynergyGraph,
     warnings: warnings.length > 0 ? warnings : undefined,
     repromptSignal: { rejectionSummary, unresolvedNames },
   };
@@ -1438,7 +1498,7 @@ function buildResultFromAIResponse(
 
 export function validateAIProposal(input: ValidateAIProposalInput): AIProposalValidationResult {
   const issues: AIProposalValidationIssue[] = [];
-  const poolIds = new Set(buildPool(input.allCards, input.options).map((card) => card.oracleId));
+  const poolIds = new Set(buildPool(input.allCards, input.options).map((card) => card.id));
 
   if (input.unresolvedNames?.length) {
     issues.push({
@@ -1450,7 +1510,7 @@ export function validateAIProposal(input: ValidateAIProposalInput): AIProposalVa
 
   const combinedCounts = new Map<string, { card: CardRecord; requested: number }>();
   for (const entry of input.resolvedEntries) {
-    if (!poolIds.has(entry.card.oracleId)) {
+    if (!poolIds.has(entry.card.id)) {
       issues.push({
         code: "OUT_OF_POOL",
         message: `AI referenced a resolved card outside the selected pool: ${entry.card.name}.`,
@@ -1617,18 +1677,24 @@ export function clampAINonlandSpine(
   };
 }
 
-function mergeEntries(base: DeckEntry[], additions: DeckEntry[]): DeckEntry[] {
+function mergeEntries(base: DeckEntry[], additions: DeckEntry[], preserveBaseQuantity = false): DeckEntry[] {
   const merged = new Map<string, DeckEntry>();
-  for (const entry of [...base, ...additions]) {
+  for (const entry of base) {
     const key = `${entry.card.oracleId}|${entry.board}`;
     const existing = merged.get(key);
     if (existing) existing.quantity += entry.quantity;
-    else merged.set(key, { card: entry.card, quantity: entry.quantity, board: entry.board });
+    else merged.set(key, { ...entry });
+  }
+  for (const entry of additions) {
+    const key = `${entry.card.oracleId}|${entry.board}`;
+    const existing = merged.get(key);
+    if (!existing) merged.set(key, { ...entry });
+    else if (!preserveBaseQuantity && !existing.quantityLocked) existing.quantity = Math.max(existing.quantity, entry.quantity);
   }
   return [...merged.values()];
 }
 
-function normalizeSideboard(sideEntries: DeckEntry[], options: GenerateOptions, reasoning: string[]): DeckEntry[] {
+function normalizeSideboard(sideEntries: DeckEntry[], existingEntries: DeckEntry[], options: GenerateOptions, reasoning: string[]): DeckEntry[] {
   const rules = getFormatRules(options.format);
   if (rules.sideboardSize == null || !options.generateSideboard) {
     if (sideEntries.length > 0) reasoning.push(`Dropped AI sideboard because ${rules.label} sideboards are disabled or unavailable.`);
@@ -1636,6 +1702,9 @@ function normalizeSideboard(sideEntries: DeckEntry[], options: GenerateOptions, 
   }
   const normalized: DeckEntry[] = [];
   const combinedCounts = new Map<string, number>();
+  for (const entry of existingEntries) {
+    combinedCounts.set(entry.card.oracleId, (combinedCounts.get(entry.card.oracleId) ?? 0) + entry.quantity);
+  }
   for (const entry of sideEntries) {
     const already = combinedCounts.get(entry.card.oracleId) ?? 0;
     const qty = Math.max(0, Math.min(entry.quantity, maxCopiesForCard(entry.card, options.format) - already));
@@ -1643,15 +1712,17 @@ function normalizeSideboard(sideEntries: DeckEntry[], options: GenerateOptions, 
     normalized.push({ ...entry, quantity: qty, board: "side" });
     combinedCounts.set(entry.card.oracleId, already + qty);
   }
+  const reservedSlots = existingEntries.filter((entry) => entry.board === "side").reduce((sum, entry) => sum + entry.quantity, 0);
+  const availableSlots = Math.max(0, rules.sideboardSize - reservedSlots);
   let total = normalized.reduce((sum, entry) => sum + entry.quantity, 0);
-  if (total > rules.sideboardSize) {
-    let over = total - rules.sideboardSize;
+  if (total > availableSlots) {
+    let over = total - availableSlots;
     for (let i = normalized.length - 1; i >= 0 && over > 0; i--) {
       const remove = Math.min(normalized[i].quantity, over);
       normalized[i].quantity -= remove;
       over -= remove;
     }
-    total = rules.sideboardSize;
+    total = availableSlots;
   }
   const trimmed = normalized.filter((entry) => entry.quantity > 0);
   if (sideEntries.length > 0) reasoning.push(`AI sideboard normalized to ${total}/${rules.sideboardSize} cards.`);
@@ -1747,7 +1818,7 @@ function normalizedMainboardSize(options: GenerateOptions): number {
 }
 
 function trimMainboardToSize(entries: DeckEntry[], targetSize: number, lockedIds?: Set<string>): DeckEntry[] {
-  const next = entries.map((entry) => ({ card: entry.card, quantity: entry.quantity, board: entry.board }));
+  const next = entries.map((entry) => ({ ...entry }));
   let total = next.filter((e) => e.board === "main").reduce((sum, entry) => sum + entry.quantity, 0);
   if (total <= targetSize) return next;
 

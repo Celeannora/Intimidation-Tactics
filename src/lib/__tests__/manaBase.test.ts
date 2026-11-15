@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { recommendLandCount } from "../manaBase";
+import { recommendLandCount, recommendColorSources } from "../manaBase";
 import type { DeckEntry } from "../legality";
 import type { CardRecord } from "../types";
 
@@ -77,5 +77,29 @@ describe("recommendLandCount", () => {
     const result = recommendLandCount([]);
     expect(result.recommended).toBe(24);
     expect(result.avgManaValue).toBe(0);
+  });
+});
+
+describe("source demand selection", () => {
+  it("still rounds a positive half-pip up for conservative Karsten lookup", () => {
+    const spell: DeckEntry = { card: makeCard({ cmc: 1, manaCost: "{W/P}" }), quantity: 4, board: "main" };
+    expect(recommendColorSources([spell], 0)[0]).toMatchObject({
+      pips: 2, recommendedSources: 14, requiredPips: 1, requiredByTurn: 1,
+      criticallyUndersourced: true,
+    });
+  });
+
+  it.each([false, true])("selects WW on turn two over WWW on turn eight (reverse=%s)", reverse => {
+    const spells: DeckEntry[] = [
+      { card: makeCard({ cmc: 2, manaCost: "{W}{W}" }), quantity: 4, board: "main" },
+      { card: makeCard({ cmc: 8, manaCost: "{5}{W}{W}{W}" }), quantity: 4, board: "main" },
+    ];
+    if (reverse) spells.reverse();
+    const lands: DeckEntry = { card: makeCard({ cmc: 0, typeLine: "Basic Land", producedManaJson: '["W"]' }), quantity: 17, board: "main" };
+    expect(recommendColorSources([...spells, lands], 17)[0]).toMatchObject({
+      recommendedSources: 20, requiredPips: 2, requiredByTurn: 2,
+      actualSources: 17, criticallyUndersourced: true,
+    });
+    expect(recommendColorSources([...spells, { ...lands, quantity: 20 }], 20)[0].criticallyUndersourced).toBe(false);
   });
 });

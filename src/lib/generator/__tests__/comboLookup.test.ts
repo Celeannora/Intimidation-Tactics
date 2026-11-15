@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { db } from "../../db";
 import {
   COMBO_LOOKUP_CACHE_TTL_MS,
+  comboLookupCacheKey,
   fetchCommanderSpellbookCombos,
   getCommanderSpellbookCombos,
 } from "../comboLookup";
@@ -74,12 +75,12 @@ describe("Commander Spellbook combo lookup", () => {
     expect(request?.method).toBe("POST");
     expect(JSON.parse(String(request?.body))).toEqual({
       main: [
-        { card: "Legal A", quantity: 1 },
-        { card: "Legal B", quantity: 1 },
-        { card: "Rotated Card", quantity: 1 },
+        { card: "Legal A", quantity: 4 },
+        { card: "Legal B", quantity: 4 },
+        { card: "Rotated Card", quantity: 4 },
       ],
     });
-    const key = cards.map((card) => card.oracleId).sort().join("|");
+    const key = comboLookupCacheKey(cards);
     await expect(db.commanderSpellbookCombos.get(key)).resolves.toMatchObject({
       combos: [{ id: "legal-combo" }],
     });
@@ -87,7 +88,7 @@ describe("Commander Spellbook combo lookup", () => {
 
   it("falls back to a stale cache when a network lookup fails", async () => {
     const cards = [makeCard("A"), makeCard("B")];
-    const key = cards.map((card) => card.oracleId).sort().join("|");
+    const key = comboLookupCacheKey(cards);
     await db.commanderSpellbookCombos.put({
       key,
       cachedAt: Date.now() - COMBO_LOOKUP_CACHE_TTL_MS - 1,

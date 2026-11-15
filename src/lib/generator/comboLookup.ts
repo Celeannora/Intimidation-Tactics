@@ -13,7 +13,9 @@
 
 import type { CardRecord } from "../types";
 import { isCardLegalInFormat } from "../formats";
+import { maxCopiesForCard } from '../legality';
 import { db } from "../db";
+export { isComboPackagePresent } from './comboRequirements';
 
 const BASE_URL = "https://backend.commanderspellbook.com";
 const FIND_MY_COMBOS_URL = `${BASE_URL}/find-my-combos/`;
@@ -26,6 +28,11 @@ export interface VerifiedCombo {
   description: string;
   explanation: string;
   source: "Commander Spellbook";
+  /** Required copies by Oracle identity; legacy records imply one each. */
+  requiredQuantities?: Record<string, number>;
+  /** Additional game-state conditions, not established by deck membership. */
+  prerequisites?: string;
+  prerequisitesSatisfied?: boolean;
 }
 
 interface SpellbookCard {
@@ -41,8 +48,10 @@ interface SpellbookVariant {
   notablePrerequisites?: unknown;
 }
 
-function cacheKey(cards: CardRecord[]): string {
-  return cards.map((card) => card.oracleId).slice().sort().join("|");
+export function comboLookupCacheKey(cards: CardRecord[]): string {
+  // v2 discards old identity-only records that lost quantity/prerequisite data.
+  return 'v2:' + JSON.stringify(cards.map(card => [card.oracleId, card.name, card.legalitiesJson ?? null, card.legalityStandard ?? null])
+    .sort((a, b) => String(a[0]).localeCompare(String(b[0]))));
 }
 
 /**
@@ -59,7 +68,9 @@ export async function fetchCommanderSpellbookCombos(
       method: "POST",
       headers: { Accept: "application/json", "Content-Type": "application/json" },
       body: JSON.stringify({
-        main: cards.map((card) => ({ card: card.name, quantity: 1 })),
+        // This is a candidate pool, not a submitted deck: discover packages
+        // requiring multiple legal copies, then check actual final quantities.
+        main: cards.map((card) => ({ card: card.name, quantity: maxCopiesForCard(card, 'standard') })),
       }),
     });
     if (!response.ok) return null;
@@ -80,7 +91,7 @@ export async function getCommanderSpellbookCombos(
   fetchImpl: typeof fetch = fetch,
 ): Promise<VerifiedCombo[]> {
   if (cards.length === 0) return [];
-  const key = cacheKey(cards);
+  const key = comboLookupCacheKey(cards);
   const cached = await readCache(key);
   if (cached && Date.now() - cached.cachedAt < COMBO_LOOKUP_CACHE_TTL_MS) return cached.combos;
 
@@ -113,7 +124,16 @@ export function parseStandardLegalCombos(payload: unknown, localCards: CardRecor
     if (pieces.some((piece) => !piece || !isCardLegalInFormat(piece, "standard"))) continue;
 
     const resolved = pieces as CardRecord[];
-    const cardNames = resolved.map((card) => card.name);
+    const quantities = raw.uses.map(use => use.quantity ?? 1);
+    if (quantities.some(q => !Number.isSafeInteger(q) || (q as number) < 1 || (q as number) > 99)) continue;
+    const requiredQuantities: Record<string, number> = {};
+    for (let i = 0; i < resolved.length; i++) {
+      const id = resolved[i].oracleId;
+      requiredQuantities[id] = (requiredQuantities[id] ?? 0) + (quantities[i] as number);
+    }
+    if (Object.values(requiredQuantities).some(q => q > 99)) continue;
+    const uniqueCards = [...new Map(resolved.map(card => [card.oracleId, card])).values()];
+    const cardNames = uniqueCards.map((card) => card.name);
     const prerequisites = [raw.easyPrerequisites, raw.notablePrerequisites]
       .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
       .join(" ");
@@ -124,7 +144,9 @@ export function parseStandardLegalCombos(payload: unknown, localCards: CardRecor
 
     output.set(raw.id, {
       id: raw.id,
-      cardOracleIds: resolved.map((card) => card.oracleId),
+      cardOracleIds: uniqueCards.map((card) => card.oracleId),
+      requiredQuantities,
+      prerequisites,
       cardNames,
       description,
       explanation,

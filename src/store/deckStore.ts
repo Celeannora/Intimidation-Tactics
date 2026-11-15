@@ -6,6 +6,7 @@ import type { CardRecord } from "../lib/types";
 import type { DeckEntry, ValidationResult } from "../lib/legality";
 import type { CompanionCheckResult } from "../lib/companion";
 import type { SavedDeck } from "../lib/db";
+import type { ConstructedFormat } from "../lib/formats";
 
 import { assertDeckBudget, assertShareableDecoded, type ShareableDecoded } from "../lib/deckInput";
 export type { ShareableDecoded } from "../lib/deckInput";
@@ -14,6 +15,7 @@ export interface DeckState {
   activeDeckId: string;
   deckId: string | null;
   deckName: string;
+  format: ConstructedFormat;
   entries: DeckEntry[];
   /** oracleId -> locked quantity. Pinned cards are immune to generator/optimizer swaps. */
   pins: Record<string, number>;
@@ -32,6 +34,8 @@ export interface DeckState {
   addCard: (card: CardRecord, board: "main" | "side") => void;
   /** Bounded, atomic import; returns the number of copies actually added. */
   importEntries: (entries: DeckEntry[], replace: boolean) => number;
+  /** Generated results are accepted atomically, unlike diagnostic manual editing. */
+  applyGeneratedDeck: (entries: DeckEntry[], format: ConstructedFormat, name?: string) => ValidationResult;
   removeCard: (oracleId: string, board: "main" | "side") => void;
   setQuantity: (oracleId: string, board: "main" | "side", qty: number) => void;
   moveCard: (oracleId: string, from: "main" | "side", to: "main" | "side") => void;
@@ -81,9 +85,9 @@ function prunePin(
 }
 
 function revalidate(
-  entries: DeckEntry[]
+  entries: DeckEntry[], format?: ConstructedFormat
 ): { validation: ValidationResult; companionCheck: CompanionCheckResult | null } {
-  const validation = validateDeck(entries);
+  const validation = validateDeck(entries, format);
   // Check properties once per entry; never allocate one slot per untrusted copy.
   const sideCards = entries.filter(e => e.board === "side" && e.quantity > 0).map(e => e.card);
   const mainCards = entries.filter(e => e.board === "main" && e.quantity > 0).map(e => e.card);
@@ -101,6 +105,7 @@ export const useDeckStore = create<DeckState>()((set, get) => ({
   activeDeckId: makeId(),
   deckId: null,
   deckName: "New Deck",
+  format: "standard",
   entries: [],
   pins: {},
   savedDecks: [],
@@ -120,10 +125,11 @@ export const useDeckStore = create<DeckState>()((set, get) => ({
   },
 
   async saveCurrentDeck() {
-    const { activeDeckId, deckName, entries, pins } = get();
+    const { activeDeckId, deckName, entries, pins, format } = get();
     const record: SavedDeck = {
       id:        activeDeckId,
       name:      deckName,
+      format,
       updatedAt: Date.now(),
       mainboard: entriesToRecord(entries, "main"),
       sideboard: entriesToRecord(entries, "side"),
@@ -171,12 +177,14 @@ export const useDeckStore = create<DeckState>()((set, get) => ({
       if (mainIds.has(oracleId)) pins[oracleId] = qty;
     }
 
+    const format = saved.format ?? "standard";
     set({
       activeDeckId: saved.id,
       deckName:     saved.name,
       entries,
       pins,
-      ...revalidate(entries),
+      format,
+      ...revalidate(entries, format),
     });
   },
 
@@ -202,6 +210,7 @@ export const useDeckStore = create<DeckState>()((set, get) => ({
       activeDeckId: makeId(),
       deckId:       null,
       deckName:     "New Deck",
+      format:       "standard",
       entries,
       pins:         {},
       ...revalidate(entries),
@@ -211,9 +220,11 @@ export const useDeckStore = create<DeckState>()((set, get) => ({
   // ── Card editing ──────────────────────────────────────────────────────────
 
   addCard(card, board) {
-    const { entries } = get();
+    const { entries, format } = get();
     const existing   = entries.find(e => e.card.oracleId === card.oracleId && e.board === board);
-    const maxCopies  = maxCopiesForCard(card);
+    const maxCopies  = maxCopiesForCard(card, format);
+    const total = entries.filter(e => e.card.oracleId === card.oracleId).reduce((sum, e) => sum + e.quantity, 0);
+    if (total >= maxCopies) return;
 
     let updated: DeckEntry[];
     if (existing) {
@@ -226,7 +237,7 @@ export const useDeckStore = create<DeckState>()((set, get) => ({
     } else {
       updated = [...entries, { card, quantity: 1, board }];
     }
-    set({ entries: updated, ...revalidate(updated) });
+    set({ entries: updated, ...revalidate(updated, format) });
   },
 
   importEntries(incoming, replace) {
@@ -247,19 +258,48 @@ export const useDeckStore = create<DeckState>()((set, get) => ({
       const existing = updated.get(key);
       const previous = existing?.quantity ?? 0;
       // Preserve the editing cap without looping once per requested copy.
-      const quantity = Math.max(previous, Math.min(previous + entry.quantity, maxCopiesForCard(existing?.card ?? entry.card)));
-      updated.set(key, { ...(existing ?? entry), quantity });
+      const otherBoardQuantity = [...updated.values()]
+        .filter(e => e.card.oracleId === entry.card.oracleId && e.board !== entry.board)
+        .reduce((sum, e) => sum + e.quantity, 0);
+      const available = Math.max(0, maxCopiesForCard(existing?.card ?? entry.card, current.format) - otherBoardQuantity);
+      const quantity = Math.max(previous, Math.min(previous + entry.quantity, available));
+      if (quantity > 0) updated.set(key, { ...(existing ?? entry), quantity });
       added += quantity - previous;
     }
     const entries = [...updated.values()];
     assertDeckBudget(entries);
-    const validation = revalidate(entries); // All work completes before any state change.
+    const validation = revalidate(entries, current.format); // All work completes before any state change.
     set({ entries, ...validation, ...(replace ? { pins: {}, activeDeckId: makeId() } : {}) });
     return added;
   },
 
+  applyGeneratedDeck(incoming, format, name) {
+    assertDeckBudget(incoming);
+    const current = get();
+    const entries = incoming.map((entry) => {
+      const wasLocked = current.entries.some((old) => old.board === entry.board &&
+        old.card.oracleId === entry.card.oracleId && old.quantityLocked);
+      return { ...entry, ...(wasLocked ? { quantityLocked: true } : {}) };
+    });
+    const checked = revalidate(entries, format);
+    for (const [oracleId, quantity] of Object.entries(current.pins)) {
+      const actual = entries.filter((entry) => entry.board === "main" && entry.card.oracleId === oracleId)
+        .reduce((sum, entry) => sum + entry.quantity, 0);
+      if (actual !== quantity) {
+        checked.validation.violations.push({
+          rule: "PIN_QUANTITY",
+          message: `Pinned card ${oracleId} requires exactly ${quantity} mainboard copies; received ${actual}.`,
+        });
+        checked.validation.legal = false;
+      }
+    }
+    if (!checked.validation.legal) return checked.validation;
+    set({ entries, format, ...(name === undefined ? {} : { deckName: name }), ...checked });
+    return checked.validation;
+  },
+
   removeCard(oracleId, board) {
-    const { entries, pins } = get();
+    const { entries, pins, format } = get();
     const existing   = entries.find(e => e.card.oracleId === oracleId && e.board === board);
     if (!existing) return;
     const removed = existing.quantity <= 1;
@@ -270,13 +310,15 @@ export const useDeckStore = create<DeckState>()((set, get) => ({
             ? { ...e, quantity: e.quantity - 1 }
             : e
         );
-    set({ entries: updated, pins: prunePin(pins, oracleId, board, removed, existing.quantity - 1), ...revalidate(updated) });
+    set({ entries: updated, pins: prunePin(pins, oracleId, board, removed, existing.quantity - 1), ...revalidate(updated, format) });
   },
 
   setQuantity(oracleId, board, qty) {
-    const { entries, pins }  = get();
+    const { entries, pins, format }  = get();
     const card         = entries.find(e => e.card.oracleId === oracleId)?.card;
-    const maxCopies    = card ? maxCopiesForCard(card) : 4;
+    const otherBoardQuantity = entries.filter(e => e.card.oracleId === oracleId && e.board !== board)
+      .reduce((sum, e) => sum + e.quantity, 0);
+    const maxCopies    = Math.max(0, (card ? maxCopiesForCard(card, format) : 4) - otherBoardQuantity);
     const clampedQty   = Math.max(0, Math.min(qty, maxCopies));
 
     let updated: DeckEntry[];
@@ -291,7 +333,7 @@ export const useDeckStore = create<DeckState>()((set, get) => ({
           : e
       );
     }
-    set({ entries: updated, pins: prunePin(pins, oracleId, board, clampedQty === 0, clampedQty), ...revalidate(updated) });
+    set({ entries: updated, pins: prunePin(pins, oracleId, board, clampedQty === 0, clampedQty), ...revalidate(updated, format) });
   },
 
   toggleQuantityLock(oracleId) {
@@ -305,13 +347,13 @@ export const useDeckStore = create<DeckState>()((set, get) => ({
   },
 
   moveCard(oracleId, from, to) {
-    const { entries }    = get();
+    const { entries, pins, format }    = get();
     const entry          = entries.find(e => e.card.oracleId === oracleId && e.board === from);
     if (!entry) return;
 
     const withoutSource  = entries.filter(e => !(e.card.oracleId === oracleId && e.board === from));
     const destExisting   = withoutSource.find(e => e.card.oracleId === oracleId && e.board === to);
-    const maxCopies      = maxCopiesForCard(entry.card);
+    const maxCopies      = maxCopiesForCard(entry.card, format);
 
     const updated: DeckEntry[] = destExisting
       ? withoutSource.map(e =>
@@ -321,12 +363,12 @@ export const useDeckStore = create<DeckState>()((set, get) => ({
         )
       : [...withoutSource, { ...entry, board: to }];
 
-    set({ entries: updated, ...revalidate(updated) });
+    set({ entries: updated, pins: prunePin(pins, oracleId, from, true, 0), ...revalidate(updated, format) });
   },
 
   clearDeck() {
     const entries: DeckEntry[] = [];
-    set({ entries, pins: {}, activeDeckId: makeId(), ...revalidate(entries) });
+    set({ entries, pins: {}, activeDeckId: makeId(), ...revalidate(entries, get().format) });
   },
 
   setDeckName(name) {
@@ -349,7 +391,7 @@ export const useDeckStore = create<DeckState>()((set, get) => ({
       const card = cardMap.get(id);
       if (card) entries.push({ card, quantity: q, board });
     }
-    set({ entries, pins: {}, deckName: decoded.name, activeDeckId: makeId(), ...revalidate(entries) });
+    set({ entries, pins: {}, deckName: decoded.name, activeDeckId: makeId(), ...revalidate(entries, get().format) });
   },
 
   // ── Card pinning ────────────────────────────────────────────────────────────

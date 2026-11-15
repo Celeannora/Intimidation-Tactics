@@ -27,6 +27,15 @@ export const MDFC_TAPPED_WEIGHT = 0.38;
 
 const COLORS: Color[] = ["W", "U", "B", "R", "G"];
 
+/** Minimal metadata shared by stored cards and flat consistency entries. */
+interface LandSourceMetadata {
+  typeLine: string;
+  producedManaJson?: string;
+  colorIdentityJson?: string;
+  cardFacesJson?: string | null;
+  oracleText?: string | null;
+}
+
 function parseJsonArray(json: string | null | undefined): string[] {
   if (!json) return [];
   try {
@@ -42,11 +51,16 @@ function isLand(typeLine: string | null | undefined): boolean {
 }
 
 /** Colors a card can tap for: produced_mana if present, else color identity. */
-function producedColors(card: CardRecord): Color[] {
-  const produced = parseJsonArray(card.producedManaJson).filter((c): c is Color =>
-    COLORS.includes(c as Color)
-  );
-  if (produced.length > 0) return produced;
+function producedColors(card: LandSourceMetadata): Color[] {
+  if (card.producedManaJson) {
+    try {
+      const produced: unknown = JSON.parse(card.producedManaJson);
+      // An explicit [] or ["C"] is authoritative: neither produces WUBRG.
+      if (Array.isArray(produced)) {
+        return produced.filter((c): c is Color => COLORS.includes(c as Color));
+      }
+    } catch { /* Legacy/malformed metadata may fall back to identity. */ }
+  }
   return parseJsonArray(card.colorIdentityJson).filter((c): c is Color =>
     COLORS.includes(c as Color)
   );
@@ -56,7 +70,7 @@ function producedColors(card: CardRecord): Color[] {
  * Does a (possibly MDFC) card have a land face, and if so does that face have a
  * land type in its own type line? Returns the land-face type line if found.
  */
-function landFaceTypeLine(card: CardRecord): string | null {
+function landFaceTypeLine(card: LandSourceMetadata): string | null {
   if (isLand(card.typeLine)) return card.typeLine;
   const faces = parseJsonArray(card.cardFacesJson) as unknown as Array<{
     type_line?: string;
@@ -69,7 +83,7 @@ function landFaceTypeLine(card: CardRecord): string | null {
 }
 
 /** Whether a land (or land face) enters tapped, by oracle-text heuristic. */
-function entersTapped(card: CardRecord): boolean {
+function entersTapped(card: LandSourceMetadata): boolean {
   const texts: string[] = [];
   if (card.oracleText) texts.push(card.oracleText);
   const faces = parseJsonArray(card.cardFacesJson) as unknown as Array<{
@@ -94,7 +108,13 @@ function entersTapped(card: CardRecord): boolean {
  * 0.38 (tapped); non-lands = 0.
  */
 export function landSourceWeight(card: CardRecord): number {
-  if (isLand(card.typeLine)) return 1;
+  return sourceWeight(card);
+}
+
+function sourceWeight(card: LandSourceMetadata): number {
+  // Joined spell/land type lines are not dedicated land slots. Land/land
+  // pathways still contribute a full source for either available color.
+  if (card.typeLine.split("//").every(type => isLand(type))) return 1;
   // Not a pure land — does it have a land face (MDFC / transform)?
   if (landFaceTypeLine(card)) {
     return entersTapped(card) ? MDFC_TAPPED_WEIGHT : MDFC_UNTAPPED_WEIGHT;
@@ -109,10 +129,17 @@ export function landSourceWeight(card: CardRecord): number {
  * {@link karstenSourcesNeeded}.
  */
 export function countLandSources(entries: DeckEntry[]): Record<Color, number> {
+  return countLandSourcesFromMetadata(entries);
+}
+
+/** Canonical inventory for callers that do not have a complete CardRecord. */
+export function countLandSourcesFromMetadata(
+  entries: ReadonlyArray<{ card: LandSourceMetadata; quantity: number }>
+): Record<Color, number> {
   const sources: Record<Color, number> = { W: 0, U: 0, B: 0, R: 0, G: 0 };
   for (const entry of entries) {
     const card = entry.card;
-    const weight = landSourceWeight(card);
+    const weight = sourceWeight(card);
     if (weight === 0) continue;
     for (const color of producedColors(card)) {
       sources[color] += weight * entry.quantity;

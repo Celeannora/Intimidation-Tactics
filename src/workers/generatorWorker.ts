@@ -9,9 +9,9 @@
  *
  * Protocol
  * --------
- * Incoming:  { type: "generate"; options: GenerateOptions; allCards: CardRecord[] }
- * Outgoing:  { type: "result";  payload: GenerateMultiResult }
- *          | { type: "error";   message: string }
+ * Incoming:  { type: "generate"; requestId: string; options; allCards }
+ * Outgoing:  { type: "result"; requestId: string; payload: GenerateMultiResult }
+ *          | { type: "error"; requestId: string; message: string }
  *
  * The caller (GeneratorPanel / useGenerator hook) is responsible for:
  *   1. Loading cards from Dexie on the main thread.
@@ -32,17 +32,20 @@ import type { CardRecord } from "../lib/types";
 
 export interface GeneratorWorkerRequest {
   type: "generate";
+  requestId: string;
   options: GenerateOptions;
   allCards: CardRecord[];
 }
 
 export interface GeneratorWorkerResultMessage {
   type: "result";
+  requestId: string;
   payload: GenerateMultiResult;
 }
 
 export interface GeneratorWorkerErrorMessage {
   type: "error";
+  requestId: string;
   message: string;
 }
 
@@ -57,12 +60,13 @@ export type GeneratorWorkerResponse =
 const ctx: DedicatedWorkerGlobalScope = self as never;
 
 ctx.onmessage = async (event: MessageEvent<GeneratorWorkerRequest>) => {
-  const { type, options, allCards } = event.data;
+  const { type, requestId, options, allCards } = event.data;
 
   if (type !== "generate") {
     ctx.postMessage({
       type: "error",
       message: `generatorWorker: unknown message type "${type}"`,
+      requestId,
     } satisfies GeneratorWorkerErrorMessage);
     return;
   }
@@ -72,6 +76,7 @@ ctx.onmessage = async (event: MessageEvent<GeneratorWorkerRequest>) => {
     ctx.postMessage({
       type: "result",
       payload: result,
+      requestId,
     } satisfies GeneratorWorkerResultMessage);
   } catch (err) {
     const message =
@@ -79,6 +84,7 @@ ctx.onmessage = async (event: MessageEvent<GeneratorWorkerRequest>) => {
     ctx.postMessage({
       type: "error",
       message,
+      requestId,
     } satisfies GeneratorWorkerErrorMessage);
   }
 };

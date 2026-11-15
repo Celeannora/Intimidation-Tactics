@@ -21,6 +21,8 @@ function card(overrides: Partial<CardRecord>): CardRecord {
     rarity: "common",
     edhrecRank: null,
     gameChanger: 0,
+    legalityStandard: "legal",
+    legalitiesJson: '{"standard":"legal"}',
     ...overrides,
   } as CardRecord;
 }
@@ -68,5 +70,11 @@ describe("optimizer support bucket", () => {
 
     expect(result.entries.some((entry) => entry.card.oracleId === anthem.oracleId)).toBe(true);
     expect(result.entries.some((entry) => entry.card.oracleId === premiumThreat.oracleId)).toBe(false);
+    // Format legality must not make the role-bucket assertion vacuous.
+    const threatResult = optimize(entries, {
+      pool: [premiumThreat], options, targetAvgCmc: 2,
+      locked: new Set(), iterations: 1, rng: () => 0.75,
+    });
+    expect(threatResult.entries.some((entry) => entry.card.oracleId === premiumThreat.oracleId)).toBe(true);
   });
 });

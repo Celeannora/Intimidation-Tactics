@@ -142,14 +142,15 @@ describe("Legality Engine — 50 Edge Cases", () => {
     expect(result.violations.some(v => v.rule === "SIDE_SIZE")).toBe(false);
   });
 
-  // ── 9. Sideboard of 14 triggers SIDE_SIZE ────────────────────────────────
-  it("EC-09: sideboard of 14 triggers SIDE_SIZE", () => {
+  // Sideboard size is a maximum, not a requirement to fill every slot.
+  it("EC-09: sideboard of 14 is legal within the configured maximum", () => {
     const main = fill60(makeCard({}));
     const side: DeckEntry[] = Array.from({ length: 14 }, (_, i) =>
       nCopies(makeCard({ oracleId: `s${i}` }), 1, "side")
     );
     const result = validateDeck([...main, ...side]);
-    expect(result.violations.some(v => v.rule === "SIDE_SIZE")).toBe(true);
+    expect(result.legal).toBe(true);
+    expect(result.violations.some(v => v.rule === "SIDE_SIZE")).toBe(false);
   });
 
   // ── 10. Sideboard of 0 is also valid (empty sideboard allowed) ────────────
@@ -263,8 +264,8 @@ describe("Legality Engine — 50 Edge Cases", () => {
     expect(bannedViolation?.message).toContain("ForbiddenOne");
   });
 
-  // ── 20. Exactly 61 mainboard cards triggers OVER_60 warning ──────────────
-  it("EC-20: 61 mainboard cards triggers OVER_60 warning", () => {
+  // Recommendations must not make an otherwise configured-legal deck illegal.
+  it("EC-20: 61 mainboard cards is within Standard builder bounds", () => {
     const main: DeckEntry[] = [
       ...Array.from({ length: 15 }, (_, i) =>
         nCopies(makeCard({ oracleId: `f${i}` }), 4)
@@ -272,7 +273,18 @@ describe("Legality Engine — 50 Edge Cases", () => {
       nCopies(makeCard({ oracleId: "extra" }), 1),
     ];
     const result = validateDeck(main);
-    expect(result.violations.some(v => v.rule === "OVER_60")).toBe(true);
+    expect(result.legal).toBe(true);
+    expect(result.violations.some(v => v.rule === "OVER_60")).toBe(false);
+  });
+
+  it.each([60, 61, 80])("accepts %i cards within Standard min..max", (quantity) => {
+    expect(validateDeck([nCopies(makeCard({ name: "Island" }), quantity)]).legal).toBe(true);
+  });
+
+  it("retains OVER_60 for exceeding the configured maximum", () => {
+    const result = validateDeck([nCopies(makeCard({ name: "Island" }), 81)]);
+    expect(result.violations).toContainEqual(expect.objectContaining({ rule: "OVER_60" }));
+    expect(result.legal).toBe(false);
   });
 
   // ── 21. "A deck can have any number" card: >4 copies passes MAX_COPIES ────

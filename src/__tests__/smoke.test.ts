@@ -13,7 +13,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 
 import type { CardRecord, ManaColor } from "../lib/types";
 import { generateDecks } from "../lib/generator/generator";
@@ -27,6 +27,13 @@ import { parseDecklistText } from "../lib/deckParser";
 import { resolveCardName } from "../lib/ai/resolver";
 import { generateDeckAI } from "../lib/ai/aiGenerator";
 import type { AIProvider } from "../lib/ai/provider";
+
+// This Node smoke suite exercises actual deterministic assembly without a browser.
+// The real Worker transport/cancellation are covered by the client and mounted AI tests.
+vi.mock("../lib/generator/client", async () => {
+  const { generateDecks } = await import("../lib/generator/generator");
+  return { generateDecksInWorker: vi.fn(async (options: GenerateOptions, cards: CardRecord[]) => generateDecks(options, cards)) };
+});
 
 const here = dirname(fileURLToPath(import.meta.url));
 const POOL: CardRecord[] = JSON.parse(

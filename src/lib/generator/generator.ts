@@ -1,6 +1,8 @@
 import type { CardRecord, ManaColor } from "../types";
 import type { DeckEntry } from "../legality";
-import { BASIC_LAND_NAMES, maxCopiesForCard, validateDeck } from "../legality";
+import { BASIC_LAND_NAMES, maxCopiesForCard } from "../legality";
+import { validateGenerationResult, generationMainboardSize } from "./validation";
+import { isComboPackagePresent } from './comboRequirements';
 import { getFormatRules } from "../formats";
 import { assignRoles, isThreat, type CardRole } from "../roles";
 import {
@@ -657,6 +659,7 @@ function generateOne(
     colors: effectiveColors,
     focusEntries,
     preferEntries: [...legalPreferEntries, ...fuzzedPreferEntries],
+    synergyAxes: deckAxes,
     seedSynergyContext,
   };
 
@@ -1410,16 +1413,13 @@ function generateOne(
 
   const finalDeckSynergyGraph = buildDeckSynergyGraph(finalEntries);
   const comboChains = detectComboChains(finalDeckSynergyGraph);
-  const finalOracleIds = new Set(
-    finalEntries.filter((entry) => entry.board === "main").map((entry) => entry.card.oracleId),
-  );
   const verifiedCombos = (effectiveOptions.comboSynergyContext?.verifiedCombos ?? [])
-    .filter((combo) => combo.cardOracleIds.every((oracleId) => finalOracleIds.has(oracleId)));
+    .filter((combo) => isComboPackagePresent(combo, finalEntries));
   if (comboChains.length > 0 || verifiedCombos.length > 0) {
-    reasoning.push(`Combo results: ${comboChains.length} chain(s)/loop(s), ${verifiedCombos.length} verified combo(s) fully present in final deck`);
+    reasoning.push(`Combo signals: ${comboChains.length} heuristic chain(s)/cycle(s), ${verifiedCombos.length} external package(s) meeting recorded requirements; not a gameplay proof`);
   }
 
-  const validation = validateDeck(finalEntries, options.format);
+  const validation = validateGenerationResult(finalEntries, options);
   if (!validation.legal) {
     reasoning.push(
       ...validation.violations.map((violation) =>
@@ -1429,6 +1429,7 @@ function generateOne(
   }
 
   return {
+    scoringOptions: effectiveOptions,
     entries: finalEntries,
     archetype: options.archetype,
     totalCards: finalEntries.reduce((s, e) => s + e.quantity, 0),
@@ -1903,10 +1904,7 @@ function countMainLands(entries: DeckEntry[]): number {
 }
 
 function normalizedMainboardSize(options: GenerateOptions): number {
-  const rules = getFormatRules(options.format);
-  const requested = options.maxMainboardSize ?? options.mainboardSize ?? rules.defaultMainboardSize;
-  if (!Number.isFinite(requested)) return rules.defaultMainboardSize;
-  return Math.max(rules.minMainboardSize, Math.min(rules.maxMainboardSize, Math.round(requested)));
+  return generationMainboardSize(options);
 }
 
 function scaleRoleTarget(target: RoleTarget, mainboardSize: number): RoleTarget {

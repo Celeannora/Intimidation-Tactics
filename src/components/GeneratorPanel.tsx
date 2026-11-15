@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { db } from "../lib/db";
 import { useDeckStore, useMainboardEntries } from "../store/deckStore";
-import { generateDecks } from "../lib/generator/generator";
+import { generateDecksInWorker } from "../lib/generator/client";
+import { validateGenerationResult } from "../lib/generator/validation";
 import { generateDeckAI, generateDeckAISequential, refineDeckAI, buildAIPrompts, salvageDeckJSON, DEFAULT_AI_TEMPERATURE, DEFAULT_DIGEST_LIMIT, type AIChatTranscript } from "../lib/ai/aiGenerator";
 import { loadAISettings } from "../lib/ai/provider";
 import { makeProvider } from "../lib/ai/factory";
@@ -118,9 +119,7 @@ const UNIQUE_THEMES = THEMES.filter((t) => !LINKED_THEME_IDS.has(t.id));
 
 export function GeneratorPanel() {
   const mainEntries = useMainboardEntries();
-  const clearDeck = useDeckStore((s) => s.clearDeck);
-  const addCard = useDeckStore((s) => s.addCard);
-  const setDeckName = useDeckStore((s) => s.setDeckName);
+  const applyGeneratedDeck = useDeckStore((s) => s.applyGeneratedDeck);
   const pins = useDeckStore((s) => s.pins);
 
   // Form state
@@ -190,10 +189,17 @@ export function GeneratorPanel() {
   const [chatHistory, setChatHistory] = useState<{ role: "user" | "assistant"; text: string }[]>([]);
   const [chatInput, setChatInput] = useState<string>("");
   const lastOptionsRef = useRef<GenerateOptions | null>(null);
+  const resultOptionsRef = useRef(new WeakMap<GenerateResult, GenerateOptions>());
   const [previewPrompts, setPreviewPrompts] = useState<{ system: string; user: string; poolSize: number } | null>(null);
   const [elapsedMs, setElapsedMs] = useState(0);
   const startTimeRef = useRef<number | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => () => {
+    const controller = abortRef.current;
+    abortRef.current = null;
+    controller?.abort();
+  }, []);
 
   useEffect(() => {
     if (!busy) {
@@ -349,7 +355,7 @@ export function GeneratorPanel() {
     const pinnedSet = new Set(pinnedIds);
     const pinnedEntries = mainEntries
       .filter((e) => e.board === "main" && pinnedSet.has(e.card.oracleId))
-      .map((e) => ({ card: e.card, quantity: Math.min(pins[e.card.oracleId], e.quantity), board: "main" as const }));
+      .map((e) => ({ card: e.card, quantity: pins[e.card.oracleId], board: "main" as const, quantityLocked: true }));
 
     const dropPinned = (list: typeof base.seedEntries) =>
       list ? list.filter((e) => !pinnedSet.has(e.card.oracleId)) : list;
@@ -455,6 +461,7 @@ export function GeneratorPanel() {
     abortRef.current?.abort();
     const abortController = new AbortController();
     abortRef.current = abortController;
+    const isCurrent = () => !abortController.signal.aborted && abortRef.current === abortController;
     setBusy(true);
     setError(null);
     setOfflineFallback(null);
@@ -467,6 +474,7 @@ export function GeneratorPanel() {
     let fallbackInput: OfflineFallbackInput | null = null;
     try {
       const allCards = await db.cards.toArray();
+      if (!isCurrent()) return;
       if (allCards.length === 0) {
         setError("No cards in database. Import oracle_cards.json first.");
         return;
@@ -488,6 +496,7 @@ export function GeneratorPanel() {
       // Track 2: fetch real per-archetype win-rate data (cache-first, ~24h TTL)
       // on the main thread so the pure generator/worker just receives it as data.
       const liveWinRate = await getLiveWinRateData(format, playEnvironment).catch(() => null);
+      if (!isCurrent()) return;
       const opts: GenerateOptions = {
         engine,
         format,
@@ -528,6 +537,7 @@ export function GeneratorPanel() {
           ].map((card) => [card.oracleId, card]),
         ).values()];
         const verifiedCombos = await getCommanderSpellbookCombos(comboCandidates).catch(() => []);
+        if (!isCurrent()) return;
         opts.comboSynergyContext = { chains: [], verifiedCombos };
       }
 
@@ -537,6 +547,7 @@ export function GeneratorPanel() {
         fallbackInput = { options: { ...opts, engine: "offline" }, allCards };
       }
 
+      const capturedOptions = structuredClone(opts);
       let produced: GenerateResult[];
 
       if (engine === "ai") {
@@ -564,9 +575,10 @@ export function GeneratorPanel() {
           temperature,
           digestLimit,
           signal: abortController.signal,
-          onToken: (chunk: string) => setStreamedText((s) => s + chunk),
-          onRaw: (r: string) => setRawResponse(r),
+          onToken: (chunk: string) => { if (isCurrent()) setStreamedText((s) => s + chunk); },
+          onRaw: (r: string) => { if (isCurrent()) setRawResponse(r); },
           onPassStart: (pass: number, total: number) => {
+            if (!isCurrent()) return;
             setCurrentPass({ pass, total });
             setStreamedText("");
           },
@@ -576,18 +588,22 @@ export function GeneratorPanel() {
           : await generateDeckAI(opts, allCards, provider, aiCallConfig);
         if (abortController.signal.aborted || abortRef.current !== abortController) return;
         produced = [aiResult];
-        if (aiResult.transcript) setAiTranscript(aiResult.transcript);
-        lastOptionsRef.current = opts;
       } else {
-        produced = generateDecks(opts, allCards).variants;
+        produced = (await generateDecksInWorker(opts, allCards, abortController.signal)).variants;
       }
 
       if (abortController.signal.aborted || abortRef.current !== abortController) return;
 
+      for (const result of produced) resultOptionsRef.current.set(result, capturedOptions);
+      applyToDeck(produced[0]);
+      if (engine === "ai") {
+        const aiResult = produced[0] as GenerateResult & { transcript?: AIChatTranscript };
+        if (aiResult.transcript) setAiTranscript(aiResult.transcript);
+        lastOptionsRef.current = capturedOptions;
+      }
       setResults(produced);
       setActiveIdx(0);
       setUsedOfflineFallback(false);
-      applyToDeck(produced[0]);
       const seedsForDelta = opts.seedEntries ?? [];
       if (seedsForDelta.length > 0) {
         setDeckDelta(computeDeckDelta(seedsForDelta, produced[0].entries));
@@ -595,7 +611,7 @@ export function GeneratorPanel() {
     } catch (e) {
       const cancelled = isAbortError(e) || abortController.signal.aborted;
       if (abortRef.current === abortController) {
-        setError(cancelled ? "AI generation cancelled." : e instanceof Error ? e.message : String(e));
+        setError(cancelled ? "Generation cancelled." : e instanceof Error ? e.message : String(e));
         setOfflineFallback(cancelled ? null : fallbackInput);
       }
     } finally {
@@ -606,19 +622,25 @@ export function GeneratorPanel() {
     }
   };
 
-  const onUseOfflineFallback = () => {
+  const onUseOfflineFallback = async () => {
     if (!offlineFallback || busy) return;
+    abortRef.current?.abort();
+    const abortController = new AbortController();
+    abortRef.current = abortController;
     setBusy(true);
     setError(null);
     try {
       const { options, allCards } = offlineFallback;
-      const fallbackResults = generateDecks({ ...options, engine: "offline" }, allCards).variants;
+      const fallbackResults = (await generateDecksInWorker({ ...options, engine: "offline" }, allCards, abortController.signal)).variants;
+      if (abortController.signal.aborted || abortRef.current !== abortController) return;
       if (fallbackResults.length === 0) throw new Error("Offline fallback did not produce any deck variants.");
       for (const result of fallbackResults) {
+        resultOptionsRef.current.set(result, structuredClone(options));
         result.diagnostics.reasoning.unshift(
           "Explicit offline fallback selected after AI generation failed; this deck is not AI-authored."
         );
       }
+      applyToDeck(fallbackResults[0]);
       setResults(fallbackResults);
       setActiveIdx(0);
       setAiTranscript(null);
@@ -626,11 +648,13 @@ export function GeneratorPanel() {
       setDeckDelta(null);
       setOfflineFallback(null);
       setUsedOfflineFallback(true);
-      applyToDeck(fallbackResults[0]);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      if (abortRef.current === abortController) setError(e instanceof Error ? e.message : String(e));
     } finally {
-      setBusy(false);
+      if (abortRef.current === abortController) {
+        abortRef.current = null;
+        setBusy(false);
+      }
     }
   };
 
@@ -640,6 +664,7 @@ export function GeneratorPanel() {
     abortRef.current?.abort();
     const abortController = new AbortController();
     abortRef.current = abortController;
+    const isCurrent = () => !abortController.signal.aborted && abortRef.current === abortController;
     setBusy(true);
     setError(null);
     setOfflineFallback(null);
@@ -647,12 +672,13 @@ export function GeneratorPanel() {
     setRawResponse(null);
     setDeckDelta(null);
     const prevEntries = results[activeIdx]?.entries ?? [];
-    const refineOptions = lastOptionsRef.current;
+    const refineOptions = structuredClone(lastOptionsRef.current);
     setChatHistory((h) => [...h, { role: "user", text: message }]);
     setChatInput("");
     let fallbackCards: CardRecord[] | null = null;
     try {
       const allCards = await db.cards.toArray();
+      if (!isCurrent()) return;
       fallbackCards = allCards;
       const settings = loadAISettings();
       const provider = makeProvider(settings);
@@ -667,21 +693,23 @@ export function GeneratorPanel() {
           temperature,
           digestLimit,
           signal: abortController.signal,
-          onToken: (chunk) => setStreamedText((s) => s + chunk),
-          onRaw: (r) => setRawResponse(r),
+          onToken: (chunk) => { if (isCurrent()) setStreamedText((s) => s + chunk); },
+          onRaw: (r) => { if (isCurrent()) setRawResponse(r); },
           onPassStart: (pass, total) => {
+            if (!isCurrent()) return;
             setCurrentPass({ pass, total });
             setStreamedText("");
           },
         }
       );
       if (abortController.signal.aborted || abortRef.current !== abortController) return;
+      resultOptionsRef.current.set(refined, structuredClone(refineOptions));
+      applyToDeck(refined);
       setResults([refined]);
       setActiveIdx(0);
       setUsedOfflineFallback(false);
       setAiTranscript(refined.transcript);
       setChatHistory((h) => [...h, { role: "assistant", text: `Updated deck (score ${refined.diagnostics.deckScore.toFixed(1)}).${refined.aiSummary ? " " + refined.aiSummary : ""}` }]);
-      applyToDeck(refined);
       if (prevEntries.length > 0) {
         setDeckDelta(computeDeckDelta(prevEntries, refined.entries));
       }
@@ -712,7 +740,12 @@ export function GeneratorPanel() {
   };
 
   const applyToDeck = (result: GenerateResult) => {
-    clearDeck();
+    const capturedOptions = resultOptionsRef.current.get(result);
+    if (!capturedOptions) throw new Error("Cannot apply a result without its captured generation options.");
+    const checked = validateGenerationResult(result.entries, capturedOptions);
+    if (!checked.legal) throw new Error([
+      ...checked.violations.map((v) => `${v.rule}: ${v.message}`), ...(result.warnings ?? []),
+    ].join(" "));
     // Build a rich deck name from the generated result — tribe, theme, archetype, format.
     const tmpDeck = {
       name: "",
@@ -729,18 +762,24 @@ export function GeneratorPanel() {
     };
     const topAxis = result.diagnostics.primaryAxes[0];
     const theme = topAxis ? AXIS_THEME[topAxis] : undefined;
-    const formatLabel = getFormatRules(format).label;
+    const resultFormat = capturedOptions.format ?? "standard";
+    const formatLabel = getFormatRules(resultFormat).label;
     const deckName = generateDeckName(tmpDeck, { archetype: result.archetype, theme, format: formatLabel });
-    setDeckName(deckName);
-    for (const entry of result.entries) {
-      for (let i = 0; i < entry.quantity; i++) addCard(entry.card, entry.board);
-    }
+    const validation = applyGeneratedDeck(result.entries, resultFormat, deckName);
+    if (!validation.legal) throw new Error([
+      ...validation.violations.map((v) => `${v.rule}: ${v.message}`), ...(result.warnings ?? []),
+    ].join(" "));
   };
 
   const switchVariant = (i: number) => {
     if (i === activeIdx || !results[i]) return;
-    setActiveIdx(i);
-    applyToDeck(results[i]);
+    try {
+      applyToDeck(results[i]);
+      setActiveIdx(i);
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
   };
 
   const active = results[activeIdx];
@@ -814,7 +853,7 @@ export function GeneratorPanel() {
             {CONSTRUCTED_FORMATS.map((f) => <option key={f.id} value={f.id}>{f.label}</option>)}
           </select>
           <p className="mt-1 text-[11px] leading-snug text-zinc-600">
-            Filters the card pool by Scryfall legality. Commander/Brawl use singleton deck sizes for generation.
+            Filters by Scryfall legality and builder size/copy presets. Command-zone and companion rules are not fully checked.
           </p>
         </div>
         <div>
@@ -1173,7 +1212,7 @@ export function GeneratorPanel() {
           />
         </div>
         <div>
-          <label className="mb-1 block text-xs font-medium text-zinc-400">Total budget $</label>
+          <label className="mb-1 block text-xs font-medium text-zinc-400">Total budget $ (soft target)</label>
           <input
             type="number" min={0} step="1"
             value={totalBudget}
@@ -1451,6 +1490,28 @@ export function GeneratorPanel() {
         </div>
       )}
 
+      {active && (active.warnings?.length ?? 0) > 0 && (
+        <div role="alert" className="rounded-lg border border-amber-700 bg-amber-950/30 p-3 text-xs text-amber-100">
+          <strong>Generation warnings</strong>
+          <ul>{active.warnings!.map((warning, i) => <li key={i}>{warning}</li>)}</ul>
+        </div>
+      )}
+
+      {active && (active.verifiedCombos?.length ?? 0) > 0 && (
+        <div className="rounded-lg border border-purple-900/60 bg-purple-950/20 p-3 text-xs text-zinc-300">
+          <strong>Combo packages (conditions unverified)</strong>
+          <p className="mt-1 text-zinc-400">Card membership is not proof of executability; mana, zones, timing and other prerequisites are not checked.</p>
+          {active.verifiedCombos!.map((combo) => (
+            <div key={combo.id} className="mt-2 border-t border-purple-900/40 pt-2">
+              <div>{combo.cardOracleIds.map((id, i) => `${combo.requiredQuantities?.[id] ?? 1}× ${combo.cardNames[i] ?? id}`).join(" + ")}</div>
+              <div>{combo.explanation}</div>
+              {combo.prerequisites && <div className="text-amber-200">Conditions (unverified): {combo.prerequisites}</div>}
+              <div className="text-zinc-500">Source: {combo.source}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
       {active && usedOfflineFallback && (
         <div className="rounded-lg border border-amber-700/70 bg-amber-950/40 p-3 text-xs text-amber-100">
           <strong>Offline fallback — not AI-authored.</strong> This deck was generated by the offline heuristic after AI generation failed.
@@ -1472,7 +1533,6 @@ export function GeneratorPanel() {
                 tempoScore={active.tempoScore}
                 cardAdvantageScore={active.cardAdvantageScore}
                 comboChains={active.comboChains}
-                verifiedCombos={active.verifiedCombos}
               />
             </div>
           )}
@@ -1532,6 +1592,11 @@ export function GeneratorPanel() {
                 <div className="rounded border border-zinc-800 bg-zinc-950/60 p-2">
                   Mana penalty: <strong className="text-red-300">-{active.scoreBreakdown.totals.manaPenalty.toFixed(1)}</strong>
                 </div>
+                <div>Role profile penalty: -{active.scoreBreakdown.totals.profilePenalty.toFixed(1)}</div>
+                <div>Redundancy: +{active.scoreBreakdown.totals.redundancyContribution.toFixed(1)}</div>
+                <div>Combo package contribution: +{active.scoreBreakdown.totals.comboContribution.toFixed(1)}</div>
+                <div>Meta performance: +{(active.scoreBreakdown.totals.metaPerformanceContribution ?? 0).toFixed(1)}</div>
+                <div>Scenario consistency: +{(active.scoreBreakdown.totals.scenarioConsistencyContribution ?? 0).toFixed(1)}</div>
               </div>
               <div>
                 <div className="mb-1 text-[11px] font-medium text-zinc-500">Card breakdown — why each card scored what it did</div>

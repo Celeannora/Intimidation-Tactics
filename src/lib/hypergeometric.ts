@@ -161,7 +161,9 @@ export interface CastabilityEntry {
 }
 
 /**
- * Per-turn castability table for a single card.
+ * Per-turn land-only castability table: one untapped land drop per turn,
+ * ignoring colors, acceleration and alternate costs. Finite nonnegative mana
+ * values are rounded up to whole land requirements; other values are rejected.
  *
  * @param deckSize     Deck size (usually 60)
  * @param copies       Copies of the card in the deck
@@ -178,27 +180,31 @@ export function castabilityByTurn(
   turns = 8,
   onDraw = true
 ): CastabilityEntry[] {
+  if (!Number.isFinite(cmc) || cmc < 0) {
+    throw new RangeError("Mana value must be finite and nonnegative");
+  }
+  const requiredLands = Math.ceil(cmc);
   const result: CastabilityEntry[] = [];
 
   for (let turn = 1; turn <= turns; turn++) {
     const probDrawn = probByTurn(deckSize, copies, turn, onDraw);
 
-    // Probability of having hit at least `cmc` land drops by turn N
-    // = P(drawn >= cmc lands from landCount in deck by this turn)
+    // Without acceleration, at most one land can be played each turn.
+    const enoughLandDrops = turn >= requiredLands;
     const drawSteps = onDraw ? turn : turn - 1;
     const cardsSeen = Math.min(7 + drawSteps, deckSize);
     const probMana =
-      cmc === 0
+      requiredLands === 0
         ? 1
-        : hypergeometricCDF(deckSize, landCount, cardsSeen, cmc);
+        : enoughLandDrops ? hypergeometricCDF(deckSize, landCount, cardsSeen, requiredLands) : 0;
 
     // Joint P(drawn >= 1 copy AND drawn >= cmc lands) over the SAME cards seen.
     // Drawing the spell and drawing lands are not independent — they compete for
     // the same draws — so this is strictly <= probDrawn * probMana.
     const probCastable =
-      cmc === 0
+      requiredLands === 0
         ? probDrawn
-        : probSpellAndLands(deckSize, copies, landCount, cardsSeen, 1, cmc);
+        : enoughLandDrops ? probSpellAndLands(deckSize, copies, landCount, cardsSeen, 1, requiredLands) : 0;
 
     result.push({
       turn,

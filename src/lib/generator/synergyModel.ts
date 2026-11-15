@@ -420,8 +420,16 @@ export interface SynergyConnectionSummary {
   fedBy: string[];
 }
 
+const IRREGULAR_TRIBE_PLURALS: Readonly<Record<string, string>> = { elf: "elves", merfolk: "merfolk" };
+
 export function normalizeTribe(tribe: string | undefined): string {
-  return (tribe ?? "").trim().toLowerCase().replace(/s$/, "");
+  const value = (tribe ?? "").trim().toLowerCase();
+  // Only canonicalize known tribe plurals; singular names ending in s and
+  // unfamiliar types must not be silently stemmed into different names.
+  return COMMON_TRIBES.find((known) => {
+    const singular = known.toLowerCase();
+    return (IRREGULAR_TRIBE_PLURALS[singular] ?? `${singular}s`) === value;
+  })?.toLowerCase() ?? value;
 }
 
 export function cardMatchesTribe(card: CardRecord, tribe: string | undefined): boolean {
@@ -433,7 +441,7 @@ export function cardMatchesTribe(card: CardRecord, tribe: string | undefined): b
 export function cardReferencesTribe(card: CardRecord, tribe: string | undefined): boolean {
   const normalized = normalizeTribe(tribe);
   if (!normalized) return false;
-  const plural = `${normalized}s`;
+  const plural = IRREGULAR_TRIBE_PLURALS[normalized] ?? `${normalized}s`;
   const haystack = (card.oracleText ?? "").toLowerCase();
   return (
     new RegExp(`\\b${escapeRegExp(normalized)}\\b`, "i").test(haystack) ||
@@ -456,13 +464,14 @@ export function cardGrantsTribalBenefit(card: CardRecord, tribe: string | undefi
   if (!normalized) return false;
   const text = card.oracleText ?? "";
   if (!text) return false;
-  const name = escapeRegExp(normalized);
+  const plural = IRREGULAR_TRIBE_PLURALS[normalized] ?? `${normalized}s`;
+  const name = `(?:${escapeRegExp(normalized)}|${escapeRegExp(plural)})`;
   const benefitPattern = new RegExp(
-    `other ${name}s? you control (?:get|have)|` +
+    `other ${name} you control (?:get|have)|` +
       `each ${name} you control|` +
-      `${name}s? you control get|` +
-      `${name}s? you control have|` +
-      `${name}s? you control gain|` +
+      `${name} you control get|` +
+      `${name} you control have|` +
+      `${name} you control gain|` +
       `whenever you cast a ${name} spell|` +
       `for each ${name} you control|` +
       `${name} spells? costs? \\{|` +

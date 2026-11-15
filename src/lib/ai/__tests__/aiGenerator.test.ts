@@ -5,6 +5,15 @@ import { buildAIPrompts, buildDeltaDigest, clampAINonlandSpine, salvageDeckJSON,
 import { cardScoreDetail } from "../../generator/weights";
 import { OllamaProvider } from "../ollama";
 
+// Unit-only executor: preserve deterministic assembly assertions without a browser Worker.
+// aiGenerator.worker.test.ts exercises production dispatch through the real Worker client.
+vi.mock("../../generator/client", async () => {
+  const { generateDeck } = await import("../../generator/generator");
+  return { generateDecksInWorker: vi.fn(async (...args: Parameters<typeof generateDeck>) => ({
+    variants: [generateDeck(...args)], bestIndex: 0,
+  })) };
+});
+
 function makeCard(overrides: Partial<CardRecord> & { name: string; typeLine?: string; oracleText?: string }): CardRecord {
   const { name, ...rest } = overrides;
   return {
@@ -485,8 +494,8 @@ describe("generateDeckAISequential", () => {
     // not duplicated from any subsequent step proposal.
     const seedInDeck = result.entries.filter((e) => e.card.name === seedCard.name && e.board === "main");
     const totalCopies = seedInDeck.reduce((s, e) => s + e.quantity, 0);
-    // At most 4 copies (format cap), not 2 (original) + extras from AI re-proposing it.
-    expect(totalCopies).toBeLessThanOrEqual(4);
+    // Imported locked-core quantity is exact, not an additive second AI request.
+    expect(totalCopies).toBe(2);
     // The dedup logic must prevent the card appearing in multiple distinct entries.
     expect(seedInDeck.length).toBeLessThanOrEqual(1);
   });

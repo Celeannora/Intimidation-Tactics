@@ -74,6 +74,7 @@ function makeLand(name: string, qty: number, colorIdentity = '["W"]'): DeckEntry
     cmc: 0,
     oracleText: "{T}: Add {W}.",
     colorIdentityJson: colorIdentity,
+    producedManaJson: colorIdentity,
     quantity: qty,
     keywordsJson: "[]",
   });

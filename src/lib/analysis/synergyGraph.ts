@@ -53,11 +53,9 @@ export interface SeedSynergyGraph {
   axisSeedCardCounts: Partial<Record<MechanicAxis, number>>;
   density: number;
   /**
-   * Weighted density: sum of all edge weights divided by the number of possible
-   * directed edges. Unlike raw `density` (which counts every link equally), this
-   * discounts weak shared-axis links so a set wired together by real
-   * source→payoff / mutual-engine relationships scores higher than one merely
-   * sharing tags.
+   * Weighted density: strongest edge weight per ordered card pair divided by
+   * the number of possible directed pairs. Multiple axes/kinds do not inflate
+   * occupancy; weak shared-axis pairs still contribute less than real engines.
    */
   weightedDensity: number;
   narrative: string;
@@ -75,16 +73,16 @@ function edgeWeight(kind: SynergyEdgeKind): number {
 }
 
 // ── Module-level cache ──────────────────────────────────────────────────────
-// Keyed by a stable hash of sorted oracle IDs so repeated Analyze calls on
-// the same seed set do not recompute the graph from scratch.
+// Keyed by profile inputs and display name, not just identity: imported card
+// records can refresh in place without changing oracle IDs.
 const _graphCache = new Map<string, SeedSynergyGraph>();
+const GRAPH_CACHE_LIMIT = 128;
 
 function seedCacheKey(seeds: CardRecord[]): string {
-  return seeds
-    .map((c) => c.oracleId)
-    .slice()
-    .sort()
-    .join("|");
+  return JSON.stringify(seeds.map((card) => [
+    card.oracleId, card.name, card.oracleText, card.typeLine,
+    card.keywordsJson, card.power, card.cmc,
+  ]));
 }
 
 /** Clear the synergy graph cache (useful in tests or after bulk data refresh). */
@@ -94,7 +92,7 @@ export function clearSynergyGraphCache(): void {
 
 /**
  * Build a deterministic synergy graph over any card collection (cached by the
- * collection's oracle IDs). The historical SeedSynergyGraph name is retained
+ * collection's profile-relevant inputs). The historical SeedSynergyGraph name is retained
  * for API compatibility: the same typed source/payoff model is valid for seed
  * cards, candidate pools, and finished decks.
  */
@@ -196,14 +194,26 @@ export function buildCandidatePoolSynergyGraph(cards: CardRecord[]): SeedSynergy
     }
   }
 
-  const possibleDirectedEdges = cards.length * Math.max(0, cards.length - 1);
-  const density = possibleDirectedEdges > 0 ? round2(edges.length / possibleDirectedEdges) : 0;
-  const totalWeight = edges.reduce((sum, e) => sum + e.weight, 0);
+  // Keep every typed edge for explanations, but measure occupancy/strength once
+  // per ordered card pair, not once per axis or relationship kind.
+  const pairWeights = new Map<string, number>();
+  for (const edge of edges) {
+    const pair = JSON.stringify([edge.fromOracleId, edge.toOracleId]);
+    pairWeights.set(pair, Math.max(pairWeights.get(pair) ?? 0, edge.weight));
+  }
+  const cardCount = new Set(cards.map((card) => card.oracleId)).size;
+  const possibleDirectedEdges = cardCount * Math.max(0, cardCount - 1);
+  const density = possibleDirectedEdges > 0 ? round2(pairWeights.size / possibleDirectedEdges) : 0;
+  const totalWeight = [...pairWeights.values()].reduce((sum, weight) => sum + weight, 0);
   const weightedDensity = possibleDirectedEdges > 0 ? round2(totalWeight / possibleDirectedEdges) : 0;
   const narrative = buildGraphNarrative(connectedAxes, edges.length, cards.length);
 
   const graph: SeedSynergyGraph = { nodes, edges, connectedAxes, axisSeedCardCounts, density, weightedDensity, narrative };
   _graphCache.set(key, graph);
+  if (_graphCache.size > GRAPH_CACHE_LIMIT) {
+    const oldest = _graphCache.keys().next().value;
+    if (oldest !== undefined) _graphCache.delete(oldest);
+  }
   return graph;
 }
 

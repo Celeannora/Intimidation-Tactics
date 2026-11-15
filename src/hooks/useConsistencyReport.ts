@@ -35,6 +35,9 @@ function toDeckEntries(
     manaCost:         e.card.manaCost,
     typeLine:         e.card.typeLine,
     producedManaJson: e.card.producedManaJson || undefined,
+    colorIdentityJson: e.card.colorIdentityJson,
+    cardFacesJson:     e.card.cardFacesJson,
+    oracleText:        e.card.oracleText,
   }));
 }
 
@@ -45,11 +48,10 @@ export function useConsistencyReport(): ReportState {
 
   // Stable key — only re-run when deck composition changes
   const deckKey = useMemo(
-    () =>
-      mainEntries
-        .map(e => `${e.card.oracleId}:${e.quantity}`)
-        .sort()
-        .join("|"),
+    () => JSON.stringify(mainEntries.map(e => [e.card.oracleId, e.quantity, e.card.name,
+      e.card.cmc, e.card.manaCost, e.card.typeLine, e.card.producedManaJson,
+      e.card.colorIdentityJson, e.card.cardFacesJson, e.card.oracleText])
+      .sort((a, b) => String(a[0]).localeCompare(String(b[0])))),
     [mainEntries]
   );
 

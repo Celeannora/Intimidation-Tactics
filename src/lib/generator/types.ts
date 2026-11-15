@@ -79,6 +79,8 @@ export interface TribalSupportOptions {
 
 export interface GenerateOptions {
   engine: GenerationEngine;
+  /** Derived mechanical context shared by fill, optimizer and final/AI scoring. */
+  synergyAxes?: MechanicAxis[];
   /** Constructed legality/card-pool target. */
   format?: ConstructedFormat;
   /** Ladder/metagame environment used by competitive weights. */
@@ -237,7 +239,7 @@ export interface GenerationDiagnostic {
   curveDeviation: number;
   /** Color-source coverage by Frank-Karsten thresholds (0-1). */
   manaBaseCoverage: number;
-  /** Iterations actually executed by the optimizer. */
+  /** Scored single-swap rounds plus bounded package trials, not the requested budget. */
   optimizerSteps: number;
   /** Mechanical axes used for directional source/payoff scoring. */
   primaryAxes: MechanicAxis[];
@@ -276,6 +278,10 @@ export interface CardScoreContribution {
   compositionBonus?: number;
   signalScore: number;
   signalContribution: number;
+  /** Actual optional terms, unlike compatibility aliases above. */
+  preferCardBonus?: number;
+  broadTagBonus?: number;
+  seedAdjustment?: number;
   efficiencyContribution?: number;
   flexibilityContribution?: number;
   scenarioRobustnessContribution?: number;
@@ -302,6 +308,8 @@ export interface ScoreBreakdown {
     redundancyContribution: number;
     /** Contribution from assembled heuristic chains / verified combos. */
     comboContribution: number;
+    metaPerformanceContribution?: number;
+    scenarioConsistencyContribution?: number;
     finalScore: number;
   };
 }
@@ -435,6 +443,8 @@ export interface SynergyViolation {
 }
 
 export interface GenerateResult {
+  /** Pure derived context used by scoring; preserve through AI postprocessing. */
+  scoringOptions?: GenerateOptions;
   entries: DeckEntry[];
   archetype: Archetype;
   totalCards: number;

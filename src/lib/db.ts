@@ -1,5 +1,6 @@
 import Dexie, { Table } from "dexie";
 import type { CardRecord } from "./types";
+import type { ConstructedFormat } from "./formats";
 import type { LiveWinRateDataset } from "./meta/liveWinRate";
 import type { MetaSnapshot } from "./meta/types";
 import type { VerifiedCombo } from "./generator/comboLookup";
@@ -12,6 +13,8 @@ export interface ImportMeta {
 export interface SavedDeck {
   id: string;          // makeId() value
   name: string;
+  /** Missing on older records; defaults to Standard. Not an indexed field. */
+  format?: ConstructedFormat;
   updatedAt: number;   // Date.now()
   mainboard: Record<string, number>; // oracleId -> quantity
   sideboard: Record<string, number>;
