@@ -491,7 +491,10 @@ export function manaBaseCoverage(entries: DeckEntry[]): number {
   return covered / recs.length;
 }
 
+import { compositionPenalty as computeCompositionPenalty, normalizeCompositionTargets } from './compositionTargets';
+
 export interface DeckScore {
+  compositionPenalty?: number;
   total: number;
   cardScoreSum: number;
   curveDeviation: number;
@@ -649,6 +652,9 @@ export function deckScore(
   entries = entries.filter((entry) => entry.board === "main");
   const deckCfg = getDeckConfig(options.format, options.playEnvironment);
 
+  const composition = normalizeCompositionTargets(options);
+  const compositionPenalty = composition ? computeCompositionPenalty(entries, options) : 0;
+
   let cardScoreSum = 0;
   for (const e of entries) {
     if (e.card.typeLine.includes("Land")) continue;
@@ -710,7 +716,7 @@ export function deckScore(
     scenarioConsistencyContribution -
     curvePenalty -
     manaPenalty -
-    profilePenalty;
+    profilePenalty - compositionPenalty;
 
   return {
     total,
@@ -718,6 +724,7 @@ export function deckScore(
     curveDeviation: curveDev,
     manaBaseCoverage: coverage,
     profileLoss,
+    ...(composition ? { compositionPenalty } : {}),
     redundancyScore: redundancy,
     metaPerformance: metaPerf,
     curvePenalty,
@@ -792,6 +799,7 @@ export function buildScoreBreakdown(
       comboContribution: score.comboContribution,
       metaPerformanceContribution: score.metaPerformanceContribution,
       scenarioConsistencyContribution: score.scenarioConsistencyContribution,
+      ...(score.compositionPenalty === undefined ? {} : { compositionPenalty: score.compositionPenalty }),
       finalScore: score.total,
     },
   };
@@ -845,6 +853,8 @@ function containsAll(present: Set<string>, oracleIds: string[]): boolean {
 
 /** Compute the avg-CMC target for an archetype, optionally overridden by SpeedProfile. */
 export function targetAvgCmcFor(options: GenerateOptions, defaultAvg: number): number {
+  const explicit = normalizeCompositionTargets(options)?.targetAverageManaValue;
+  if (explicit !== undefined) return explicit;
   if (options.speed === "fast") return Math.min(defaultAvg, 2.2);
   if (options.speed === "slow") return Math.max(defaultAvg, 3.4);
   if (options.speed === "midrange") return 3.0;

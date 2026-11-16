@@ -37,7 +37,7 @@ test('local agent workspace is ignored and no planning/history remains tracked',
 });
 
 test('only supported maintenance tooling and direct dependencies remain', () => {
-  assert.deepEqual(readdirSync(resolve(root, 'scripts')).sort(), ['refreshMetaSnapshot.ts']);
+  assert.deepEqual(readdirSync(resolve(root, 'scripts')).sort(), ['DeckBuilderLauncher.psm1', 'Start-DeckBuilder.ps1', 'refreshMetaSnapshot.ts']);
   const pkg = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8'));
   for (const name of ['js-yaml', '@types/js-yaml']) {
     assert.equal(Object.hasOwn(pkg.devDependencies, name), false, `Remove unused direct dependency ${name}`);

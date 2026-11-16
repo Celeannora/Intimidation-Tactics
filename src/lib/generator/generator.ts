@@ -13,6 +13,7 @@ import {
   type ColorRoleTarget,
 } from "../manaBase";
 import { blendRoleTargets, type RoleTarget } from "./roleTargets";
+import { normalizeCompositionTargets, fitInitialCurve, compositionWarnings } from "./compositionTargets";
 import { buildPool } from "./pool";
 import { buildScoreBreakdown, cardScore, deckScore, targetAvgCmcFor } from "./weights";
 import { optimize, makeRng } from "./optimizer";
@@ -257,6 +258,8 @@ function generateOne(
   seed: number
 ): GenerateResult {
   const reasoning: string[] = [];
+  const composition = normalizeCompositionTargets(options);
+  if (composition) options = { ...options, ...composition };
   const cardReasons: Record<string, string[]> = {};
   const rng = makeRng(seed);
   const targetMainboardSize = normalizedMainboardSize(options);
@@ -268,6 +271,7 @@ function generateOne(
     ),
     ...options.roleTargetOverrides,
   };
+  if (options.landCountTarget !== undefined) target.lands = options.landCountTarget;
   if (options.roleTargetOverrides && Object.keys(options.roleTargetOverrides).length > 0) {
     reasoning.push(
       `Role target overrides applied: ${Object.entries(options.roleTargetOverrides)
@@ -339,8 +343,8 @@ function generateOne(
   // lock in enough nonland copies to starve the *real* land budget (which is
   // usually 18-25, not 10), producing legal-but-unplayable decks with as few
   // as 10 lands even though nothing downstream was technically broken.
-  const earlyLandEstimate = seedEntries.length > 0 ? recommendLandCount(seedEntries).recommended : 0;
-  const seedLandReserve = Math.max(ABSOLUTE_MINIMUM_LANDS, earlyLandEstimate);
+  const earlyLandEstimate = options.landCountTarget ?? (seedEntries.length > 0 ? recommendLandCount(seedEntries).recommended : 0);
+  const seedLandReserve = options.landCountTarget === undefined ? Math.max(ABSOLUTE_MINIMUM_LANDS, earlyLandEstimate) : earlyLandEstimate;
 
   // ── Seed overflow guard (synergy-aware) ──────────────────────────────────
   // When the user seeds a large imported deck into a smaller target size,
@@ -873,7 +877,7 @@ function generateOne(
   // ── Phase 2: mana base ──
   // Seed lands count toward the total; add dual/nonbasic fixing first, then basics.
   const seedLandTotal = seedLands.reduce((s, e) => s + e.quantity, 0);
-  const landBudget = recommendLandCount(entries).recommended;
+  const landBudget = options.landCountTarget === undefined ? recommendLandCount(entries).recommended : Math.max(seedLandTotal, options.landCountTarget);
   const idealGeneratedLands = Math.max(0, landBudget - seedLandTotal);
 
   // Guarantee the mana base has room. Without this guard, if locked/seed nonlands already
@@ -881,7 +885,7 @@ function generateOne(
   // to cut the freshly-added lands (the only unlocked cards), producing decks with as few
   // as 7 lands. Fix: shed the highest-CMC *unlocked* nonlands first; then cap generated
   // lands to whatever slots actually remain after locked cards are accounted for.
-  const idealNonlandSlots = targetMainboardSize - landBudget - seedLandTotal;
+  const idealNonlandSlots = targetMainboardSize - landBudget - (options.landCountTarget === undefined ? seedLandTotal : 0);
   const currentNonlandTotal = entries.reduce((s, e) => s + e.quantity, 0);
   if (currentNonlandTotal > idealNonlandSlots) {
     const toShed = currentNonlandTotal - idealNonlandSlots;
@@ -1044,6 +1048,10 @@ function generateOne(
     if (total < before) reasoning.push(`Trimmed ${before - total} generated card${before - total === 1 ? "" : "s"} to respect ${targetMainboardSize}-card maximum`);
   }
 
+  if (options.curveTargets) {
+    fitInitialCurve(entries, pool, effectiveOptions, lockedIds, card => cardScore(card, entries, effectiveOptions, targetAvgCmc));
+    reasoning.push('Applied approved soft composition curve targets to initial fill; legality and locked inputs take precedence.');
+  }
   const baselineScore = deckScore(entries, effectiveOptions, targetAvgCmc);
   const baselineMainLandCount = countMainLands(entries);
   reasoning.push(
@@ -1148,7 +1156,7 @@ function generateOne(
     const singletonsBefore = mainNonlands.filter((e) => e.quantity === 1).length;
 
     // Only run when there are meaningful singletons to fix.
-    if (singletonsBefore > mainNonlands.length / 3) {
+    if (!options.curveTargets && singletonsBefore > mainNonlands.length / 3) {
       // Score with full deckAxes now available.
       const scoredFinal = mainNonlands
         .map((e) => ({
@@ -1329,6 +1337,8 @@ function generateOne(
     );
   }
 
+  const compositionNotes = compositionWarnings(finalEntries, effectiveOptions);
+  reasoning.push(...compositionNotes);
   const finalScore = deckScore(finalEntries, effectiveOptions, targetAvgCmc);
   const scoreBreakdown = buildScoreBreakdown(finalEntries, effectiveOptions, targetAvgCmc);
 
@@ -1430,6 +1440,7 @@ function generateOne(
 
   return {
     scoringOptions: effectiveOptions,
+    ...(composition ? { warnings: compositionNotes } : {}),
     entries: finalEntries,
     archetype: options.archetype,
     totalCards: finalEntries.reduce((s, e) => s + e.quantity, 0),

@@ -94,7 +94,7 @@ function isResult(value: unknown): value is GenerateMultiResult {
     const totals = variant.scoreBreakdown.totals;
     if (!["cardScoreSum", "curvePenalty", "manaPenalty", "profilePenalty", "redundancyContribution", "comboContribution", "finalScore"]
       .every((key) => Number.isFinite(totals[key]))) return false;
-    if (!["metaPerformanceContribution", "scenarioConsistencyContribution"]
+    if (!["metaPerformanceContribution", "scenarioConsistencyContribution", "compositionPenalty"]
       .every((key) => totals[key] === undefined || Number.isFinite(totals[key]))) return false;
     return Array.from(variant.entries).every((entry: unknown) => record(entry) && record(entry.card) &&
       typeof entry.card.oracleId === "string" && typeof entry.card.name === "string" &&

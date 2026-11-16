@@ -4,6 +4,34 @@ Client-side Magic: The Gathering deck builder using React, TypeScript, Vite,
 Zustand and IndexedDB. No application backend is required. Card/deck data is
 stored in the visitor's browser. AI providers are optional.
 
+## Launch on Windows
+
+Double-click **`Start MTG Deck Builder.cmd`** in this folder. It opens a visible
+terminal, starts the current checkout, and opens your browser when the app is
+ready. No administrator permissions are needed.
+
+- Keep the terminal open while using the app. Its menu offers **O** (open app),
+  **S** (stop), **R** (start/restart), **L** (logs) and **Q** (quit). Stop, quit,
+  Ctrl+C or closing the terminal stops only a server started by this launcher.
+- The address stays **http://localhost:5173**, preserving the same browser origin
+  and IndexedDB. Use the same browser/profile as before.
+- If the older ZIP copy is running, the terminal displays its PID and asks you to
+  type `YES` before stopping that exact legacy process. A changed listener is
+  refused. An unrelated program using the address is never stopped.
+- If another launcher already has the current checkout running, this launcher
+  borrows it and will not stop it. A foreign process on the port is refused with
+  instructions to free the port; no alternate address is selected.
+- First use requires Node.js LTS. Missing dependencies are reported with the
+  `npm ci --ignore-scripts` command; no download or install is started by default.
+  Run that command only after confirming you want to download the dependencies.
+- Startup diagnostics stay local in the ignored `.hermes/launcher/logs/` folder.
+  Keep the launcher together with `scripts/` and the rest of this checkout.
+
+Launcher checks (Windows): `node --test tests/launcher.test.mjs` and
+`powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests/launcher-gui.ps1`.
+Despite its historical filename, the acceptance script drives the real terminal
+menu through redirected stdin/stdout on an unused local port without opening a browser.
+
 ## Build and verify
 
 Use a supported Node.js LTS release (22.x or 24.x) and npm.

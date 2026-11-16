@@ -215,6 +215,16 @@ describe("generator worker client", () => {
     await rejection;
   });
 
+  it.each([NaN, Infinity, 'bad', null])('rejects malformed opt-in composition totals (%s)', async bad => {
+    const good = generated(); good.scoreBreakdown.totals.compositionPenalty = 3;
+    const accepted = generateDecksInWorker(options, [], new AbortController().signal);
+    MockGeneratorWorker.instances[0].respond({variants:[good],bestIndex:0}); await accepted;
+    const value = generated(); (value.scoreBreakdown.totals as unknown as Record<string,unknown>).compositionPenalty = bad;
+    const pending = generateDecksInWorker(options, [], new AbortController().signal);
+    const rejection = expect(pending).rejects.toThrow(/malformed/i);
+    MockGeneratorWorker.instances[1].respond({variants:[value],bestIndex:0}); await rejection;
+  });
+
   it("rejects nonnumeric score totals before the UI can render them", async () => {
     const result = generated();
     (result.scoreBreakdown.totals as unknown as Record<string, unknown>).manaPenalty = "bad";

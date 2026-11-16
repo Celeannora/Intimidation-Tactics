@@ -23,6 +23,7 @@ import type {
 } from "../generator/types";
 import { enforceLandFloor } from "../generator/generator";
 import { recommendLandCount } from "../manaBase";
+import { normalizeCompositionTargets, compositionWarnings } from '../generator/compositionTargets';
 import type { ManaColor } from "../types";
 import { resolveLines } from "./resolver";
 import type { AIProvider, AIChatMessage as ChatMessage, AIGenerationRequest } from "./provider";
@@ -360,8 +361,9 @@ export function buildAIPrompts(
   digestLimit: number = DEFAULT_DIGEST_LIMIT
 ): AIPrompts {
   const targetMainboardSize = normalizedMainboardSize(options);
-  const targetNonlandMin = Math.max(1, Math.floor(targetMainboardSize * 0.55));
-  const targetNonlandMax = Math.max(targetNonlandMin, Math.ceil(targetMainboardSize * 0.65));
+  const composition = normalizeCompositionTargets(options);
+  const targetNonlandMin = composition?.landCountTarget === undefined ? Math.max(1, Math.floor(targetMainboardSize * 0.55)) : targetMainboardSize-composition.landCountTarget;
+  const targetNonlandMax = composition?.landCountTarget === undefined ? Math.max(targetNonlandMin, Math.ceil(targetMainboardSize * 0.65)) : targetNonlandMin;
   const formatRules = getFormatRules(options.format);
 
   // Collect oracleIds from all deck-related entries so scoreNonlandPool can tag them.
@@ -466,6 +468,7 @@ export function buildAIPrompts(
     `Format: ${formatRules.label}`,
     options.playEnvironment ? `Environment: ${options.playEnvironment}` : "",
     `Final mainboard size after offline lands: exactly ${targetMainboardSize} cards`,
+    composition ? `Soft composition targets (legality and locked inputs win): ${JSON.stringify(composition)}` : '',
     `Your JSON main[] target: ${targetNonlandMin}-${targetNonlandMax} nonland cards only (hard cap: ${targetNonlandMax} total copies)`,
     options.secondaryArchetypes?.length ? `Secondary archetypes: ${options.secondaryArchetypes.join(", ")}` : "",
     `Colors: ${options.colors.join("") || "(colorless)"}`,
@@ -790,7 +793,8 @@ export async function generateDeckAISequential(
   let budgetHit = false;
 
   // Nonland budget: 60 % of the mainboard (midpoint of the 55–65 % heuristic).
-  const nonlandBudget = Math.round(targetMainboardSize * 0.60);
+  const explicitLands = normalizeCompositionTargets(options)?.landCountTarget;
+  const nonlandBudget = explicitLands === undefined ? Math.round(targetMainboardSize * 0.60) : targetMainboardSize-explicitLands;
 
   // Running seed list — starts with the user's explicit seeds and grows each step.
   let currentSeeds: DeckEntry[] = [...(options.seedEntries ?? [])];
@@ -1317,7 +1321,7 @@ async function buildResultFromAIResponse(
   let lockedAIPreferences = aiNonlandPreferences;
   if (useAIPicksAsFinal) {
     const freshPicks = aiNonlandPreferences.filter((entry) => !originalSeedKeys.has(`${entry.card.oracleId}|${entry.board}`));
-    const clamp = clampAINonlandSpine(freshPicks, reconciledSeeds, targetMainboardSize);
+    const clamp = clampAINonlandSpine(freshPicks, reconciledSeeds, targetMainboardSize, options);
     lockedAIPreferences = [...overlappingPicks, ...clamp.entries];
     if (clamp.trimmedCopies > 0) {
       reasoning.push(
@@ -1364,7 +1368,7 @@ async function buildResultFromAIResponse(
   // can undo it — so we run it again here.
   entries = trimMainboardToSize(entries, targetMainboardSize, lockedSpineIds);
   const mainColors = (options.colors.length > 0 ? options.colors : ["W", "U", "B", "R", "G"]) as ManaColor[];
-  const targetLands = recommendLandCount(entries.filter((e) => e.board === "main" && !e.card.typeLine.includes("Land"))).recommended;
+  const targetLands = normalizeCompositionTargets(options)?.landCountTarget ?? recommendLandCount(entries.filter((e) => e.board === "main" && !e.card.typeLine.includes("Land"))).recommended;
   enforceLandFloor(entries, targetLands, mainColors, allCards, lockedSpineIds ?? new Set(), targetMainboardSize, reasoning);
 
   const finalValidation = validateAIProposal({
@@ -1398,6 +1402,7 @@ async function buildResultFromAIResponse(
   for (const line of offlineRun.diagnostics.reasoning) reasoning.push(line);
 
   const scoringOptions = offlineRun.scoringOptions ?? options;
+  for (const note of compositionWarnings(entries, scoringOptions)) if (!warnings.includes(note)) warnings.push(note);
   const target = blendRoleTargets(scoringOptions.archetype, scoringOptions.secondaryArchetypes);
   const targetAvgCmc = targetAvgCmcFor(scoringOptions, target.maxAvgCmc);
   const score = deckScore(entries, scoringOptions, targetAvgCmc);
@@ -1636,7 +1641,8 @@ function appendFeasibilityReasoning(
 export function clampAINonlandSpine(
   aiNonlandEntries: DeckEntry[],
   userSeedEntries: DeckEntry[],
-  targetMainboardSize: number
+  targetMainboardSize: number,
+  options?: GenerateOptions
 ): { entries: DeckEntry[]; originalCopies: number; maxCopies: number; trimmedCopies: number; landBudget: number } {
   const userSeedMain = userSeedEntries.filter((e) => e.board === "main");
   const userSeedNonlandCopies = userSeedMain
@@ -1644,7 +1650,7 @@ export function clampAINonlandSpine(
     .reduce((s, e) => s + e.quantity, 0);
   // Estimate the land budget from the same nonland mix the offline builder
   // will see (user seeds + AI picks); recommendLandCount ignores lands itself.
-  const landBudget = recommendLandCount([...userSeedMain, ...aiNonlandEntries]).recommended;
+  const landBudget = (options ? normalizeCompositionTargets(options)?.landCountTarget : undefined) ?? recommendLandCount([...userSeedMain, ...aiNonlandEntries]).recommended;
   const maxCopies = Math.max(0, targetMainboardSize - landBudget - userSeedNonlandCopies);
   const originalCopies = aiNonlandEntries.reduce((s, e) => s + e.quantity, 0);
   if (originalCopies <= maxCopies) {

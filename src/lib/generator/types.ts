@@ -148,6 +148,10 @@ export interface GenerateOptions {
 
   /** Target mainboard size. Competitive Standard default is 60. */
   mainboardSize?: number;
+  /** Soft composition objectives approved by the user; do not override legality/locks. */
+  landCountTarget?: number;
+  curveTargets?: import("./compositionTypes").CurveTargets;
+  targetAverageManaValue?: number;
   /** Hard maximum mainboard size. Defaults to mainboardSize/default 60. */
   maxMainboardSize?: number;
 
@@ -304,6 +308,8 @@ export interface ScoreBreakdown {
     manaPenalty: number;
     /** Penalty for deviating from archetype's ideal role profile. */
     profilePenalty: number;
+    /** Opt-in soft curve, land and mean-MV deviation penalty. */
+    compositionPenalty?: number;
     /** Contribution from engine redundancy (sources × payoffs robustness). */
     redundancyContribution: number;
     /** Contribution from assembled heuristic chains / verified combos. */

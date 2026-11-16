@@ -23,6 +23,8 @@ import type {
   TribalSupportMode,
 } from "../lib/generator/types";
 import { AISettingsDrawer } from "./AISettingsDrawer";
+import { InputCardAnalysisPanel } from "./InputCardAnalysisPanel";
+import type { InputBlueprintSettings } from "../lib/ai/inputAnalysisTypes";
 import { MythicViabilityPanel } from "./MythicViabilityPanel";
 import { ScenarioCoveragePanel } from "./ScenarioCoveragePanel";
 import { CONSTRUCTED_FORMATS, getFormatRules, type ConstructedFormat, type PlayEnvironment } from "../lib/formats";
@@ -153,6 +155,16 @@ export function GeneratorPanel() {
   // a toggle lets the user relax it back to "soft preferences" behavior.
   const [lockAIPicks, setLockAIPicks] = useState<boolean>(true);
   const [analysisSummary, setAnalysisSummary] = useState<string | null>(null);
+  const [blueprintSettings, setBlueprintSettings] = useState<InputBlueprintSettings>({});
+  const applyBlueprintSettings = (settings: InputBlueprintSettings) => {
+    if (settings.archetype !== undefined) setArchetype(settings.archetype);
+    if (settings.speed !== undefined) setSpeed(settings.speed);
+    if (settings.spellRatio !== undefined) setSpellRatio(settings.spellRatio);
+    if (settings.colors !== undefined) setColors(settings.colors);
+    if (settings.themes !== undefined) setThemes(settings.themes);
+    setBlueprintSettings(previous => ({ ...previous, ...settings }));
+  };
+  useEffect(() => { setBlueprintSettings({}); }, [format, mainboardSize]);
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -431,6 +443,11 @@ export function GeneratorPanel() {
       totalBudgetUsd: parsePositiveFloat(totalBudget),
       mainboardSize,
       maxMainboardSize: mainboardSize,
+      secondaryArchetypes: blueprintSettings.secondaryArchetypes,
+      landCountTarget: blueprintSettings.landCountTarget,
+      curveTargets: blueprintSettings.curveTargets,
+      targetAverageManaValue: blueprintSettings.targetAverageManaValue,
+      roleTargetOverrides: blueprintSettings.roleTargetOverrides,
       variants,
       optimizationIterations: iterations,
       aiIterations,
@@ -517,6 +534,11 @@ export function GeneratorPanel() {
         totalBudgetUsd: parsePositiveFloat(totalBudget),
         mainboardSize,
         maxMainboardSize: mainboardSize,
+      secondaryArchetypes: blueprintSettings.secondaryArchetypes,
+      landCountTarget: blueprintSettings.landCountTarget,
+      curveTargets: blueprintSettings.curveTargets,
+      targetAverageManaValue: blueprintSettings.targetAverageManaValue,
+      roleTargetOverrides: blueprintSettings.roleTargetOverrides,
         variants,
         optimizationIterations: iterations,
         aiIterations,
@@ -840,6 +862,14 @@ export function GeneratorPanel() {
         </div>
         {analysisSummary && <p className="mt-2 text-[11px] text-zinc-500">{analysisSummary}</p>}
       </div>
+
+      <InputCardAnalysisPanel entries={mainEntries} pins={pins} format={format} mainboardSize={mainboardSize} colors={colors}
+        maxCardPriceUsd={parsePositiveFloat(maxCardPrice)} totalBudgetUsd={parsePositiveFloat(totalBudget)}
+        onApply={applyBlueprintSettings} onOpenSettings={() => setDrawerOpen(true)} />
+      {Object.keys(blueprintSettings).length > 0 && <div className="text-xs text-teal-200">
+        Blueprint settings are SOFT targets; legality and locks win.
+        <button className="ml-2 underline" onClick={() => setBlueprintSettings({})}>Clear blueprint settings</button>
+      </div>}
 
       {/* Format + environment */}
       <div className="grid grid-cols-2 gap-3">
